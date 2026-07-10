@@ -74,3 +74,23 @@ test('browser executable path override is optional', () => {
     }
   }
 });
+
+test('workout flow hides navigation, records a set, rests, and updates home', async () => {
+  await page.getByTestId('home-primary-action').click();
+  await page.getByTestId('start-workout').click();
+  assert.equal(await page.getByTestId('bottom-nav').count(), 0);
+  assert.equal(await page.getByTestId('complete-set').isVisible(), true);
+
+  await page.getByTestId('weight-increase').click();
+  await page.getByRole('button', { name: '吃力' }).click();
+  await page.getByTestId('complete-set').click();
+  assert.equal(await page.getByTestId('rest-panel').isVisible(), true);
+  assert.match(await page.getByTestId('set-progress').innerText(), /1 \/ 7/);
+
+  await page.getByTestId('skip-rest').click();
+  await page.getByTestId('end-workout').click();
+  await page.getByTestId('confirm-end-workout').click();
+  assert.equal(await page.getByTestId('workout-summary').isVisible(), true);
+  await page.getByTestId('summary-done').click();
+  assert.match(await page.getByTestId('weekly-progress').innerText(), /1 \/ 3/);
+});

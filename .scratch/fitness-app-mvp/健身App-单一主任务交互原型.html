@@ -365,6 +365,438 @@
       line-height: 1.6;
     }
 
+    .training-prep-screen,
+    .workout-summary-screen {
+      padding-bottom: 28px;
+    }
+
+    .page-kicker,
+    .training-prep-screen h1,
+    .training-prep-screen p,
+    .workout-summary-screen h1,
+    .workout-summary-screen p {
+      margin: 0;
+    }
+
+    .page-kicker {
+      color: var(--green);
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .training-prep-screen h1,
+    .workout-summary-screen h1 {
+      margin-top: 8px;
+      font-family: ui-rounded, "SF Pro Rounded", "PingFang SC", sans-serif;
+      font-size: 31px;
+      font-weight: 850;
+      letter-spacing: -0.045em;
+      line-height: 1.08;
+    }
+
+    .prep-meta,
+    .summary-lead {
+      margin-top: 10px !important;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .prep-card {
+      margin-top: 24px;
+      overflow: hidden;
+      border: 1px solid rgba(17, 21, 27, 0.07);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+    }
+
+    .prep-exercise {
+      display: grid;
+      grid-template-columns: 54px 1fr auto;
+      min-height: 78px;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+    }
+
+    .prep-exercise + .prep-exercise {
+      border-top: 1px solid rgba(17, 21, 27, 0.07);
+    }
+
+    .prep-exercise img {
+      width: 54px;
+      height: 54px;
+      border-radius: 14px;
+      background: var(--surface-soft);
+      object-fit: contain;
+    }
+
+    .prep-exercise strong,
+    .prep-exercise span {
+      display: block;
+    }
+
+    .prep-exercise strong {
+      font-size: 14px;
+    }
+
+    .prep-exercise span,
+    .prep-exercise > em {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-style: normal;
+      font-weight: 650;
+    }
+
+    .prep-exercise > em {
+      margin: 0;
+      color: var(--ink);
+    }
+
+    .prep-start,
+    .summary-done {
+      width: 100%;
+      min-height: 58px;
+      margin-top: 18px;
+      border-radius: var(--radius-sm);
+      background: var(--orange);
+      color: #17120f;
+      font-weight: 840;
+    }
+
+    .training-active-screen {
+      min-height: 100%;
+      padding: max(14px, env(safe-area-inset-top)) 16px calc(104px + env(safe-area-inset-bottom));
+      background: var(--hero);
+      color: #fff;
+    }
+
+    .active-header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 12px;
+      min-height: 48px;
+    }
+
+    .active-header p,
+    .active-header h1 {
+      margin: 0;
+    }
+
+    .active-header p {
+      color: rgba(255, 255, 255, 0.58);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .active-header h1 {
+      margin-top: 3px;
+      font-size: 18px;
+      letter-spacing: -0.025em;
+    }
+
+    .end-workout {
+      min-width: 64px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.07);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    .exercise-chips {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .exercise-chip {
+      min-height: 48px;
+      overflow: hidden;
+      padding: 0 12px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.65);
+      font-size: 12px;
+      font-weight: 720;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .exercise-chip.active {
+      border-color: var(--green);
+      background: var(--green);
+      color: #112016;
+    }
+
+    .active-media {
+      position: relative;
+      width: min(100%, 304px);
+      aspect-ratio: 4 / 3;
+      margin: 10px auto 0;
+      overflow: hidden;
+      border-radius: 20px;
+      background: #f2eee5;
+    }
+
+    .active-media img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .set-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 42px;
+      margin-top: 7px;
+    }
+
+    .set-line strong {
+      font-family: ui-rounded, "SF Pro Rounded", sans-serif;
+      font-size: 18px;
+      letter-spacing: -0.03em;
+    }
+
+    .set-line span {
+      color: var(--green);
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .training-controls,
+    .rest-panel {
+      border-radius: 20px;
+      background: #fffdfa;
+      color: var(--ink);
+    }
+
+    .training-controls {
+      padding: 10px 12px 12px;
+    }
+
+    .stepper-row {
+      display: grid;
+      grid-template-columns: 1fr 48px 72px 48px;
+      align-items: center;
+      min-height: 54px;
+      gap: 5px;
+    }
+
+    .stepper-row + .stepper-row {
+      border-top: 1px solid rgba(17, 21, 27, 0.07);
+    }
+
+    .stepper-row > span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .stepper-row button {
+      width: 48px;
+      min-height: 48px;
+      border-radius: 14px;
+      background: var(--surface-soft);
+      font-size: 20px;
+      font-weight: 760;
+    }
+
+    .stepper-row output {
+      font-family: ui-rounded, "SF Pro Rounded", sans-serif;
+      font-size: 17px;
+      font-weight: 820;
+      text-align: center;
+    }
+
+    .feeling-controls {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+      margin-top: 8px;
+    }
+
+    .feeling-controls button {
+      min-height: 48px;
+      border: 1px solid rgba(17, 21, 27, 0.08);
+      border-radius: 14px;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 730;
+    }
+
+    .feeling-controls button.active {
+      border-color: var(--green);
+      background: rgba(36, 200, 105, 0.14);
+    }
+
+    .workout-fixed-action {
+      position: absolute;
+      z-index: 12;
+      right: 16px;
+      bottom: max(16px, env(safe-area-inset-bottom));
+      left: 16px;
+      width: calc(100% - 32px);
+      min-height: 64px;
+      border-radius: 20px;
+      background: var(--orange);
+      color: #17120f;
+      font-weight: 850;
+      box-shadow: 0 18px 38px rgba(0, 0, 0, 0.3);
+    }
+
+    .rest-panel {
+      display: grid;
+      min-height: 188px;
+      padding: 18px;
+      place-items: center;
+      text-align: center;
+    }
+
+    .rest-panel p,
+    .rest-panel strong {
+      margin: 0;
+    }
+
+    .rest-panel > span {
+      color: var(--green);
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .rest-panel strong {
+      font-family: ui-rounded, "SF Pro Rounded", sans-serif;
+      font-size: 42px;
+      letter-spacing: -0.05em;
+    }
+
+    .rest-panel p {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .skip-rest {
+      width: 100%;
+      min-height: 48px;
+      border-radius: 14px;
+      background: var(--ink);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .confirm-overlay {
+      position: absolute;
+      z-index: 50;
+      inset: 0;
+      display: grid;
+      align-items: end;
+      padding: 20px 20px max(20px, env(safe-area-inset-bottom));
+      background: rgba(8, 11, 16, 0.7);
+      backdrop-filter: blur(7px);
+    }
+
+    .confirm-card {
+      padding: 22px;
+      border-radius: 24px;
+      background: var(--surface);
+      color: var(--ink);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+    }
+
+    .confirm-card h2,
+    .confirm-card p {
+      margin: 0;
+    }
+
+    .confirm-card h2 {
+      font-size: 21px;
+    }
+
+    .confirm-card p {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .confirm-actions {
+      display: grid;
+      grid-template-columns: 1fr 1.35fr;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .confirm-actions button {
+      min-height: 52px;
+      border-radius: 14px;
+      background: var(--surface-soft);
+      font-size: 13px;
+      font-weight: 780;
+    }
+
+    .confirm-actions .confirm-end {
+      background: var(--orange);
+    }
+
+    .summary-mark {
+      display: grid;
+      width: 68px;
+      height: 68px;
+      margin-top: 24px;
+      place-items: center;
+      border-radius: 24px;
+      background: rgba(36, 200, 105, 0.14);
+      color: var(--green);
+      font-size: 31px;
+      font-weight: 850;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .summary-stat {
+      min-height: 108px;
+      padding: 16px;
+      border-radius: 18px;
+      background: var(--surface);
+    }
+
+    .summary-stat span,
+    .summary-stat strong {
+      display: block;
+    }
+
+    .summary-stat span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 680;
+    }
+
+    .summary-stat strong {
+      margin-top: 15px;
+      font-family: ui-rounded, "SF Pro Rounded", sans-serif;
+      font-size: 23px;
+      letter-spacing: -0.04em;
+    }
+
     .bottom-nav {
       position: sticky;
       z-index: 10;
@@ -500,6 +932,10 @@
 
   <script>
     const STORAGE_KEY = 'ifitness-layout-prototype-v1';
+    const exercises = [
+      { id: 'smith', name: '史密斯机卧推', image: '../../app/src/main/assets/exercise-media/gifs/0748-trqKQv2.gif' },
+      { id: 'dumbbell', name: '哑铃卧推', image: '../../app/src/main/assets/exercise-media/gifs/0289-SpYC0Kp.gif' },
+    ];
     const DEFAULT_STATE = {
       route: 'home',
       workoutStatus: 'idle',
@@ -525,6 +961,7 @@
 
     let state = loadState();
     let toastTimer;
+    let restTimer;
 
     function saveState() {
       try {
@@ -584,7 +1021,7 @@
 
           <section class="weekly-strip" aria-label="本周训练进度">
             <span>本周</span>
-            <strong>${state.weeklyCompleted} / 3 次</strong>
+            <strong data-testid="weekly-progress">${state.weeklyCompleted} / 3 次</strong>
             <div class="week-dots" aria-hidden="true"><i></i><i></i><i></i></div>
           </section>
 
@@ -592,6 +1029,158 @@
             <button class="quick-action" data-route="food">记饮食</button>
             <button class="quick-action" data-route="library">动作库</button>
           </div>
+        </div>`;
+    }
+
+    function startWorkout() {
+      state.workoutStatus = 'active';
+      state.startedAt ||= Date.now();
+      state.route = 'training-active';
+      state.restEndsAt = null;
+      saveState();
+      navigate('training-active');
+    }
+
+    function completeSet() {
+      const id = exercises[state.currentExerciseIndex].id;
+      state.completedSets[id] = Math.min(state.targetSets[id], state.completedSets[id] + 1);
+      state.logs ||= [];
+      state.logs.push({ id, weightKg: state.weightKg[id], reps: state.reps, feeling: state.feeling, completedAt: Date.now() });
+      state.workoutStatus = 'resting';
+      state.restEndsAt = Date.now() + 60_000;
+      saveState();
+      render();
+    }
+
+    function skipRest() {
+      state.workoutStatus = 'active';
+      state.restEndsAt = null;
+      const current = exercises[state.currentExerciseIndex];
+      if (state.completedSets[current.id] >= state.targetSets[current.id] && state.currentExerciseIndex < exercises.length - 1) {
+        state.currentExerciseIndex += 1;
+      }
+      saveState();
+      render();
+    }
+
+    function finishWorkout() {
+      state.workoutStatus = 'completed';
+      state.weeklyCompleted = Math.min(3, state.weeklyCompleted + 1);
+      state.finishedAt = Date.now();
+      state.route = 'workout-summary';
+      state.restEndsAt = null;
+      saveState();
+      navigate('workout-summary');
+    }
+
+    function restSecondsRemaining() {
+      return Math.max(0, Math.ceil(((state.restEndsAt || Date.now()) - Date.now()) / 1000));
+    }
+
+    function renderTrainingPrep() {
+      const completed = exercises.reduce((sum, exercise) => sum + state.completedSets[exercise.id], 0);
+      return `
+        <div class="screen-content training-prep-screen" data-testid="training-prep-screen">
+          <p class="page-kicker">Today's plan</p>
+          <h1>胸部力量 A</h1>
+          <p class="prep-meta">2 个动作 · 7 组 · 约 42 分钟<br>公司健身房</p>
+          <section class="prep-card" aria-label="今日动作">
+            ${exercises.map(exercise => `
+              <article class="prep-exercise">
+                <img src="${exercise.image}" alt="${exercise.name}动作演示">
+                <div><strong>${exercise.name}</strong><span>${state.weightKg[exercise.id]} kg · ${state.reps} 次</span></div>
+                <em>${state.completedSets[exercise.id]} / ${state.targetSets[exercise.id]} 组</em>
+              </article>`).join('')}
+          </section>
+          <button class="prep-start" data-testid="start-workout" data-action="begin-workout">
+            ${completed ? '继续训练' : '开始训练'}
+          </button>
+        </div>`;
+    }
+
+    function renderTrainingActive() {
+      const exercise = exercises[state.currentExerciseIndex];
+      const completed = exercises.reduce((sum, item) => sum + state.completedSets[item.id], 0);
+      const elapsedMinutes = Math.max(0, Math.floor((Date.now() - (state.startedAt || Date.now())) / 60_000));
+      const isResting = state.workoutStatus === 'resting';
+      const currentCompleted = state.completedSets[exercise.id];
+      const nextLabel = currentCompleted >= state.targetSets[exercise.id] && state.currentExerciseIndex < exercises.length - 1
+        ? `下一动作 · ${exercises[state.currentExerciseIndex + 1].name}`
+        : `下一组 · ${exercise.name}`;
+
+      return `
+        <div class="screen-content training-active-screen" data-testid="training-active-screen">
+          <header class="active-header">
+            <div><p>已训练 ${elapsedMinutes} 分钟</p><h1>胸部力量 A</h1></div>
+            <button class="end-workout" data-testid="end-workout" data-action="request-end-workout">结束</button>
+          </header>
+
+          <div class="exercise-chips" aria-label="切换动作">
+            ${exercises.map((item, index) => `
+              <button class="exercise-chip ${index === state.currentExerciseIndex ? 'active' : ''}" data-exercise-index="${index}">
+                ${index + 1}. ${item.name}
+              </button>`).join('')}
+          </div>
+
+          <figure class="active-media">
+            <img src="${exercise.image}" alt="${exercise.name}动作演示">
+          </figure>
+
+          <div class="set-line">
+            <strong>${exercise.name}</strong>
+            <span data-testid="set-progress">${completed} / 7 组</span>
+          </div>
+
+          ${isResting ? `
+            <section class="rest-panel" data-testid="rest-panel">
+              <span>Rest</span>
+              <strong data-testid="rest-countdown">${restSecondsRemaining()} 秒</strong>
+              <p>${nextLabel}</p>
+              <button class="skip-rest" data-testid="skip-rest" data-action="skip-rest">跳过休息</button>
+            </section>` : `
+            <section class="training-controls" aria-label="本组训练记录">
+              <div class="stepper-row">
+                <span>重量</span>
+                <button data-action="weight-decrease" aria-label="减少重量">−</button>
+                <output>${state.weightKg[exercise.id]} kg</output>
+                <button data-testid="weight-increase" data-action="weight-increase" aria-label="增加重量">+</button>
+              </div>
+              <div class="stepper-row">
+                <span>次数</span>
+                <button data-action="reps-decrease" aria-label="减少次数">−</button>
+                <output>${state.reps} 次</output>
+                <button data-action="reps-increase" aria-label="增加次数">+</button>
+              </div>
+              <div class="feeling-controls" aria-label="本组体感">
+                ${['轻松', '合适', '吃力'].map(feeling => `
+                  <button class="${state.feeling === feeling ? 'active' : ''}" data-feeling="${feeling}" aria-pressed="${state.feeling === feeling}">${feeling}</button>`).join('')}
+              </div>
+            </section>
+            <button class="workout-fixed-action" data-testid="complete-set" data-action="complete-set">完成本组</button>`}
+        </div>`;
+    }
+
+    function renderWorkoutSummary() {
+      const logs = state.logs || [];
+      const completed = exercises.reduce((sum, exercise) => sum + state.completedSets[exercise.id], 0);
+      const volume = logs.reduce((sum, log) => sum + log.weightKg * log.reps, 0);
+      const durationMinutes = Math.max(1, Math.round(((state.finishedAt || Date.now()) - (state.startedAt || Date.now())) / 60_000));
+      const feelingCounts = logs.reduce((counts, log) => ({ ...counts, [log.feeling]: (counts[log.feeling] || 0) + 1 }), {});
+      const feelingSummary = ['轻松', '合适', '吃力'].map(feeling => `${feeling} ${feelingCounts[feeling] || 0}`).join(' · ');
+
+      return `
+        <div class="screen-content workout-summary-screen" data-testid="workout-summary">
+          <div class="summary-mark" aria-hidden="true">✓</div>
+          <p class="page-kicker">训练完成</p>
+          <h1>今天的汗水<br>已经记下了</h1>
+          <p class="summary-lead">胸部力量 A · ${feelingSummary}</p>
+          <section class="summary-grid" aria-label="训练总结数据">
+            <div class="summary-stat"><span>完成组数</span><strong>${completed} / 7</strong></div>
+            <div class="summary-stat"><span>训练时长</span><strong>${durationMinutes} 分钟</strong></div>
+            <div class="summary-stat"><span>总容量</span><strong>${volume} kg</strong></div>
+            <div class="summary-stat"><span>本周进度</span><strong>${state.weeklyCompleted} / 3</strong></div>
+          </section>
+          <button class="summary-done" data-testid="summary-done" data-action="summary-done">完成并返回首页</button>
         </div>`;
     }
 
@@ -614,7 +1203,53 @@
 
     function render() {
       const screen = document.getElementById('screen');
-      screen.innerHTML = `${state.route === 'home' ? renderHome() : renderPlaceholder(state.route)}${renderBottomNav()}`;
+      const content = state.route === 'home'
+        ? renderHome()
+        : state.route === 'training-prep'
+          ? renderTrainingPrep()
+          : state.route === 'training-active'
+            ? renderTrainingActive()
+            : state.route === 'workout-summary'
+              ? renderWorkoutSummary()
+              : renderPlaceholder(state.route);
+      const immersive = state.route === 'training-active' || state.route === 'workout-summary';
+      screen.innerHTML = `${content}${immersive ? '' : renderBottomNav()}`;
+      document.getElementById('overlay-root').innerHTML = '';
+      syncRestCountdown();
+    }
+
+    function syncRestCountdown() {
+      clearInterval(restTimer);
+      if (state.route !== 'training-active' || state.workoutStatus !== 'resting') return;
+
+      const updateCountdown = () => {
+        const seconds = restSecondsRemaining();
+        if (seconds === 0) {
+          clearInterval(restTimer);
+          skipRest();
+          return;
+        }
+        const countdown = document.querySelector('[data-testid="rest-countdown"]');
+        if (countdown) countdown.textContent = `${seconds} 秒`;
+      };
+
+      updateCountdown();
+      restTimer = setInterval(updateCountdown, 250);
+    }
+
+    function showEndWorkoutConfirmation() {
+      clearInterval(restTimer);
+      document.getElementById('overlay-root').innerHTML = `
+        <div class="confirm-overlay" role="presentation">
+          <section class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="end-workout-title">
+            <h2 id="end-workout-title">确认结束训练？</h2>
+            <p>已完成的组数会保留，本次训练将进入总结。</p>
+            <div class="confirm-actions">
+              <button data-action="cancel-end-workout">继续训练</button>
+              <button class="confirm-end" data-testid="confirm-end-workout" data-action="confirm-end-workout">确认结束</button>
+            </div>
+          </section>
+        </div>`;
     }
 
     function showToast(message) {
@@ -634,8 +1269,77 @@
         return;
       }
 
-      if (event.target.closest('[data-action="start-workout"]')) {
-        navigate('training-prep');
+      const exerciseTarget = event.target.closest('[data-exercise-index]');
+      if (exerciseTarget) {
+        state.currentExerciseIndex = Number(exerciseTarget.dataset.exerciseIndex);
+        saveState();
+        render();
+        return;
+      }
+
+      const feelingTarget = event.target.closest('[data-feeling]');
+      if (feelingTarget) {
+        state.feeling = feelingTarget.dataset.feeling;
+        saveState();
+        render();
+        return;
+      }
+
+      const actionTarget = event.target.closest('[data-action]');
+      if (!actionTarget) return;
+
+      const currentId = exercises[state.currentExerciseIndex].id;
+      switch (actionTarget.dataset.action) {
+        case 'start-workout':
+          navigate('training-prep');
+          break;
+        case 'begin-workout':
+          startWorkout();
+          break;
+        case 'weight-decrease':
+          state.weightKg[currentId] = Math.max(0, state.weightKg[currentId] - 2);
+          saveState();
+          render();
+          break;
+        case 'weight-increase':
+          state.weightKg[currentId] += 2;
+          saveState();
+          render();
+          break;
+        case 'reps-decrease':
+          state.reps = Math.max(1, state.reps - 1);
+          saveState();
+          render();
+          break;
+        case 'reps-increase':
+          state.reps += 1;
+          saveState();
+          render();
+          break;
+        case 'complete-set':
+          completeSet();
+          break;
+        case 'skip-rest':
+          skipRest();
+          break;
+        case 'request-end-workout':
+          showEndWorkoutConfirmation();
+          break;
+        case 'summary-done':
+          navigate('home');
+          break;
+      }
+    });
+
+    document.getElementById('overlay-root').addEventListener('click', event => {
+      const actionTarget = event.target.closest('[data-action]');
+      if (!actionTarget) return;
+
+      if (actionTarget.dataset.action === 'confirm-end-workout') {
+        finishWorkout();
+      } else if (actionTarget.dataset.action === 'cancel-end-workout') {
+        document.getElementById('overlay-root').innerHTML = '';
+        syncRestCountdown();
       }
     });
 
