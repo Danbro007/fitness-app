@@ -60,7 +60,7 @@ after(async () => {
 });
 
 test('home presents one workout action and five primary destinations', async () => {
-  const navLabels = await page.locator('[data-testid="bottom-nav"] [data-route]').allTextContents();
+  const navLabels = await page.locator('[data-testid="bottom-nav"] [data-route] > span:last-child').allTextContents();
   assert.deepEqual(navLabels.map(value => value.trim()), ['首页', '计划', '训练', '饮食', '我的']);
   assert.equal(await page.locator('[data-testid="home-primary-action"]').count(), 1);
   assert.match(await page.locator('[data-testid="home-primary-action"]').innerText(), /开始训练/);
@@ -571,6 +571,150 @@ test('route navigation renders once and announces through a dedicated live regio
   assert.match(result.announcement || '', /计划/);
 });
 
+test('idle home CTA survives reload and opens workout preparation', async () => {
+  await page.reload();
+  await page.goto(`${prototypeUrl}#home`);
+
+  const action = page.getByTestId('home-primary-action');
+  assert.equal(await action.innerText(), '开始训练');
+  assert.match(await page.getByTestId('home-workout-summary').innerText(), /2 个动作/);
+  assert.equal(await page.locator('[data-testid="home-primary-action"]').count(), 1);
+  await action.click();
+  assert.match(page.url(), /#training-prep$/);
+});
+
+test('active and resting home CTA survives reload and continues the active workout', async () => {
+  await page.getByTestId('home-primary-action').click();
+  await page.getByTestId('start-workout').click();
+  await page.reload();
+  await page.goto(`${prototypeUrl}#home`);
+
+  const activeAction = page.getByTestId('home-primary-action');
+  assert.equal(await activeAction.innerText(), '继续训练');
+  assert.match(await page.getByTestId('home-workout-summary').innerText(), /训练进行中/);
+  await activeAction.click();
+  assert.match(page.url(), /#training-active$/);
+
+  await page.getByTestId('complete-set').click();
+  await page.goto(`${prototypeUrl}#home`);
+  await page.reload();
+  const restingAction = page.getByTestId('home-primary-action');
+  assert.equal(await restingAction.innerText(), '继续训练');
+  await restingAction.click();
+  assert.equal(await page.getByTestId('rest-panel').isVisible(), true);
+});
+
+test('completed home CTA survives reload and exposes the workout result and next training', async () => {
+  await page.getByTestId('home-primary-action').click();
+  await page.getByTestId('start-workout').click();
+  await page.getByTestId('complete-set').click();
+  await page.getByTestId('skip-rest').click();
+  await page.getByTestId('end-workout').click();
+  await page.getByTestId('confirm-end-workout').click();
+  await page.reload();
+  await page.goto(`${prototypeUrl}#home`);
+
+  const action = page.getByTestId('home-primary-action');
+  assert.equal(await action.innerText(), '查看训练总结');
+  assert.match(await page.getByTestId('home-workout-summary').innerText(), /今日训练已完成/);
+  assert.match(await page.getByTestId('home-workout-summary').innerText(), /下次训练/);
+  assert.equal(await page.locator('[data-testid="home-primary-action"]').count(), 1);
+  await action.click();
+  assert.match(page.url(), /#workout-summary$/);
+  assert.equal(await page.getByTestId('workout-summary').isVisible(), true);
+});
+
+test('bottom navigation loads the local Material Symbols Rounded font and real ligatures', async () => {
+  const fontResponses = [];
+  const responseHandler = response => {
+    if (response.url().includes('/prototype-assets/material-symbols-rounded.woff2')) {
+      fontResponses.push({ status: response.status(), url: response.url() });
+    }
+  };
+  page.on('response', responseHandler);
+
+  try {
+    await page.reload();
+    await page.evaluate(() => document.fonts.ready);
+    const fontState = await page.evaluate(() => ({
+      loaded: [...document.fonts].some(font => font.family.includes('Material Symbols Rounded') && font.status === 'loaded'),
+      check: document.fonts.check('24px "Material Symbols Rounded"'),
+      ligatures: [...document.querySelectorAll('.nav-icon')].map(icon => icon.textContent.trim()),
+      generatedContent: [...document.querySelectorAll('.nav-icon')].map(icon => getComputedStyle(icon, '::before').content),
+    }));
+
+    assert.deepEqual(fontResponses, [{
+      status: 200,
+      url: `${new URL(prototypeUrl).origin}/.scratch/fitness-app-mvp/prototype-assets/material-symbols-rounded.woff2`,
+    }]);
+    assert.equal(fontState.loaded, true);
+    assert.equal(fontState.check, true);
+    assert.deepEqual(fontState.ligatures, ['home', 'calendar_month', 'fitness_center', 'restaurant', 'person']);
+    assert.deepEqual(fontState.generatedContent, ['none', 'none', 'none', 'none', 'none']);
+  } finally {
+    page.off('response', responseHandler);
+  }
+});
+
+test('training preparation and plan editor provide accessible library entry points', async () => {
+  await page.getByTestId('home-primary-action').click();
+  await page.getByRole('button', { name: '从动作库选择' }).click();
+  assert.match(page.url(), /#library$/);
+  assert.equal(await page.getByTestId('library-screen').isVisible(), true);
+  await page.getByRole('button', { name: '返回训练准备' }).click();
+  assert.match(page.url(), /#training-prep$/);
+
+  await page.goto(`${prototypeUrl}#plan`);
+  await page.getByRole('button', { name: '新计划' }).click();
+  await page.getByRole('button', { name: '浏览动作库' }).click();
+  assert.match(page.url(), /#library$/);
+  assert.equal(await page.locator('#screen').evaluate(element => element.inert), false);
+  await page.getByRole('button', { name: '返回计划' }).click();
+  assert.match(page.url(), /#plan$/);
+});
+
+test('exercise detail can be used for this workout', async () => {
+  await page.getByTestId('open-library').click();
+  await page.getByTestId('exercise-row').first().click();
+  const exerciseName = await page.getByRole('heading', { level: 1 }).innerText();
+  await page.getByRole('button', { name: '用于本次训练' }).click();
+
+  assert.match(page.url(), /#training-prep$/);
+  assert.equal(await page.getByTestId('training-prep-screen').isVisible(), true);
+  assert.equal(await page.getByText(exerciseName, { exact: true }).count() > 0, true);
+});
+
+test('active workout GIF expands through the accessible overlay lifecycle', async () => {
+  await page.getByTestId('home-primary-action').click();
+  await page.getByTestId('start-workout').click();
+  const opener = page.getByRole('button', { name: /放大查看史密斯机卧推动作演示/ });
+  await opener.click();
+
+  assert.equal(await page.locator('#screen').evaluate(element => element.inert), true);
+  assert.equal(await page.getByRole('dialog', { name: '史密斯机卧推动作演示' }).isVisible(), true);
+  assert.equal(await page.getByRole('dialog').getByRole('img', { name: '史密斯机卧推动作演示' }).isVisible(), true);
+  const closeButton = page.getByRole('button', { name: '关闭动作演示' });
+  assert.equal(await closeButton.evaluate(element => element === document.activeElement), true);
+  await closeButton.click();
+  assert.equal(await page.locator('#screen').evaluate(element => element.inert), false);
+  assert.equal(await opener.evaluate(element => element === document.activeElement), true);
+});
+
+test('library filter keeps a full accessible row with structured exercise metadata', async () => {
+  await page.getByTestId('open-library').click();
+  await page.getByRole('button', { name: '背', exact: true }).click();
+
+  const row = page.getByTestId('exercise-row');
+  assert.equal(await row.count(), 1);
+  assert.equal(await row.evaluate(element => element.tagName), 'BUTTON');
+  assert.equal(await row.locator('img').getAttribute('alt'), '高位下拉动作演示');
+  assert.equal(await row.getByText('背', { exact: true }).count(), 1);
+  assert.equal(await row.getByText('器械', { exact: true }).count(), 1);
+  assert.equal(await row.locator('.exercise-row-chevron').innerText(), '›');
+  assert.equal(await row.locator('button').count(), 0);
+  assert.equal(await row.getByRole('button', { name: /查看/ }).count(), 0);
+});
+
 test('accepted mobile routes produce complete screenshot evidence through the real workout flow', async () => {
   const evidenceDir = '.scratch/run-evidence/interactive-layout-prototype';
   const captured = [];
@@ -603,6 +747,7 @@ test('accepted mobile routes produce complete screenshot evidence through the re
 
   const waitForImages = async () => {
     await page.waitForTimeout(320);
+    await page.evaluate(async () => { await document.fonts.ready; });
     await page.waitForFunction(() => [...document.images].every(image => image.complete && image.naturalWidth > 0));
   };
   const capture = async (name, expectedWidth) => {

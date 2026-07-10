@@ -7,6 +7,31 @@
   <link rel="icon" href="data:,">
   <title>i fitness · 单一主任务交互原型</title>
   <style>
+    @font-face {
+      font-family: "Material Symbols Rounded";
+      font-style: normal;
+      font-weight: 400;
+      font-display: block;
+      src: url("./prototype-assets/material-symbols-rounded.woff2") format("woff2");
+    }
+
+    .material-symbols-rounded {
+      display: inline-block;
+      font-family: "Material Symbols Rounded";
+      font-size: 24px;
+      font-style: normal;
+      font-weight: 400;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      font-feature-settings: "liga";
+      -webkit-font-feature-settings: "liga";
+      -webkit-font-smoothing: antialiased;
+    }
+
     :root {
       --phone: #f5f2ec;
       --surface: #fffdfa;
@@ -707,6 +732,10 @@
       display: block;
     }
 
+    .exercise-row-copy {
+      min-width: 0;
+    }
+
     .exercise-row strong {
       overflow: hidden;
       font-size: 14px;
@@ -718,6 +747,17 @@
       margin-top: 5px;
       color: var(--muted);
       font-size: 12px;
+    }
+
+    .exercise-row .exercise-row-meta {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .exercise-row .exercise-row-meta span {
+      display: inline;
+      margin: 0;
     }
 
     .exercise-row-chevron {
@@ -751,6 +791,18 @@
       color: var(--muted);
       font-size: 13px;
       line-height: 1.6;
+    }
+
+    .plan-library-entry,
+    .prep-secondary {
+      width: 100%;
+      min-height: 52px;
+      margin-top: 12px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-soft);
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 780;
     }
 
     .plan-editor-card label,
@@ -1280,12 +1332,15 @@
 
     .active-media {
       position: relative;
+      display: block;
       width: min(100%, 304px);
       aspect-ratio: 4 / 3;
       margin: 10px auto 0;
       overflow: hidden;
+      padding: 0;
       border-radius: 20px;
       background: #f2eee5;
+      cursor: zoom-in;
     }
 
     .active-media img {
@@ -1493,6 +1548,24 @@
       background: var(--orange);
     }
 
+    .media-preview img {
+      display: block;
+      width: 100%;
+      max-height: 52dvh;
+      margin-top: 16px;
+      border-radius: 18px;
+      background: #f2eee5;
+      object-fit: contain;
+    }
+
+    .media-preview button {
+      width: 100%;
+      margin-top: 16px;
+      border-radius: 14px;
+      background: var(--surface-soft);
+      font-weight: 780;
+    }
+
     .summary-mark {
       display: grid;
       width: 68px;
@@ -1580,17 +1653,9 @@
       height: 26px;
       place-items: center;
       border-radius: 9px;
-      font-family: ui-monospace, "SFMono-Regular", monospace;
-      font-size: 13px;
-      font-weight: 850;
+      font-size: 19px;
       line-height: 1;
     }
-
-    .nav-icon[data-symbol="home"]::before { content: "⌂"; }
-    .nav-icon[data-symbol="calendar_month"]::before { content: "□"; }
-    .nav-icon[data-symbol="fitness_center"]::before { content: "+"; }
-    .nav-icon[data-symbol="restaurant"]::before { content: "◇"; }
-    .nav-icon[data-symbol="person"]::before { content: "○"; }
 
     .nav-item.active .nav-icon {
       background: var(--green);
@@ -1713,6 +1778,7 @@
       selectedExerciseId: 'smith',
       libraryQuery: '',
       libraryFilter: '胸',
+      libraryReturnRoute: 'home',
       foodEntries: [],
       profile: { nickname: '我', goal: '增肌减脂', heightCm: 176, weightKg: 75 },
       venue: { name: '公司健身房', equipment: ['史密斯机', '哑铃'] },
@@ -1767,12 +1833,37 @@
       ];
       return `<nav class="bottom-nav" data-testid="bottom-nav" aria-label="主导航">${items.map(([route, icon, label]) => `
         <button class="nav-item ${state.route === route ? 'active' : ''}" data-route="${route}" aria-current="${state.route === route ? 'page' : 'false'}">
-          <span class="material-symbols-rounded nav-icon" data-symbol="${icon}" aria-hidden="true"></span><span>${label}</span>
+          <span class="material-symbols-rounded nav-icon" aria-hidden="true">${icon}</span><span>${label}</span>
         </button>`).join('')}</nav>`;
     }
 
     function renderHome() {
       const completed = state.completedSets.smith + state.completedSets.dumbbell;
+      const isInProgress = ['active', 'resting'].includes(state.workoutStatus);
+      const isCompleted = state.workoutStatus === 'completed';
+      const presentation = isCompleted
+        ? {
+            eyebrow: 'Workout completed',
+            title: '今日训练已完成',
+            summary: `今日训练已完成 · ${completed} / 7 组<br>下次训练 · 下肢力量 A`,
+            action: '查看训练总结',
+            route: 'workout-summary',
+          }
+        : isInProgress
+          ? {
+              eyebrow: 'Workout in progress',
+              title: '胸部力量 A',
+              summary: `训练进行中 · ${completed} / 7 组`,
+              action: '继续训练',
+              route: 'training-active',
+            }
+          : {
+              eyebrow: "Today's workout",
+              title: '胸部力量 A',
+              summary: '2 个动作 · 约 42 分钟',
+              action: '开始训练',
+              route: 'training-prep',
+            };
       return `
         <div class="screen-content home-screen" data-testid="home-screen">
           <header class="home-header">
@@ -1781,14 +1872,14 @@
           </header>
 
           <section class="workout-hero" aria-labelledby="today-workout-title">
-            <p class="hero-eyebrow">Today's workout</p>
-            <h2 id="today-workout-title">胸部力量 A</h2>
-            <p class="hero-meta">2 个动作 · 约 42 分钟</p>
+            <p class="hero-eyebrow">${presentation.eyebrow}</p>
+            <h2 id="today-workout-title">${presentation.title}</h2>
+            <p class="hero-meta" data-testid="home-workout-summary">${presentation.summary}</p>
             <div class="hero-media">
               <img src="../../app/src/main/assets/exercise-media/gifs/0748-trqKQv2.gif" alt="史密斯机卧推动作演示">
             </div>
             <div class="hero-progress"><strong>${completed} / 7</strong> <span>组</span></div>
-            <button class="primary-action" data-testid="home-primary-action" data-action="start-workout">开始训练</button>
+            <button class="primary-action" data-testid="home-primary-action" data-route="${presentation.route}">${presentation.action}</button>
           </section>
 
           <section class="weekly-strip" aria-label="本周训练进度">
@@ -1799,7 +1890,7 @@
 
           <div class="quick-actions" aria-label="快捷操作">
             <button class="quick-action" data-route="food">记一餐</button>
-            <button class="quick-action" data-testid="open-library" data-route="library">动作库</button>
+            <button class="quick-action" data-testid="open-library" data-action="open-library" data-library-return="home">动作库</button>
           </div>
         </div>`;
     }
@@ -1873,16 +1964,23 @@
       return results.map(exercise => `
         <button class="exercise-row" data-testid="exercise-row" data-exercise-id="${exercise.id}">
           <img src="${exercise.image}" alt="${exercise.name}动作演示">
-          <span><strong>${exercise.name}</strong><span>${exercise.bodyPart} · ${exercise.equipment}</span></span>
+          <span class="exercise-row-copy"><strong>${exercise.name}</strong><span class="exercise-row-meta"><span>${exercise.bodyPart}</span><span aria-hidden="true">·</span><span>${exercise.equipment}</span></span></span>
           <span class="exercise-row-chevron" aria-hidden="true">›</span>
         </button>`).join('');
     }
 
     function renderLibrary() {
       const filters = ['全部', '胸', '背', '腿', '史密斯机'];
+      const returnRoutes = {
+        home: '首页',
+        plan: '计划',
+        'training-prep': '训练准备',
+      };
+      const returnRoute = returnRoutes[state.libraryReturnRoute] ? state.libraryReturnRoute : 'home';
+      const returnLabel = returnRoutes[returnRoute];
       return `
         <div class="screen-content library-screen" data-testid="library-screen">
-          <button class="back-action" data-route="home" aria-label="返回首页">← 首页</button>
+          <button class="back-action" data-route="${returnRoute}" aria-label="返回${returnLabel}">← ${returnLabel}</button>
           <header class="page-header"><div><p>本地动作资源</p><h1>动作库</h1></div></header>
           <div class="library-search-wrap">
             <input class="library-search" data-testid="library-search" type="search" value="${escapeHtml(state.libraryQuery || '')}" placeholder="搜索动作、部位或器械" aria-label="搜索动作">
@@ -1905,6 +2003,7 @@
             <img src="${exercise.image}" alt="${exercise.name}动作演示">
             <div class="exercise-detail-meta">建议 ${exercise.sets} 组 · 参考重量 ${exercise.weightKg} kg<br>训练前确认器械高度与安全挡位。</div>
           </section>
+          <button class="detail-primary" data-action="use-exercise">用于本次训练</button>
         </div>`;
     }
 
@@ -1968,6 +2067,7 @@
                 <em>${state.completedSets[exercise.id]} / ${state.targetSets[exercise.id]} 组</em>
               </article>`).join('')}
           </section>
+          <button class="prep-secondary" data-action="open-library" data-library-return="training-prep">从动作库选择</button>
           <button class="prep-start" data-testid="start-workout" data-action="begin-workout">
             ${completed ? '继续训练' : '开始训练'}
           </button>
@@ -1998,9 +2098,9 @@
               </button>`).join('')}
           </div>
 
-          <figure class="active-media">
+          <button class="active-media" data-action="expand-active-gif" aria-label="放大查看${exercise.name}动作演示">
             <img src="${exercise.image}" alt="${exercise.name}动作演示">
-          </figure>
+          </button>
 
           <div class="set-line">
             <strong>${exercise.name}</strong>
@@ -2290,6 +2390,7 @@
             <p>修改会保存在当前浏览器，不会同步到云端。</p>
             <label>计划名称<input data-testid="plan-name-input" value="${escapeHtml(existing?.title || '力量训练')}"></label>
             <label>训练日期<input data-testid="plan-date-input" type="date" value="${existing ? planDateForInput(existing.date) : '2026-07-14'}"></label>
+            <button class="plan-library-entry" type="button" data-action="open-plan-library">浏览动作库</button>
             <div class="confirm-actions">
               <button data-action="cancel-plan-editor">取消</button>
               <button class="confirm-end" data-action="save-plan" data-plan-edit-index="${index ?? ''}">保存计划</button>
@@ -2336,6 +2437,24 @@
         event.preventDefault();
         first.focus();
       }
+    }
+
+    function openLibrary(returnRoute = 'home') {
+      state.libraryReturnRoute = returnRoute;
+      state.libraryQuery = '';
+      state.libraryFilter = '胸';
+      saveState();
+      navigate('library');
+    }
+
+    function showActiveMediaPreview() {
+      const exercise = workoutExercises[state.currentExerciseIndex];
+      openOverlay(`
+        <section class="confirm-card media-preview" role="dialog" aria-modal="true" aria-labelledby="active-media-title">
+          <h2 id="active-media-title">${exercise.name}动作演示</h2>
+          <img src="${exercise.image}" alt="${exercise.name}动作演示">
+          <button type="button" data-action="close-overlay" aria-label="关闭动作演示">关闭</button>
+        </section>`);
     }
 
     function savePlan(index) {
@@ -2599,6 +2718,20 @@
         case 'start-workout':
           navigate('training-prep');
           break;
+        case 'open-library':
+          openLibrary(actionTarget.dataset.libraryReturn || 'home');
+          break;
+        case 'use-exercise': {
+          const selectedIndex = workoutExercises.findIndex(exercise => exercise.id === state.selectedExerciseId);
+          if (selectedIndex >= 0) state.currentExerciseIndex = selectedIndex;
+          saveState();
+          navigate('training-prep');
+          showToast('已用于本次训练');
+          break;
+        }
+        case 'expand-active-gif':
+          showActiveMediaPreview();
+          break;
         case 'begin-workout':
           startWorkout();
           break;
@@ -2690,6 +2823,9 @@
         savePlan(rawIndex === '' ? null : Number(rawIndex));
       } else if (actionTarget.dataset.action === 'cancel-plan-editor') {
         closeOverlay({ restoreFocus: true });
+      } else if (actionTarget.dataset.action === 'open-plan-library') {
+        closeOverlay();
+        openLibrary('plan');
       } else if (actionTarget.dataset.action === 'close-overlay') {
         closeOverlay({ restoreFocus: true });
       } else if (actionTarget.dataset.action === 'food-manual') {
