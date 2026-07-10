@@ -1,0 +1,1581 @@
+package com.shanqijie.fitnessapp.data
+
+import android.content.Context
+import android.util.Log
+import com.shanqijie.fitnessapp.ai.AiChatClient
+import com.shanqijie.fitnessapp.ai.AiProviderConfig
+import com.shanqijie.fitnessapp.ai.AiTestResult
+import com.shanqijie.fitnessapp.domain.ExerciseAsset
+import com.shanqijie.fitnessapp.domain.ExerciseManifestParser
+import com.shanqijie.fitnessapp.domain.HomePrimaryAction
+import com.shanqijie.fitnessapp.domain.HomeSnapshot
+import com.shanqijie.fitnessapp.domain.NutritionSummary
+import com.shanqijie.fitnessapp.domain.WorkoutSummary
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
+import java.util.UUID
+
+fun interface TimeProvider {
+    fun currentTimeMillis(): Long
+}
+
+class FitnessRepository(
+    private val context: Context,
+    private val store: FitnessStore,
+    private val credentialStore: AiCredentialStore = AiCredentialStore(context),
+    private val timeProvider: TimeProvider = TimeProvider(System::currentTimeMillis),
+) {
+    private val refreshSignal = MutableStateFlow(0)
+
+    suspend fun bootstrap(): BootstrapResult = withContext(Dispatchers.IO) {
+        val manifestJson = context.assets
+            .open("exercise-media/manifest.json")
+            .bufferedReader()
+            .use { it.readText() }
+        val manifest = ExerciseManifestParser.parse(manifestJson)
+        val assetPackId = manifest.packageStrategy.packs.firstOrNull()?.id ?: "exercise-gifs-pack-001"
+
+        if (store.exerciseMediaCount() == 0) {
+            store.upsertExerciseMedia(
+                manifest.files.map { it.toEntity(assetPackId) },
+            )
+        }
+
+        val now = timeProvider.currentTimeMillis()
+        seedDefaultVenue(now)
+        seedDefaultEquipment(now)
+        seedDefaultPlans(now)
+        seedDefaultAiProviders(now)
+
+        val smithBench = store.exerciseById(SMITH_BENCH_PRESS_ID)
+            ?: store.exerciseByName("smith bench press")
+            ?: ExerciseManifestParser.findSmithBenchPress(manifest).toEntity(assetPackId)
+        val smithCount = store.exercisesByEquipment("smith machine").size
+        Log.i(
+            "FitnessApp",
+            "bootstrap gifs=${manifest.counts.localOrDownloaded}, failed=${manifest.counts.failed}, " +
+                "smithMachine=$smithCount, smithBench=${smithBench.localPath}",
+        )
+
+        BootstrapResult(
+            totalGifCount = manifest.counts.localOrDownloaded,
+            failedGifCount = manifest.counts.failed,
+            assetPackId = assetPackId,
+            assetPackSizeMb = manifest.packageStrategy.packs.firstOrNull()?.sizeMb ?: 0.0,
+            smithMachineExerciseCount = smithCount,
+            smithBenchPress = smithBench,
+            sessionId = DEFAULT_SESSION_ID,
+        )
+    }
+
+    fun appState(): Flow<FitnessAppState> =
+        refreshSignal.map {
+            withContext(Dispatchers.IO) { currentAppState() }
+        }
+
+    fun completedSetCount(sessionId: String): Flow<Int> =
+        refreshSignal.map {
+            withContext(Dispatchers.IO) { store.completedSetCount(sessionId) }
+        }
+
+    fun setLogs(sessionId: String): Flow<List<WorkoutSetLogEntity>> =
+        refreshSignal.map {
+            withContext(Dispatchers.IO) { store.setLogs(sessionId) }
+        }
+
+    fun completedSetCount(sessionId: String, exerciseId: String): Flow<Int> =
+        refreshSignal.map {
+            withContext(Dispatchers.IO) { store.completedSetCount(sessionId, exerciseId) }
+        }
+
+    fun exerciseLogs(sessionId: String, exerciseId: String): Flow<List<WorkoutSetLogEntity>> =
+        refreshSignal.map {
+            withContext(Dispatchers.IO) { store.setLogs(sessionId, exerciseId) }
+        }
+
+    fun sessionIdFor(plannedWorkoutId: String, exerciseId: String): String =
+        "session-$plannedWorkoutId-$exerciseId"
+
+    suspend fun renameDefaultVenue(name: String) = withContext(Dispatchers.IO) {
+        renameVenue(DEFAULT_VENUE_ID, name)
+    }
+
+    suspend fun renameVenue(id: String, name: String) = withContext(Dispatchers.IO) {
+        val trimmedName = name.trim()
+        require(trimmedName.isNotEmpty()) { "场地名称不能为空" }
+        store.updateVenueName(id, trimmedName, updatedAt = System.currentTimeMillis())
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun addVenue(name: String): TrainingVenueEntity = withContext(Dispatchers.IO) {
+        val trimmedName = name.trim()
+        require(trimmedName.isNotEmpty()) { "场地名称不能为空" }
+        val now = System.currentTimeMillis()
+        val venue = TrainingVenueEntity(
+            id = "venue-${UUID.randomUUID()}",
+            name = trimmedName,
+            isDefault = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        store.upsertVenue(venue)
+        refreshSignal.update { it + 1 }
+        venue
+    }
+
+    suspend fun setDefaultVenue(id: String) = withContext(Dispatchers.IO) {
+        store.setDefaultVenue(id, updatedAt = System.currentTimeMillis())
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun addDefaultEquipment(name: String, category: String = "custom") = withContext(Dispatchers.IO) {
+        val trimmedName = name.trim()
+        require(trimmedName.isNotEmpty()) { "器械名称不能为空" }
+        val now = System.currentTimeMillis()
+        val equipment = EquipmentEntity(
+            id = "equipment-${UUID.randomUUID()}",
+            name = trimmedName,
+            category = category,
+            createdAt = now,
+            updatedAt = now,
+        )
+        store.upsertEquipment(equipment)
+        store.defaultVenue()?.let { venue ->
+            store.upsertVenueEquipment(
+                VenueEquipmentEntity(
+                    venueId = venue.id,
+                    equipmentId = equipment.id,
+                    available = true,
+                    updatedAt = now,
+                ),
+            )
+        }
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun deleteEquipment(id: String) = withContext(Dispatchers.IO) {
+        store.deleteEquipment(id)
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun bindEquipmentToVenue(venueId: String, equipmentId: String, available: Boolean) = withContext(Dispatchers.IO) {
+        requireNotNull(store.venue(venueId)) { "场地不存在" }
+        require(store.allEquipment().any { it.id == equipmentId }) { "器械不存在" }
+        store.upsertVenueEquipment(
+            VenueEquipmentEntity(
+                venueId = venueId,
+                equipmentId = equipmentId,
+                available = available,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun setOnboardingCompleted(completed: Boolean) = withContext(Dispatchers.IO) {
+        store.putPreference(ONBOARDING_COMPLETED_KEY, completed.toString())
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun searchExercises(query: String, limit: Int = 100): List<ExerciseMediaEntity> =
+        withContext(Dispatchers.IO) {
+            store.searchExercises(query = query, limit = limit)
+        }
+
+    suspend fun saveUserProfile(
+        displayName: String,
+        birthYear: Int,
+        heightCm: Double,
+        weightKg: Double,
+        goal: String,
+        injuries: String,
+        weeklyTrainingDays: Int,
+        preferredMinutes: Int,
+    ) = withContext(Dispatchers.IO) {
+        val trimmedName = displayName.trim().ifEmpty { "我" }
+        require(birthYear in 1940..LocalDate.now().year) { "出生年份不合理" }
+        require(heightCm in 80.0..240.0) { "身高不合理" }
+        require(weightKg in 25.0..250.0) { "体重不合理" }
+        require(weeklyTrainingDays in 1..7) { "每周训练天数需要在 1 到 7 之间" }
+        require(preferredMinutes in 15..180) { "单次训练时长需要在 15 到 180 分钟之间" }
+        store.upsertUserProfile(
+            UserProfileEntity(
+                id = LOCAL_PROFILE_ID,
+                displayName = trimmedName,
+                birthYear = birthYear,
+                heightCm = heightCm,
+                weightKg = weightKg,
+                goal = goal.trim().ifEmpty { "增肌减脂" },
+                injuries = injuries.trim(),
+                weeklyTrainingDays = weeklyTrainingDays,
+                preferredMinutes = preferredMinutes,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun updatePlannedWorkoutDetails(id: String, name: String, scheduledDate: String) = withContext(Dispatchers.IO) {
+        val trimmedName = name.trim()
+        val trimmedDate = scheduledDate.trim()
+        require(trimmedName.isNotEmpty()) { "计划名称不能为空" }
+        LocalDate.parse(trimmedDate)
+        store.updatePlannedWorkoutDetails(
+            id = id,
+            name = trimmedName,
+            scheduledDate = trimmedDate,
+            updatedAt = System.currentTimeMillis(),
+        )
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun createWorkoutFromTemplate(name: String, scheduledDate: String, venueId: String): PlannedWorkoutEntity =
+        withContext(Dispatchers.IO) {
+            val trimmedName = name.trim().ifEmpty { "自定义训练" }
+            val trimmedDate = scheduledDate.trim()
+            LocalDate.parse(trimmedDate)
+            val now = System.currentTimeMillis()
+            val workout = PlannedWorkoutEntity(
+                id = "planned-${UUID.randomUUID()}",
+                name = trimmedName,
+                scheduledDate = trimmedDate,
+                venueId = venueId.ifBlank { DEFAULT_VENUE_ID },
+                status = "planned",
+                createdAt = now,
+                updatedAt = now,
+            )
+            store.upsertPlannedWorkout(workout)
+            defaultTemplateExercises().forEachIndexed { index, exercise ->
+                store.upsertPlannedExercise(
+                    PlannedExerciseEntity(
+                        id = "${workout.id}-${exercise.exerciseId}",
+                        plannedWorkoutId = workout.id,
+                        exerciseId = exercise.exerciseId,
+                        orderIndex = index + 1,
+                        targetSets = if (index == 0) 4 else 3,
+                        targetReps = if (index == 0) "8-12" else "10-12",
+                        targetWeightKg = if (index == 0) 70.0 else 24.0,
+                        note = if (index == 0) "主项" else "辅助",
+                    ),
+                )
+            }
+            refreshSignal.update { it + 1 }
+            workout
+        }
+
+    suspend fun createMonthlyPlanFromTemplate(startDate: String, venueId: String): List<PlannedWorkoutEntity> =
+        withContext(Dispatchers.IO) {
+            val start = LocalDate.parse(startDate.trim())
+            val targetVenueId = venueId.ifBlank { store.defaultVenue()?.id ?: DEFAULT_VENUE_ID }
+            val template = defaultTemplateExercises()
+            val now = System.currentTimeMillis()
+            val workouts = (0 until 4).map { week ->
+                PlannedWorkoutEntity(
+                    id = "planned-month-${UUID.randomUUID()}",
+                    name = "月计划 第 ${week + 1} 周",
+                    scheduledDate = start.plusDays(week * 7L).toString(),
+                    venueId = targetVenueId,
+                    status = "planned",
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            }
+            workouts.forEach { workout ->
+                store.upsertPlannedWorkout(workout)
+                template.forEachIndexed { index, exercise ->
+                    store.upsertPlannedExercise(
+                        PlannedExerciseEntity(
+                            id = "${workout.id}-${exercise.exerciseId}-${index + 1}",
+                            plannedWorkoutId = workout.id,
+                            exerciseId = exercise.exerciseId,
+                            orderIndex = index + 1,
+                            targetSets = if (index == 0) 4 else 3,
+                            targetReps = if (index == 0) "8-12" else "10-12",
+                            targetWeightKg = if (index == 0) 70.0 else 24.0,
+                            note = if (index == 0) "主项" else "辅助",
+                        ),
+                    )
+                }
+            }
+            refreshSignal.update { it + 1 }
+            workouts
+        }
+
+    suspend fun copyWorkout(id: String, newScheduledDate: String): PlannedWorkoutEntity = withContext(Dispatchers.IO) {
+        val source = requireNotNull(store.plannedWorkouts().firstOrNull { it.id == id }) { "计划不存在" }
+        val trimmedDate = newScheduledDate.trim()
+        LocalDate.parse(trimmedDate)
+        val now = System.currentTimeMillis()
+        val copied = source.copy(
+            id = "planned-${UUID.randomUUID()}",
+            name = "${source.name} 复制",
+            scheduledDate = trimmedDate,
+            status = "planned",
+            createdAt = now,
+            updatedAt = now,
+        )
+        store.upsertPlannedWorkout(copied)
+        store.plannedExercises(source.id).forEach { exercise ->
+            store.upsertPlannedExercise(
+                exercise.copy(
+                    id = "${copied.id}-${exercise.exerciseId}-${exercise.orderIndex}",
+                    plannedWorkoutId = copied.id,
+                ),
+            )
+        }
+        refreshSignal.update { it + 1 }
+        copied
+    }
+
+    suspend fun deleteWorkout(id: String) = withContext(Dispatchers.IO) {
+        store.deletePlannedWorkout(id)
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun rescheduleWorkout(id: String, scheduledDate: String) = withContext(Dispatchers.IO) {
+        val workout = requireNotNull(store.plannedWorkouts().firstOrNull { it.id == id }) { "计划不存在" }
+        updatePlannedWorkoutDetails(id = id, name = workout.name, scheduledDate = scheduledDate)
+    }
+
+    suspend fun skipWorkout(id: String) = withContext(Dispatchers.IO) {
+        store.updatePlannedWorkoutStatus(id, status = "skipped", updatedAt = System.currentTimeMillis())
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun updatePlannedExerciseTarget(
+        id: String,
+        targetSets: Int,
+        targetReps: String,
+        targetWeightKg: Double,
+        note: String,
+    ) = withContext(Dispatchers.IO) {
+        val trimmedReps = targetReps.trim()
+        require(targetSets in 1..20) { "目标组数需要在 1 到 20 之间" }
+        require(trimmedReps.isNotEmpty()) { "目标次数不能为空" }
+        require(targetWeightKg >= 0.0) { "目标重量不能为负数" }
+        store.updatePlannedExerciseTarget(
+            id = id,
+            targetSets = targetSets,
+            targetReps = trimmedReps,
+            targetWeightKg = targetWeightKg,
+            note = note.trim(),
+        )
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun replaceExercise(plannedExerciseId: String, replacementExerciseId: String, note: String) =
+        withContext(Dispatchers.IO) {
+            val trimmedReplacement = replacementExerciseId.trim()
+            require(trimmedReplacement.isNotEmpty()) { "替换动作不能为空" }
+            store.updatePlannedExerciseExercise(
+                id = plannedExerciseId,
+                exerciseId = trimmedReplacement,
+                note = note.trim().ifEmpty { "替换动作" },
+            )
+            refreshSignal.update { it + 1 }
+        }
+
+    suspend fun startWorkout(planId: String): WorkoutSessionEntity = withContext(Dispatchers.IO) {
+        val plan = requireNotNull(store.plannedWorkouts().firstOrNull { it.id == planId }) { "计划不存在" }
+        store.workoutSessions()
+            .firstOrNull { it.plannedWorkoutId == planId && it.status == "in_progress" }
+            ?.let { return@withContext it }
+        require(plan.status != "completed") { "训练计划已完成" }
+
+        val plannedExercises = store.plannedExercises(planId)
+        require(plannedExercises.isNotEmpty()) { "训练计划没有动作" }
+        val now = timeProvider.currentTimeMillis()
+        val sessionId = UUID.randomUUID().toString()
+        val firstExercise = plannedExercises.first()
+        val session = WorkoutSessionEntity(
+            id = sessionId,
+            plannedWorkoutId = plan.id,
+            venueId = plan.venueId,
+            exerciseId = firstExercise.exerciseId,
+            status = "in_progress",
+            startedAt = now,
+            endedAt = null,
+            updatedAt = now,
+            currentExerciseId = firstExercise.exerciseId,
+        )
+        store.upsertWorkoutSession(session)
+        plannedExercises.forEach { plannedExercise ->
+            store.upsertSessionExercise(
+                WorkoutSessionExerciseEntity(
+                    id = "$sessionId-${plannedExercise.id}",
+                    sessionId = sessionId,
+                    exerciseId = plannedExercise.exerciseId,
+                    orderIndex = plannedExercise.orderIndex,
+                    targetSets = plannedExercise.targetSets,
+                    targetReps = plannedExercise.targetReps,
+                    targetWeightKg = plannedExercise.targetWeightKg,
+                    status = "pending",
+                ),
+            )
+        }
+        store.updatePlannedWorkoutStatus(plan.id, status = "in_progress", updatedAt = now)
+        refreshSignal.update { it + 1 }
+        session
+    }
+
+    suspend fun recordWorkoutSet(
+        sessionId: String,
+        exerciseId: String,
+        reps: Int,
+        weightKg: Double,
+        feeling: String,
+        restSeconds: Int = DEFAULT_REST_SECONDS,
+    ): WorkoutSetLogEntity = withContext(Dispatchers.IO) {
+        require(reps in 1..50) { "次数需要在 1 到 50 之间" }
+        require(weightKg >= 0.0) { "重量不能为负数" }
+        require(restSeconds >= 0) { "休息时长不能为负数" }
+        val session = requireInProgressSession(sessionId)
+        val sessionExercise = requireNotNull(
+            store.sessionExercises(sessionId).firstOrNull { it.exerciseId == exerciseId },
+        ) { "动作不属于本次训练" }
+        require(session.currentExerciseId == exerciseId) { "请先选择当前动作" }
+
+        val existingLogs = store.setLogs(sessionId, exerciseId)
+        val nextSetIndex = (existingLogs.maxOfOrNull { it.setIndex } ?: 0) + 1
+        require(nextSetIndex <= sessionExercise.targetSets) { "已达到目标组数" }
+        val now = timeProvider.currentTimeMillis()
+        val log = WorkoutSetLogEntity(
+            id = UUID.randomUUID().toString(),
+            sessionId = sessionId,
+            exerciseId = exerciseId,
+            setIndex = nextSetIndex,
+            actualReps = reps,
+            actualWeightKg = weightKg,
+            feeling = feeling.trim(),
+            completed = true,
+            completedAt = now,
+            sessionExerciseId = sessionExercise.id,
+        )
+        store.insertSetLog(log)
+        if (nextSetIndex == sessionExercise.targetSets) {
+            store.updateSessionExerciseStatus(sessionExercise.id, status = "completed")
+        }
+        store.updateWorkoutRuntime(
+            id = sessionId,
+            currentExerciseId = exerciseId,
+            restEndsAt = now + restSeconds.toLong() * 1_000L,
+            pausedAt = null,
+            updatedAt = now,
+        )
+        refreshSignal.update { it + 1 }
+        log
+    }
+
+    suspend fun recordWorkoutSet(
+        sessionId: String,
+        reps: Int,
+        weightKg: Double,
+        feeling: String,
+        restSeconds: Int = DEFAULT_REST_SECONDS,
+    ): WorkoutSetLogEntity {
+        val exerciseId = withContext(Dispatchers.IO) {
+            requireNotNull(store.workoutSession(sessionId)?.currentExerciseId) { "当前动作不存在" }
+        }
+        return recordWorkoutSet(sessionId, exerciseId, reps, weightKg, feeling, restSeconds)
+    }
+
+    suspend fun selectWorkoutExercise(sessionId: String, exerciseId: String): WorkoutSessionEntity =
+        withContext(Dispatchers.IO) {
+            val session = requireInProgressSession(sessionId)
+            require(store.sessionExercises(sessionId).any { it.exerciseId == exerciseId }) { "动作不属于本次训练" }
+            val now = timeProvider.currentTimeMillis()
+            store.updateWorkoutRuntime(
+                id = sessionId,
+                currentExerciseId = exerciseId,
+                restEndsAt = session.restEndsAt,
+                pausedAt = session.pausedAt,
+                updatedAt = now,
+            )
+            refreshSignal.update { it + 1 }
+            requireNotNull(store.workoutSession(sessionId))
+        }
+
+    suspend fun startRest(sessionId: String, durationSeconds: Int = DEFAULT_REST_SECONDS): WorkoutSessionEntity =
+        withContext(Dispatchers.IO) {
+            val session = requireInProgressSession(sessionId)
+            require(durationSeconds >= 0) { "休息时长不能为负数" }
+            val now = timeProvider.currentTimeMillis()
+            store.updateWorkoutRuntime(
+                id = sessionId,
+                currentExerciseId = session.currentExerciseId,
+                restEndsAt = now + durationSeconds.toLong() * 1_000L,
+                pausedAt = null,
+                updatedAt = now,
+            )
+            refreshSignal.update { it + 1 }
+            requireNotNull(store.workoutSession(sessionId))
+        }
+
+    suspend fun skipRest(sessionId: String): WorkoutSessionEntity = withContext(Dispatchers.IO) {
+        val session = requireInProgressSession(sessionId)
+        val now = timeProvider.currentTimeMillis()
+        store.updateWorkoutRuntime(
+            id = sessionId,
+            currentExerciseId = session.currentExerciseId,
+            restEndsAt = null,
+            pausedAt = null,
+            updatedAt = now,
+        )
+        refreshSignal.update { it + 1 }
+        requireNotNull(store.workoutSession(sessionId))
+    }
+
+    suspend fun addExerciseToSession(
+        sessionId: String,
+        exerciseId: String,
+        targetSets: Int = DEFAULT_TARGET_SETS,
+        targetReps: String = DEFAULT_TARGET_REPS,
+        targetWeightKg: Double = 0.0,
+    ): WorkoutSessionExerciseEntity = withContext(Dispatchers.IO) {
+        val session = requireInProgressSession(sessionId)
+        requireNotNull(store.exerciseById(exerciseId)) { "动作不存在" }
+        require(targetSets in 1..20) { "目标组数需要在 1 到 20 之间" }
+        require(targetReps.isNotBlank()) { "目标次数不能为空" }
+        require(targetWeightKg >= 0.0) { "目标重量不能为负数" }
+
+        val existingExercises = store.sessionExercises(sessionId)
+        val exercise = existingExercises.firstOrNull { it.exerciseId == exerciseId }
+            ?: WorkoutSessionExerciseEntity(
+                id = "$sessionId-library-${UUID.randomUUID()}",
+                sessionId = sessionId,
+                exerciseId = exerciseId,
+                orderIndex = (existingExercises.maxOfOrNull { it.orderIndex } ?: 0) + 1,
+                targetSets = targetSets,
+                targetReps = targetReps.trim(),
+                targetWeightKg = targetWeightKg,
+                status = "pending",
+            ).also(store::upsertSessionExercise)
+        val now = timeProvider.currentTimeMillis()
+        store.updateWorkoutRuntime(
+            id = sessionId,
+            currentExerciseId = exerciseId,
+            restEndsAt = session.restEndsAt,
+            pausedAt = session.pausedAt,
+            updatedAt = now,
+        )
+        refreshSignal.update { it + 1 }
+        exercise
+    }
+
+    suspend fun finishWorkout(sessionId: String): WorkoutSummary = withContext(Dispatchers.IO) {
+        val session = requireNotNull(store.workoutSession(sessionId)) { "训练记录不存在" }
+        if (session.status != "completed") {
+            require(session.status == "in_progress") { "训练当前不可结束" }
+            val now = timeProvider.currentTimeMillis()
+            store.updateWorkoutRuntime(
+                id = sessionId,
+                currentExerciseId = session.currentExerciseId,
+                restEndsAt = null,
+                pausedAt = null,
+                updatedAt = now,
+            )
+            store.updateWorkoutSessionStatus(
+                id = sessionId,
+                status = "completed",
+                endedAt = now,
+                updatedAt = now,
+            )
+            session.plannedWorkoutId?.let { planId ->
+                store.updatePlannedWorkoutStatus(planId, status = "completed", updatedAt = now)
+            }
+            refreshSignal.update { it + 1 }
+        }
+        workoutSummaryFromStored(sessionId)
+    }
+
+    suspend fun workoutSummary(sessionId: String): WorkoutSummary = withContext(Dispatchers.IO) {
+        workoutSummaryFromStored(sessionId)
+    }
+
+    suspend fun addExerciseToPlan(planId: String, exerciseId: String): PlannedExerciseEntity =
+        withContext(Dispatchers.IO) {
+            require(store.plannedWorkouts().any { it.id == planId }) { "计划不存在" }
+            requireNotNull(store.exerciseById(exerciseId)) { "动作不存在" }
+            val existingExercises = store.plannedExercises(planId)
+            existingExercises.firstOrNull { it.exerciseId == exerciseId }?.let { return@withContext it }
+            val plannedExercise = PlannedExerciseEntity(
+                id = "$planId-library-${UUID.randomUUID()}",
+                plannedWorkoutId = planId,
+                exerciseId = exerciseId,
+                orderIndex = (existingExercises.maxOfOrNull { it.orderIndex } ?: 0) + 1,
+                targetSets = DEFAULT_TARGET_SETS,
+                targetReps = DEFAULT_TARGET_REPS,
+                targetWeightKg = 0.0,
+                note = "从动作库添加",
+            )
+            store.upsertPlannedExercise(plannedExercise)
+            refreshSignal.update { it + 1 }
+            plannedExercise
+        }
+
+    suspend fun resetLocalData() = withContext(Dispatchers.IO) {
+        credentialStore.deleteApiKey(DEEPSEEK_PROVIDER_ID)
+        store.clearPersonalData()
+        val now = timeProvider.currentTimeMillis()
+        seedDefaultVenue(now)
+        seedDefaultEquipment(now)
+        seedDefaultPlans(now)
+        seedDefaultAiProviders(now)
+        refreshSignal.update { it + 1 }
+    }
+
+    fun homeSnapshot(state: FitnessAppState, today: LocalDate = LocalDate.now()): HomeSnapshot {
+        val weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val weekEnd = weekStart.plusDays(6)
+        val completedThisWeek = state.workoutSessions.count { session ->
+            session.status == "completed" && session.endedAt
+                ?.let(::localDateAt)
+                ?.let { date -> !date.isBefore(weekStart) && !date.isAfter(weekEnd) } == true
+        }
+        val workoutsThisWeek = state.plannedWorkouts.filter { workout ->
+            parseLocalDate(workout.scheduledDate)
+                ?.let { date -> !date.isBefore(weekStart) && !date.isAfter(weekEnd) } == true
+        }
+        val targetThisWeek = state.userProfile?.weeklyTrainingDays ?: workoutsThisWeek.size
+        val nextWorkout = state.plannedWorkouts
+            .filter { it.status == "planned" || it.status == "in_progress" }
+            .sortedWith(compareBy({ parseLocalDate(it.scheduledDate) ?: LocalDate.MAX }, { it.createdAt }))
+            .let { workouts ->
+                workouts.firstOrNull { workout ->
+                    parseLocalDate(workout.scheduledDate)?.isBefore(today) == false
+                } ?: workouts.firstOrNull()
+            }
+        val activeSession = state.unfinishedSessions.maxByOrNull { it.startedAt }
+        val completedToday = state.workoutSessions
+            .filter { it.status == "completed" && it.endedAt?.let(::localDateAt) == today }
+            .maxByOrNull { it.endedAt ?: Long.MIN_VALUE }
+        val action = when {
+            activeSession != null -> HomePrimaryAction.Resume(activeSession.id)
+            completedToday != null -> HomePrimaryAction.Result(completedToday.id)
+            nextWorkout != null -> HomePrimaryAction.Start(nextWorkout.id)
+            else -> HomePrimaryAction.CreatePlan
+        }
+        return HomeSnapshot(
+            action = action,
+            completedThisWeek = completedThisWeek,
+            targetThisWeek = targetThisWeek,
+            nextWorkout = nextWorkout,
+        )
+    }
+
+    fun nutritionSummary(state: FitnessAppState, date: LocalDate = LocalDate.now()): NutritionSummary {
+        val logs = state.foodLogs.filter { it.confirmed && it.loggedDate == date.toString() }
+        return NutritionSummary(
+            calories = logs.sumOf { it.calories },
+            protein = logs.sumOf { it.proteinGrams },
+            carbs = logs.sumOf { it.carbsGrams },
+            fat = logs.sumOf { it.fatGrams },
+        )
+    }
+
+    suspend fun completeSet(
+        sessionId: String,
+        exerciseId: String,
+        setIndex: Int,
+        reps: Int,
+        weightKg: Double,
+        feeling: String,
+    ) = withContext(Dispatchers.IO) {
+        store.insertSetLog(
+            WorkoutSetLogEntity(
+                id = UUID.randomUUID().toString(),
+                sessionId = sessionId,
+                exerciseId = exerciseId,
+                setIndex = setIndex,
+                actualReps = reps,
+                actualWeightKg = weightKg,
+                feeling = feeling,
+                completed = true,
+                completedAt = System.currentTimeMillis(),
+            ),
+        )
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun skipExercise(
+        sessionId: String,
+        plannedWorkoutId: String?,
+        venueId: String,
+        exerciseId: String,
+        setIndex: Int,
+        reason: String,
+    ) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val trimmedReason = reason.trim().ifEmpty { "跳过" }
+        require(setIndex > 0) { "组序号必须大于 0" }
+        ensureWorkoutSession(
+            sessionId = sessionId,
+            plannedWorkoutId = plannedWorkoutId,
+            venueId = venueId,
+            exerciseId = exerciseId,
+            now = now,
+        )
+        store.insertSetLog(
+            WorkoutSetLogEntity(
+                id = UUID.randomUUID().toString(),
+                sessionId = sessionId,
+                exerciseId = exerciseId,
+                setIndex = setIndex,
+                actualReps = 0,
+                actualWeightKg = 0.0,
+                feeling = "跳过：$trimmedReason",
+                completed = false,
+                completedAt = now,
+            ),
+        )
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun finishWorkoutSession(
+        sessionId: String,
+        plannedWorkoutId: String?,
+        venueId: String,
+        exerciseId: String,
+    ) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        ensureWorkoutSession(
+            sessionId = sessionId,
+            plannedWorkoutId = plannedWorkoutId,
+            venueId = venueId,
+            exerciseId = exerciseId,
+            now = now,
+        )
+        store.updateWorkoutSessionStatus(
+            id = sessionId,
+            status = "completed",
+            endedAt = now,
+            updatedAt = now,
+        )
+        if (plannedWorkoutId != null) {
+            store.updatePlannedWorkoutStatus(
+                id = plannedWorkoutId,
+                status = "completed",
+                updatedAt = now,
+            )
+        }
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun resumeSession(sessionId: String) = withContext(Dispatchers.IO) {
+        store.updateWorkoutSessionStatus(
+            id = sessionId,
+            status = "in_progress",
+            endedAt = null,
+            updatedAt = System.currentTimeMillis(),
+        )
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun generateTrainingAdjustment(exerciseId: String): TrainingAdjustmentEntity = withContext(Dispatchers.IO) {
+        val exercise = store.exerciseById(exerciseId)
+        val recentLogs = store.allSetLogs()
+            .filter { it.exerciseId == exerciseId && it.completed }
+            .sortedByDescending { it.completedAt }
+        val latest = recentLogs.firstOrNull()
+        val provider = activeAiProviderOrDefault()
+        val localTitle: String
+        val localContent: String
+        when {
+            latest == null -> {
+                localTitle = "先记录训练"
+                localContent = "这个动作还没有完成组记录。先完成 1-2 次训练后，再根据次数、重量和体感调整。"
+            }
+
+            latest.feeling.contains("轻松") -> {
+                localTitle = "下次加重"
+                localContent = "最近一组反馈轻松，下次可加 2.5kg，保持 ${latest.actualReps} 次附近，优先保证动作稳定。"
+            }
+
+            latest.feeling.contains("吃力") -> {
+                localTitle = "维持或减量"
+                localContent = "最近一组反馈吃力，下次先维持 ${formatWeight(latest.actualWeightKg)}kg，或减 2.5kg 换取更完整的动作质量。"
+            }
+
+            else -> {
+                localTitle = "维持推进"
+                localContent = "最近一组反馈合适，下次维持 ${formatWeight(latest.actualWeightKg)}kg，目标多完成 1-2 次。"
+            }
+        }
+        val apiKey = credentialStore.loadApiKey(provider.id)
+        val aiContent = if (apiKey != null && latest != null) {
+            runCatching {
+                AiChatClient(provider.toConfig()).complete(
+                    apiKey = apiKey,
+                    systemPrompt = "你是力量训练教练。请基于训练记录给出下一次训练调整建议，回复不超过 80 字中文。",
+                    userPrompt = "动作：${exercise?.name ?: exerciseId}\n最近记录：${latest.actualWeightKg}kg x ${latest.actualReps}，体感 ${latest.feeling}\n本地建议：$localContent",
+                    temperature = 0.2,
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+        val now = System.currentTimeMillis()
+        val adjustment = TrainingAdjustmentEntity(
+            id = "adjust-${UUID.randomUUID()}",
+            exerciseId = exerciseId,
+            title = localTitle,
+            content = aiContent?.takeIf { it.isNotBlank() } ?: localContent,
+            status = "draft",
+            createdAt = now,
+            updatedAt = now,
+            confirmedAt = null,
+        )
+        store.upsertTrainingAdjustment(adjustment)
+        refreshSignal.update { it + 1 }
+        adjustment
+    }
+
+    suspend fun confirmTrainingAdjustment(id: String) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        store.updateTrainingAdjustmentStatus(id, status = "confirmed", confirmedAt = now, updatedAt = now)
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun logFood(
+        name: String,
+        calories: Int,
+        proteinGrams: Double,
+        carbsGrams: Double,
+        fatGrams: Double,
+        source: String = "manual",
+        imageNote: String = "",
+        imageUri: String = "",
+        providerId: String = "",
+        model: String = "",
+    ): FoodLogEntity = withContext(Dispatchers.IO) {
+        val trimmedName = name.trim()
+        require(trimmedName.isNotEmpty()) { "食物名称不能为空" }
+        require(calories in 0..5000) { "热量不合理" }
+        val now = System.currentTimeMillis()
+        val foodLog = FoodLogEntity(
+            id = "food-${UUID.randomUUID()}",
+            loggedDate = LocalDate.now().toString(),
+            name = trimmedName,
+            calories = calories,
+            proteinGrams = proteinGrams.coerceAtLeast(0.0),
+            carbsGrams = carbsGrams.coerceAtLeast(0.0),
+            fatGrams = fatGrams.coerceAtLeast(0.0),
+            source = source,
+            imageNote = imageNote.trim(),
+            imageUri = imageUri,
+            providerId = providerId,
+            model = model,
+            confirmed = true,
+            createdAt = now,
+        )
+        store.insertFoodLog(foodLog)
+        refreshSignal.update { it + 1 }
+        foodLog
+    }
+
+    suspend fun generateFoodEstimateDraft(
+        description: String,
+        imageUri: String = "",
+        imageMimeType: String = "",
+        imageBase64: String = "",
+    ): AiDraftEntity = withContext(Dispatchers.IO) {
+        val trimmedDescription = description.trim()
+        require(trimmedDescription.isNotEmpty()) { "请先描述食物或照片内容" }
+        val estimate = estimateFood(trimmedDescription)
+        val provider = activeAiProviderOrDefault()
+        val apiKey = credentialStore.loadApiKey(provider.id)
+        val aiNote = if (apiKey != null) {
+            runCatching {
+                val client = AiChatClient(provider.toConfig())
+                if (imageBase64.isNotBlank() && imageMimeType.isNotBlank()) {
+                    client.completeVision(
+                        apiKey = apiKey,
+                        systemPrompt = "你是健身饮食助手。请识别食物并估算热量、蛋白质、碳水和脂肪，回复简洁中文。",
+                        userPrompt = trimmedDescription,
+                        imageMimeType = imageMimeType,
+                        imageBase64 = imageBase64,
+                        temperature = 0.1,
+                    )
+                } else {
+                    client.complete(
+                        apiKey = apiKey,
+                        systemPrompt = "你是健身饮食助手。请根据用户描述估算热量、蛋白质、碳水和脂肪，回复简洁中文。",
+                        userPrompt = trimmedDescription,
+                        temperature = 0.1,
+                    )
+                }
+            }.getOrNull()
+        } else {
+            null
+        }
+        val now = System.currentTimeMillis()
+        val draft = AiDraftEntity(
+            id = "draft-${UUID.randomUUID()}",
+            type = "food_estimate",
+            title = "饮食估算：${estimate.name}",
+            content = buildString {
+                append("约 ${estimate.calories} 千卡 · 蛋白质 ${formatMacro(estimate.protein)}g · 碳水 ${formatMacro(estimate.carbs)}g · 脂肪 ${formatMacro(estimate.fat)}g")
+                append("\n依据：$trimmedDescription")
+                if (!aiNote.isNullOrBlank()) {
+                    append("\nAI 建议：${aiNote.take(240)}")
+                }
+            },
+            status = "draft",
+            createdAt = now,
+            updatedAt = now,
+            metadataJson = foodDraftMetadataJson(
+                imageUri = imageUri,
+                providerId = provider.id,
+                model = provider.model,
+            ),
+            confirmedAt = null,
+        )
+        store.upsertAiDraft(draft)
+        refreshSignal.update { it + 1 }
+        draft
+    }
+
+    suspend fun confirmFoodEstimateDraft(draftId: String): FoodLogEntity = withContext(Dispatchers.IO) {
+        val draft = requireNotNull(store.aiDraft(draftId)) { "草稿不存在" }
+        require(draft.type == "food_estimate") { "不是饮食估算草稿" }
+        val estimate = parseFoodEstimateDraft(draft)
+        val metadata = parseFoodDraftMetadata(draft.metadataJson)
+        val now = System.currentTimeMillis()
+        val foodLog = FoodLogEntity(
+            id = "food-${UUID.randomUUID()}",
+            loggedDate = LocalDate.now().toString(),
+            name = estimate.name,
+            calories = estimate.calories,
+            proteinGrams = estimate.protein,
+            carbsGrams = estimate.carbs,
+            fatGrams = estimate.fat,
+            source = if (metadata.imageUri.isNotBlank()) "vision_ai" else "ai_estimate",
+            imageNote = if (metadata.imageUri.isNotBlank()) "已选择食物照片" else draft.content.substringAfter("依据：", missingDelimiterValue = ""),
+            imageUri = metadata.imageUri,
+            providerId = metadata.providerId,
+            model = metadata.model,
+            confirmed = true,
+            createdAt = now,
+        )
+        store.insertFoodLog(foodLog)
+        store.updateAiDraftStatus(draft.id, status = "confirmed", confirmedAt = now, updatedAt = now)
+        refreshSignal.update { it + 1 }
+        foodLog
+    }
+
+    suspend fun generateWeeklyPlanDraft(): AiDraftEntity = withContext(Dispatchers.IO) {
+        val profile = store.userProfile()
+        val venue = store.defaultVenue()
+        val equipment = venue
+            ?.let { store.equipmentNamesForVenue(it.id) }
+            ?.joinToString("、")
+            ?.ifEmpty { null }
+            ?: store.equipmentNamesForVenue().joinToString("、").ifEmpty { "自重" }
+        val now = System.currentTimeMillis()
+        val days = profile?.weeklyTrainingDays ?: 3
+        val minutes = profile?.preferredMinutes ?: 45
+        val provider = activeAiProviderOrDefault()
+        val apiKey = credentialStore.loadApiKey(provider.id)
+        val aiContent = if (apiKey != null) {
+            runCatching {
+                AiChatClient(provider.toConfig()).complete(
+                    apiKey = apiKey,
+                    systemPrompt = "你是健身计划助手。请基于用户目标、场地和器械生成一周训练草稿，结果必须提醒用户确认后再保存。",
+                    userPrompt = "目标：${profile?.goal ?: "增肌减脂"}\n每周训练：$days 天\n单次时长：$minutes 分钟\n场地：${venue?.name ?: "默认场地"}\n可用器械：$equipment",
+                    temperature = 0.2,
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+        val draft = AiDraftEntity(
+            id = "draft-${UUID.randomUUID()}",
+            type = "weekly_plan",
+            title = "周计划草稿：$days 天",
+            content = aiContent?.takeIf { it.isNotBlank() }
+                ?: "按 ${profile?.goal ?: "增肌减脂"} 目标，建议每周 $days 天、每次 $minutes 分钟。\n场地：${venue?.name ?: "默认场地"}\n可用器械：$equipment\n确认后会新建一节本地训练计划。",
+            status = "draft",
+            createdAt = now,
+            updatedAt = now,
+            confirmedAt = null,
+        )
+        store.upsertAiDraft(draft)
+        refreshSignal.update { it + 1 }
+        draft
+    }
+
+    suspend fun confirmWeeklyPlanDraft(draftId: String): PlannedWorkoutEntity = withContext(Dispatchers.IO) {
+        val draft = requireNotNull(store.aiDraft(draftId)) { "草稿不存在" }
+        require(draft.type == "weekly_plan") { "不是周计划草稿" }
+        val workout = createWorkoutFromTemplate(
+            name = "AI 生成训练",
+            scheduledDate = LocalDate.now().plusDays(1).toString(),
+            venueId = store.defaultVenue()?.id ?: DEFAULT_VENUE_ID,
+        )
+        val now = System.currentTimeMillis()
+        store.updateAiDraftStatus(draftId, status = "confirmed", confirmedAt = now, updatedAt = now)
+        refreshSignal.update { it + 1 }
+        workout
+    }
+
+    suspend fun generateReplacementDraft(exerciseId: String): AiDraftEntity = withContext(Dispatchers.IO) {
+        val current = store.exerciseById(exerciseId)
+        val replacement = store.exercisesByEquipment(current?.equipment ?: "smith machine")
+            .firstOrNull { it.exerciseId != exerciseId }
+        val now = System.currentTimeMillis()
+        val draft = AiDraftEntity(
+            id = "draft-${UUID.randomUUID()}",
+            type = "exercise_replacement",
+            title = "动作替换建议",
+            content = replacement?.let {
+                "建议替换为 ${it.name}。目标肌群：${it.target}，器械：${it.equipment}。"
+            } ?: "当前动作暂无同器械替代项，可在动作库按目标肌群筛选。",
+            status = "draft",
+            createdAt = now,
+            updatedAt = now,
+            confirmedAt = null,
+        )
+        store.upsertAiDraft(draft)
+        refreshSignal.update { it + 1 }
+        draft
+    }
+
+    suspend fun confirmAiDraft(draftId: String) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        store.updateAiDraftStatus(draftId, status = "confirmed", confirmedAt = now, updatedAt = now)
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun saveAiApiKey(providerId: String, apiKey: String) = withContext(Dispatchers.IO) {
+        val provider = requireNotNull(store.aiProvider(providerId)) { "智能服务不存在" }
+        credentialStore.saveApiKey(providerId, apiKey)
+        store.upsertAiProvider(provider.copy(apiKeyStored = true, updatedAt = System.currentTimeMillis()))
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun testAiProvider(providerId: String): AiTestResult = withContext(Dispatchers.IO) {
+        val provider = store.aiProvider(providerId)
+            ?: return@withContext AiTestResult(success = false, message = "智能服务不存在")
+        val apiKey = credentialStore.loadApiKey(providerId)
+            ?: return@withContext AiTestResult(success = false, message = "请先保存接口密钥")
+
+        runCatching {
+            AiChatClient(provider.toConfig()).testConnection(apiKey)
+        }.getOrElse { error ->
+            AiTestResult(
+                success = false,
+                message = "测试失败：${error.message ?: error::class.java.simpleName}",
+            )
+        }
+    }
+
+    suspend fun exportBackupJson(): String = withContext(Dispatchers.IO) {
+        FitnessBackupCodec.encode(
+            FitnessBackupPayload(
+                version = 2,
+                exportedAt = timeProvider.currentTimeMillis(),
+                userProfile = store.userProfile(),
+                venues = store.trainingVenues(),
+                equipment = store.allEquipment(),
+                venueEquipment = store.venueEquipment(),
+                preferences = store.preferences(),
+                plannedWorkouts = store.plannedWorkouts(),
+                plannedExercises = store.allPlannedExercises(),
+                workoutSessions = store.workoutSessions(),
+                sessionExercises = store.workoutSessions().flatMap { store.sessionExercises(it.id) },
+                setLogs = store.allSetLogs(),
+                foodLogs = store.foodLogs(),
+                aiDrafts = store.aiDrafts(),
+                trainingAdjustments = store.trainingAdjustments(),
+                aiProviders = store.aiProviders(),
+            ),
+        )
+    }
+
+    suspend fun importBackupJson(rawJson: String) = withContext(Dispatchers.IO) {
+        val payload = FitnessBackupCodec.decode(rawJson)
+        store.clearPersonalData()
+        payload.userProfile?.let(store::upsertUserProfile)
+        payload.venues.forEach(store::upsertVenue)
+        payload.equipment.forEach(store::upsertEquipment)
+        payload.venueEquipment.forEach(store::upsertVenueEquipment)
+        payload.preferences.forEach { (key, value) -> store.putPreference(key, value) }
+        payload.plannedWorkouts.forEach(store::upsertPlannedWorkout)
+        payload.plannedExercises.forEach(store::upsertPlannedExercise)
+        payload.workoutSessions.forEach(store::upsertWorkoutSession)
+        payload.sessionExercises.forEach(store::upsertSessionExercise)
+        payload.setLogs.forEach(store::insertSetLog)
+        payload.foodLogs.forEach(store::insertFoodLog)
+        payload.aiDrafts.forEach(store::upsertAiDraft)
+        payload.trainingAdjustments.forEach(store::upsertTrainingAdjustment)
+        payload.aiProviders.forEach(store::upsertAiProvider)
+        refreshSignal.update { it + 1 }
+    }
+
+    private fun requireInProgressSession(sessionId: String): WorkoutSessionEntity {
+        val session = requireNotNull(store.workoutSession(sessionId)) { "训练记录不存在" }
+        require(session.status == "in_progress") { "训练未在进行中" }
+        return session
+    }
+
+    private fun workoutSummaryFromStored(sessionId: String): WorkoutSummary {
+        val session = requireNotNull(store.workoutSession(sessionId)) { "训练记录不存在" }
+        val logs = store.setLogs(sessionId).filter { it.completed }
+        val endedAt = session.endedAt ?: timeProvider.currentTimeMillis()
+        return WorkoutSummary(
+            sessionId = session.id,
+            completedSets = logs.size,
+            targetSets = store.sessionExercises(sessionId).sumOf { it.targetSets },
+            totalVolumeKg = logs.sumOf { it.actualWeightKg * it.actualReps },
+            durationSeconds = ((endedAt - session.startedAt).coerceAtLeast(0L)) / 1_000L,
+            feelingCounts = logs.groupingBy { it.feeling }.eachCount(),
+        )
+    }
+
+    private fun localDateAt(epochMillis: Long): LocalDate =
+        Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).toLocalDate()
+
+    private fun parseLocalDate(value: String): LocalDate? =
+        runCatching { LocalDate.parse(value) }.getOrNull()
+
+    private fun ensureWorkoutSession(
+        sessionId: String,
+        plannedWorkoutId: String?,
+        venueId: String,
+        exerciseId: String,
+        now: Long,
+    ) {
+        val existing = store.workoutSessions().firstOrNull { it.id == sessionId }
+        if (existing != null) return
+
+        store.upsertWorkoutSession(
+            WorkoutSessionEntity(
+                id = sessionId,
+                plannedWorkoutId = plannedWorkoutId,
+                venueId = venueId,
+                exerciseId = exerciseId,
+                status = "in_progress",
+                startedAt = now,
+                endedAt = null,
+                updatedAt = now,
+            ),
+        )
+    }
+
+    private fun currentAppState(): FitnessAppState =
+        store.allPlannedExercises().let { plannedExercises ->
+            val plannedExerciseViews = plannedExercises.mapNotNull { plannedExercise ->
+                store.exerciseById(plannedExercise.exerciseId)?.let { media ->
+                    PlannedExerciseView(plannedExercise, media)
+                }
+            }
+            val selectedVenue = store.defaultVenue() ?: store.venue(DEFAULT_VENUE_ID)
+            val venueEquipment = selectedVenue
+                ?.let { store.equipmentForVenue(it.id) }
+                ?.ifEmpty { store.allEquipment() }
+                ?: store.allEquipment()
+            val workoutSessions = store.workoutSessions()
+            val workoutSessionExercises = workoutSessions.flatMap { store.sessionExercises(it.id) }
+
+            FitnessAppState(
+                venue = selectedVenue,
+                venues = store.trainingVenues(),
+                equipment = store.allEquipment(),
+                equipmentForSelectedVenue = venueEquipment,
+                venueEquipment = store.venueEquipment(),
+                plannedWorkouts = store.plannedWorkouts(),
+                plannedExercises = plannedExercises,
+                plannedExerciseViews = plannedExerciseViews,
+                workoutSessions = workoutSessions,
+                unfinishedSessions = workoutSessions.filter { it.status == "in_progress" },
+                workoutSessionExercises = workoutSessionExercises,
+                workoutSetLogs = store.allSetLogs(),
+                userProfile = store.userProfile(),
+                onboardingCompleted = store.preference(ONBOARDING_COMPLETED_KEY)?.toBooleanStrictOrNull() ?: false,
+                foodLogs = store.foodLogs(),
+                aiDrafts = store.aiDrafts(),
+                trainingAdjustments = store.trainingAdjustments(),
+                smithMachineExercises = store.exercisesByEquipment("smith machine"),
+                exercises = store.allExercises(limit = 1_500),
+                aiProviders = store.aiProviders(),
+            )
+        }
+
+    private fun defaultTemplateExercises(): List<ExerciseMediaEntity> =
+        listOfNotNull(
+            store.exerciseById(SMITH_BENCH_PRESS_ID),
+            store.exerciseById("0289"),
+        ).distinctBy { it.exerciseId }
+            .ifEmpty { store.exercisesByEquipment("smith machine").take(2) }
+
+    private fun seedDefaultVenue(now: Long) {
+        if (store.venue(DEFAULT_VENUE_ID) != null) return
+
+        store.upsertVenue(
+            TrainingVenueEntity(
+                id = DEFAULT_VENUE_ID,
+                name = "公司健身房",
+                isDefault = true,
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
+    }
+
+    private fun seedDefaultEquipment(now: Long) {
+        val existingNames = store.allEquipment().map { it.name }.toSet()
+        val seeds = listOf(
+            EquipmentSeed("equipment-smith-machine", "史密斯机", "machine"),
+            EquipmentSeed("equipment-dumbbell", "哑铃", "free-weight"),
+            EquipmentSeed("equipment-barbell", "杠铃", "free-weight"),
+            EquipmentSeed("equipment-treadmill", "跑步机", "cardio"),
+        )
+        seeds.filterNot { it.name in existingNames }
+            .forEach { seed ->
+                store.upsertEquipment(
+                    EquipmentEntity(
+                        id = seed.id,
+                        name = seed.name,
+                        category = seed.category,
+                        createdAt = now,
+                        updatedAt = now,
+                    ),
+                )
+            }
+        seeds.forEach { seed ->
+            store.upsertVenueEquipment(
+                VenueEquipmentEntity(
+                    venueId = DEFAULT_VENUE_ID,
+                    equipmentId = seed.id,
+                    available = true,
+                    updatedAt = now,
+                ),
+            )
+        }
+    }
+
+    private fun seedDefaultPlans(now: Long) {
+        if (store.plannedWorkouts().isEmpty()) {
+            val today = localDateAt(now)
+            listOf(
+                PlannedWorkoutEntity(
+                    id = DEFAULT_WORKOUT_ID,
+                    name = "胸部力量 A",
+                    scheduledDate = today.toString(),
+                    venueId = DEFAULT_VENUE_ID,
+                    status = "planned",
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+                PlannedWorkoutEntity(
+                    id = "planned-lower-strength-a",
+                    name = "下肢力量 A",
+                    scheduledDate = today.plusDays(2).toString(),
+                    venueId = DEFAULT_VENUE_ID,
+                    status = "planned",
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+                PlannedWorkoutEntity(
+                    id = "planned-pull-strength-a",
+                    name = "背部拉力 A",
+                    scheduledDate = today.plusDays(4).toString(),
+                    venueId = DEFAULT_VENUE_ID,
+                    status = "planned",
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            ).forEach(store::upsertPlannedWorkout)
+        }
+
+        if (store.allPlannedExercises().isEmpty()) {
+            defaultPlannedExercises().forEach(store::upsertPlannedExercise)
+        }
+    }
+
+    private fun seedDefaultAiProviders(now: Long) {
+        val existing = store.aiProvider(DEEPSEEK_PROVIDER_ID)
+        val apiKeyStored = existing?.apiKeyStored ?: (credentialStore.loadApiKey(DEEPSEEK_PROVIDER_ID) != null)
+        store.upsertAiProvider(
+            AiProviderEntity(
+                id = DEEPSEEK_PROVIDER_ID,
+                displayName = "DeepSeek",
+                baseUrl = "https://api.deepseek.com",
+                model = "deepseek-v4-flash",
+                enabled = true,
+                apiKeyStored = apiKeyStored,
+                updatedAt = existing?.updatedAt ?: now,
+            ),
+        )
+    }
+
+    private fun activeAiProviderOrDefault(): AiProviderEntity =
+        store.aiProviders().firstOrNull { it.enabled }
+            ?: store.aiProvider(DEEPSEEK_PROVIDER_ID)
+            ?: AiProviderEntity(
+                id = DEEPSEEK_PROVIDER_ID,
+                displayName = "DeepSeek",
+                baseUrl = "https://api.deepseek.com",
+                model = "deepseek-v4-flash",
+                enabled = true,
+                apiKeyStored = credentialStore.loadApiKey(DEEPSEEK_PROVIDER_ID) != null,
+                updatedAt = System.currentTimeMillis(),
+            )
+
+    private fun ExerciseAsset.toEntity(assetPackId: String): ExerciseMediaEntity =
+        ExerciseMediaEntity(
+            exerciseId = exerciseId,
+            name = name,
+            bodyPart = bodyPart,
+            equipment = equipment,
+            target = target,
+            mediaId = mediaId,
+            localPath = "exercise-media/$localPath",
+            assetPackId = assetPackId,
+            bytes = bytes,
+            sha256 = sha256,
+        )
+
+    companion object {
+        const val DEFAULT_VENUE_ID = "venue-company-gym"
+        const val DEFAULT_WORKOUT_ID = "planned-chest-strength-a"
+        const val DEFAULT_SESSION_ID = "session-local-smith-bench"
+        const val SMITH_BENCH_PRESS_ID = "0748"
+        const val DEEPSEEK_PROVIDER_ID = "deepseek"
+        const val LOCAL_PROFILE_ID = "profile-local"
+        const val ONBOARDING_COMPLETED_KEY = "onboarding_completed"
+        const val DEFAULT_REST_SECONDS = 90
+        const val DEFAULT_TARGET_SETS = 3
+        const val DEFAULT_TARGET_REPS = "8-12"
+    }
+}
+
+data class BootstrapResult(
+    val totalGifCount: Int,
+    val failedGifCount: Int,
+    val assetPackId: String,
+    val assetPackSizeMb: Double,
+    val smithMachineExerciseCount: Int,
+    val smithBenchPress: ExerciseMediaEntity,
+    val sessionId: String,
+)
+
+data class FitnessAppState(
+    val venue: TrainingVenueEntity?,
+    val venues: List<TrainingVenueEntity>,
+    val equipment: List<EquipmentEntity>,
+    val equipmentForSelectedVenue: List<EquipmentEntity>,
+    val venueEquipment: List<VenueEquipmentEntity>,
+    val plannedWorkouts: List<PlannedWorkoutEntity>,
+    val plannedExercises: List<PlannedExerciseEntity>,
+    val plannedExerciseViews: List<PlannedExerciseView>,
+    val workoutSessions: List<WorkoutSessionEntity>,
+    val unfinishedSessions: List<WorkoutSessionEntity>,
+    val workoutSetLogs: List<WorkoutSetLogEntity>,
+    val userProfile: UserProfileEntity?,
+    val onboardingCompleted: Boolean,
+    val foodLogs: List<FoodLogEntity>,
+    val aiDrafts: List<AiDraftEntity>,
+    val trainingAdjustments: List<TrainingAdjustmentEntity>,
+    val smithMachineExercises: List<ExerciseMediaEntity>,
+    val exercises: List<ExerciseMediaEntity>,
+    val aiProviders: List<AiProviderEntity>,
+    val workoutSessionExercises: List<WorkoutSessionExerciseEntity> = emptyList(),
+)
+
+data class PlannedExerciseView(
+    val plannedExercise: PlannedExerciseEntity,
+    val media: ExerciseMediaEntity,
+)
+
+private data class EquipmentSeed(
+    val id: String,
+    val name: String,
+    val category: String,
+)
+
+private data class FoodEstimate(
+    val name: String,
+    val calories: Int,
+    val protein: Double,
+    val carbs: Double,
+    val fat: Double,
+)
+
+private data class FoodDraftMetadata(
+    val imageUri: String,
+    val providerId: String,
+    val model: String,
+)
+
+private val repositoryJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
+
+private fun AiProviderEntity.toConfig(): AiProviderConfig =
+    AiProviderConfig(
+        id = id,
+        displayName = displayName,
+        baseUrl = baseUrl,
+        model = model,
+    )
+
+private fun defaultPlannedExercises(): List<PlannedExerciseEntity> =
+    listOf(
+        PlannedExerciseEntity(
+            id = "planned-chest-strength-a-0748",
+            plannedWorkoutId = FitnessRepository.DEFAULT_WORKOUT_ID,
+            exerciseId = FitnessRepository.SMITH_BENCH_PRESS_ID,
+            orderIndex = 1,
+            targetSets = 4,
+            targetReps = "8-12",
+            targetWeightKg = 70.0,
+            note = "主项",
+        ),
+        PlannedExerciseEntity(
+            id = "planned-chest-strength-a-0289",
+            plannedWorkoutId = FitnessRepository.DEFAULT_WORKOUT_ID,
+            exerciseId = "0289",
+            orderIndex = 2,
+            targetSets = 3,
+            targetReps = "8-10",
+            targetWeightKg = 24.0,
+            note = "辅助推",
+        ),
+        PlannedExerciseEntity(
+            id = "planned-lower-strength-a-0770",
+            plannedWorkoutId = "planned-lower-strength-a",
+            exerciseId = "0770",
+            orderIndex = 1,
+            targetSets = 4,
+            targetReps = "8-10",
+            targetWeightKg = 80.0,
+            note = "主项",
+        ),
+        PlannedExerciseEntity(
+            id = "planned-lower-strength-a-0739",
+            plannedWorkoutId = "planned-lower-strength-a",
+            exerciseId = "0739",
+            orderIndex = 2,
+            targetSets = 3,
+            targetReps = "10-12",
+            targetWeightKg = 100.0,
+            note = "腿举",
+        ),
+        PlannedExerciseEntity(
+            id = "planned-pull-strength-a-2330",
+            plannedWorkoutId = "planned-pull-strength-a",
+            exerciseId = "2330",
+            orderIndex = 1,
+            targetSets = 4,
+            targetReps = "8-12",
+            targetWeightKg = 45.0,
+            note = "背阔",
+        ),
+        PlannedExerciseEntity(
+            id = "planned-pull-strength-a-0027",
+            plannedWorkoutId = "planned-pull-strength-a",
+            exerciseId = "0027",
+            orderIndex = 2,
+            targetSets = 3,
+            targetReps = "8-10",
+            targetWeightKg = 50.0,
+            note = "划船",
+        ),
+    )
+
+private fun estimateFood(description: String): FoodEstimate {
+    val normalized = description.lowercase()
+    return when {
+        "鸡" in description && ("米饭" in description || "饭" in description) -> FoodEstimate(
+            name = "鸡胸肉米饭",
+            calories = 620,
+            protein = 42.0,
+            carbs = 68.0,
+            fat = 16.0,
+        )
+
+        "牛" in description && ("饭" in description || "面" in description) -> FoodEstimate(
+            name = "牛肉主食餐",
+            calories = 760,
+            protein = 46.0,
+            carbs = 82.0,
+            fat = 24.0,
+        )
+
+        "沙拉" in description || normalized.contains("salad") -> FoodEstimate(
+            name = "轻食沙拉",
+            calories = 380,
+            protein = 24.0,
+            carbs = 28.0,
+            fat = 18.0,
+        )
+
+        else -> FoodEstimate(
+            name = description.take(12).ifBlank { "餐食估算" },
+            calories = 520,
+            protein = 28.0,
+            carbs = 56.0,
+            fat = 18.0,
+        )
+    }
+}
+
+private fun parseFoodEstimateDraft(draft: AiDraftEntity): FoodEstimate {
+    val name = draft.title.removePrefix("饮食估算：").ifBlank { "餐食估算" }
+    val numbers = Regex("""(\d+(?:\.\d+)?)""").findAll(draft.content).map { it.value.toDouble() }.toList()
+    return FoodEstimate(
+        name = name,
+        calories = numbers.getOrNull(0)?.toInt() ?: 0,
+        protein = numbers.getOrNull(1) ?: 0.0,
+        carbs = numbers.getOrNull(2) ?: 0.0,
+        fat = numbers.getOrNull(3) ?: 0.0,
+    )
+}
+
+private fun foodDraftMetadataJson(imageUri: String, providerId: String, model: String): String {
+    val metadata = buildJsonObject {
+        if (imageUri.isNotBlank()) put("imageUri", JsonPrimitive(imageUri))
+        if (providerId.isNotBlank()) put("providerId", JsonPrimitive(providerId))
+        if (model.isNotBlank()) put("model", JsonPrimitive(model))
+    }
+    return if (metadata.isEmpty()) {
+        ""
+    } else {
+        repositoryJson.encodeToString(JsonObject.serializer(), metadata)
+    }
+}
+
+private fun parseFoodDraftMetadata(rawJson: String): FoodDraftMetadata {
+    if (rawJson.isBlank()) return FoodDraftMetadata(imageUri = "", providerId = "", model = "")
+    val root = runCatching { repositoryJson.parseToJsonElement(rawJson).jsonObject }.getOrNull()
+        ?: return FoodDraftMetadata(imageUri = "", providerId = "", model = "")
+    return FoodDraftMetadata(
+        imageUri = root["imageUri"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        providerId = root["providerId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+        model = root["model"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+    )
+}
+
+private fun formatMacro(value: Double): String =
+    if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
+
+private fun formatWeight(value: Double): String =
+    if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
