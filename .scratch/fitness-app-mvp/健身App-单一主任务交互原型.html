@@ -1703,6 +1703,7 @@
     }
 
     function render() {
+      teardownPlanEditor();
       const screen = document.getElementById('screen');
       const content = state.route === 'home'
         ? renderHome()
@@ -1723,7 +1724,6 @@
               : renderPlaceholder(state.route);
       const hidesNavigation = ['training-active', 'workout-summary', 'library', 'exercise-detail', 'plan-detail'].includes(state.route);
       screen.innerHTML = `${content}${hidesNavigation ? '' : renderBottomNav()}`;
-      document.getElementById('overlay-root').innerHTML = '';
       syncRestCountdown();
     }
 
@@ -1733,10 +1733,12 @@
     }
 
     function showPlanEditor(index = null) {
+      teardownPlanEditor();
       const existing = index === null ? null : (state.plans || weekPlan)[index];
       planEditorOpener = document.activeElement;
       document.getElementById('screen').inert = true;
-      document.getElementById('overlay-root').innerHTML = `
+      const overlayRoot = document.getElementById('overlay-root');
+      overlayRoot.innerHTML = `
         <div class="confirm-overlay" role="presentation">
           <section class="confirm-card plan-editor-card" role="dialog" aria-modal="true" aria-labelledby="plan-editor-title">
             <h2 id="plan-editor-title">${existing ? '编辑计划' : '新计划'}</h2>
@@ -1749,16 +1751,35 @@
             </div>
           </section>
         </div>`;
+      overlayRoot.addEventListener('keydown', trapPlanEditorFocus);
       document.querySelector('[data-testid="plan-name-input"]').focus();
     }
 
-    function closePlanEditor({ restoreFocus = true } = {}) {
+    function teardownPlanEditor({ restoreFocus = false } = {}) {
+      const overlayRoot = document.getElementById('overlay-root');
+      overlayRoot.removeEventListener('keydown', trapPlanEditorFocus);
       document.getElementById('screen').inert = false;
-      document.getElementById('overlay-root').innerHTML = '';
+      overlayRoot.innerHTML = '';
       const opener = planEditorOpener;
       planEditorOpener = undefined;
       if (restoreFocus && opener?.isConnected) opener.focus();
       return opener;
+    }
+
+    function trapPlanEditorFocus(event) {
+      const dialog = event.target.closest('.plan-editor-card');
+      if (!dialog || event.key !== 'Tab') return;
+
+      const focusable = [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled])')];
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
 
     function savePlan(index) {
@@ -1778,7 +1799,7 @@
       else plans.push(plan);
       state.plans = plans;
       saveState();
-      closePlanEditor({ restoreFocus: false });
+      teardownPlanEditor();
       navigate('plan');
       const focusTarget = Number.isInteger(index) && index >= 0
         ? document.querySelector(`[data-plan-index="${index}"]`)
@@ -1948,23 +1969,7 @@
         const rawIndex = actionTarget.dataset.planEditIndex;
         savePlan(rawIndex === '' ? null : Number(rawIndex));
       } else if (actionTarget.dataset.action === 'cancel-plan-editor') {
-        closePlanEditor();
-      }
-    });
-
-    document.getElementById('overlay-root').addEventListener('keydown', event => {
-      const dialog = event.target.closest('.plan-editor-card');
-      if (!dialog || event.key !== 'Tab') return;
-
-      const focusable = [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled])')];
-      const first = focusable[0];
-      const last = focusable.at(-1);
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
+        teardownPlanEditor({ restoreFocus: true });
       }
     });
 

@@ -208,6 +208,22 @@ test('plan editor traps focus, makes the background inert, and restores the open
   assert.equal(await opener.evaluate(element => element === document.activeElement), true);
 });
 
+test('browser navigation tears down the plan editor and clears inert state', async () => {
+  await page.getByRole('button', { name: '计划' }).click();
+  await page.getByRole('button', { name: '新计划' }).click();
+  assert.equal(await page.locator('#screen').evaluate(element => element.inert), true);
+
+  await page.goBack();
+  assert.equal(new URL(page.url()).hash, '#home');
+  assert.equal(await page.locator('.plan-editor-card').count(), 0);
+  assert.equal(await page.locator('#screen').evaluate(element => element.inert), false);
+
+  const homeAction = page.getByTestId('home-primary-action');
+  assert.equal(await homeAction.isVisible(), true);
+  await homeAction.focus();
+  assert.equal(await homeAction.evaluate(element => element === document.activeElement), true);
+});
+
 test('action library is secondary, searchable, and row-clickable', async () => {
   await page.getByRole('button', { name: '首页' }).click();
   await page.getByTestId('open-library').click();
