@@ -1,5 +1,6 @@
 package com.shanqijie.fitnessapp.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,6 +64,7 @@ fun FitnessAppRoot(
         homeUiState = snapshot.toHomeUiState(),
         weekDays = state.toFourDayStrip(),
         heroAssetPath = state.heroAssetPath(snapshot.action),
+        heroTitle = state.homeHeroTitle(snapshot.action),
         venueName = state.venue?.name ?: "本地训练",
         modifier = modifier,
     )
@@ -74,12 +76,16 @@ fun FitnessAppRootContent(
     modifier: Modifier = Modifier,
     weekDays: List<HomeDayUi> = defaultFourDayStrip(),
     heroAssetPath: String? = null,
+    heroTitle: String = homeUiState.nextWorkout?.name ?: "安排下一次训练",
     venueName: String = "本地训练",
 ) {
     var navState by rememberSaveable(stateSaver = FitnessNavStateSaver) {
         mutableStateOf(FitnessNavState())
     }
     val navigate: (AppRoute) -> Unit = { route -> navState = navState.navigateTo(route) }
+    BackHandler(enabled = navState.route !is AppRoute.Primary) {
+        navState = navState.navigateTo(navState.backRoute())
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -99,6 +105,7 @@ fun FitnessAppRootContent(
                     state = homeUiState,
                     weekDays = weekDays,
                     heroAssetPath = heroAssetPath,
+                    heroTitle = heroTitle,
                     venueName = venueName,
                     onNavigate = navigate,
                     modifier = Modifier.padding(contentPadding),
@@ -259,6 +266,24 @@ private fun FitnessAppState.heroAssetPath(action: HomePrimaryAction): String? {
     return exercises.firstOrNull { it.exerciseId == exerciseId }?.localPath
         ?: plannedExerciseViews.firstOrNull()?.media?.localPath
         ?: exercises.firstOrNull()?.localPath
+}
+
+private fun FitnessAppState.homeHeroTitle(action: HomePrimaryAction): String = when (action) {
+    is HomePrimaryAction.Start -> plannedWorkouts
+        .firstOrNull { it.id == action.planId }
+        ?.name
+        ?: "开始今日训练"
+    is HomePrimaryAction.Resume -> workoutSessions
+        .firstOrNull { it.id == action.sessionId }
+        ?.plannedWorkoutId
+        ?.let { planId -> plannedWorkouts.firstOrNull { it.id == planId }?.name }
+        ?: "继续自由训练"
+    is HomePrimaryAction.Result -> workoutSessions
+        .firstOrNull { it.id == action.sessionId }
+        ?.plannedWorkoutId
+        ?.let { planId -> plannedWorkouts.firstOrNull { it.id == planId }?.name }
+        ?: "本次自由训练"
+    HomePrimaryAction.CreatePlan -> "安排下一次训练"
 }
 
 private fun FitnessAppState.toFourDayStrip(today: LocalDate = LocalDate.now()): List<HomeDayUi> =

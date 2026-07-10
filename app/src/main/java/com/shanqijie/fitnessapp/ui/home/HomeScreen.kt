@@ -59,6 +59,7 @@ fun HomeScreen(
     onNavigate: (AppRoute) -> Unit,
     modifier: Modifier = Modifier,
     heroAssetPath: String? = null,
+    heroTitle: String = state.nextWorkout?.name ?: "安排下一次训练",
     venueName: String = "本地训练",
 ) {
     LazyColumn(
@@ -76,13 +77,14 @@ fun HomeScreen(
         item {
             HomeGreeting(
                 venueName = venueName,
-                workoutName = state.nextWorkout?.name,
+                workoutName = heroTitle,
             )
         }
         item {
             HomeWorkoutHero(
                 state = state,
                 heroAssetPath = heroAssetPath,
+                heroTitle = heroTitle,
                 onNavigate = onNavigate,
             )
         }
@@ -146,6 +148,7 @@ private fun HomeGreeting(
 private fun HomeWorkoutHero(
     state: HomeUiState,
     heroAssetPath: String?,
+    heroTitle: String,
     onNavigate: (AppRoute) -> Unit,
 ) {
     Card(
@@ -175,7 +178,7 @@ private fun HomeWorkoutHero(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
-                        text = state.nextWorkout?.name ?: "安排下一次训练",
+                        text = heroTitle,
                         color = FitnessColors.OnHero,
                         fontSize = 28.sp,
                         lineHeight = 34.sp,
@@ -200,7 +203,7 @@ private fun HomeWorkoutHero(
                     if (!heroAssetPath.isNullOrBlank()) {
                         FitnessGifImage(
                             assetPath = heroAssetPath,
-                            contentDescription = "${state.nextWorkout?.name ?: "今日训练"}动作示范",
+                            contentDescription = "${heroTitle}动作示范",
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
@@ -240,7 +243,7 @@ private fun WeeklyProgress(
             Text("本周", style = MaterialTheme.typography.headlineSmall)
             Text(
                 text = "$completed / ${target.coerceAtLeast(0)} 次",
-                color = FitnessColors.Green,
+                color = FitnessColors.Ink,
                 fontWeight = FontWeight.Bold,
             )
         }
