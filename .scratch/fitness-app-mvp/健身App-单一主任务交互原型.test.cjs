@@ -232,3 +232,26 @@ test('action library is secondary, searchable, and row-clickable', async () => {
   await page.getByTestId('exercise-row').click();
   assert.equal(await page.getByRole('heading', { name: '史密斯机卧推' }).isVisible(), true);
 });
+
+test('adding a meal updates the daily summary and survives refresh', async () => {
+  await page.getByRole('button', { name: '饮食' }).click();
+  await page.getByTestId('add-meal').click();
+  await page.getByRole('button', { name: '手动记录' }).click();
+  await page.getByLabel('食物名称').fill('鸡胸肉饭');
+  await page.getByLabel('热量 kcal').fill('520');
+  await page.getByLabel('蛋白质 g').fill('42');
+  await page.getByTestId('save-meal').click();
+  assert.match(await page.getByTestId('calorie-total').innerText(), /520/);
+  await page.reload();
+  assert.equal(await page.getByText('鸡胸肉饭').isVisible(), true);
+});
+
+test('profile is summary-first and smart status is internally consistent', async () => {
+  await page.getByRole('button', { name: '我的' }).click();
+  assert.equal(await page.getByTestId('profile-summary').isVisible(), true);
+  assert.equal(await page.locator('input').count(), 0);
+  await page.getByRole('button', { name: '智能设置' }).click();
+  const status = await page.getByTestId('smart-status').innerText();
+  assert.ok(status === '未配置' || status === '已连接');
+  assert.equal(status.includes('已连接') && (await page.getByText('密钥未保存').count() > 0), false);
+});

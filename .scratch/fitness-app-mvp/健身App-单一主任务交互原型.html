@@ -723,7 +723,9 @@
       line-height: 1.6;
     }
 
-    .plan-editor-card label {
+    .plan-editor-card label,
+    .food-form label,
+    .profile-form label {
       display: block;
       margin-top: 14px;
       color: var(--muted);
@@ -731,7 +733,9 @@
       font-weight: 700;
     }
 
-    .plan-editor-card input {
+    .plan-editor-card input,
+    .food-form input,
+    .profile-form input {
       width: 100%;
       min-height: var(--touch);
       margin-top: 6px;
@@ -741,6 +745,331 @@
       background: var(--surface);
       color: var(--ink);
       font: inherit;
+    }
+
+    .food-screen,
+    .profile-screen,
+    .settings-screen {
+      padding-bottom: 24px;
+    }
+
+    .nutrition-grid,
+    .profile-metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .nutrition-card,
+    .profile-metric {
+      min-height: 94px;
+      padding: 16px;
+      border: 1px solid rgba(17, 21, 27, 0.07);
+      border-radius: 18px;
+      background: var(--surface);
+    }
+
+    .nutrition-card span,
+    .nutrition-card strong,
+    .profile-metric span,
+    .profile-metric strong {
+      display: block;
+    }
+
+    .nutrition-card span,
+    .profile-metric span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .nutrition-card strong,
+    .profile-metric strong {
+      margin-top: 13px;
+      font-family: ui-rounded, "SF Pro Rounded", sans-serif;
+      font-size: 23px;
+      letter-spacing: -0.04em;
+    }
+
+    .nutrition-card:first-child {
+      background: var(--hero);
+      color: #fff;
+    }
+
+    .nutrition-card:first-child span {
+      color: rgba(255, 255, 255, 0.64);
+    }
+
+    .nutrition-card:first-child strong {
+      color: var(--green);
+    }
+
+    .food-add,
+    .settings-primary {
+      width: 100%;
+      min-height: 58px;
+      margin-top: 12px;
+      border-radius: var(--radius-sm);
+      background: var(--orange);
+      color: #17120f;
+      font-weight: 840;
+    }
+
+    .food-timeline,
+    .profile-summary,
+    .settings-list,
+    .settings-card {
+      margin-top: 18px;
+      overflow: hidden;
+      border: 1px solid rgba(17, 21, 27, 0.07);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+    }
+
+    .food-timeline h2,
+    .settings-section-title {
+      margin: 0;
+      padding: 16px 16px 10px;
+      font-size: 15px;
+    }
+
+    .food-entry {
+      display: grid;
+      grid-template-columns: 52px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      min-height: 70px;
+      padding: 11px 16px;
+      border-top: 1px solid rgba(17, 21, 27, 0.07);
+    }
+
+    .food-entry time {
+      color: var(--muted);
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+      font-size: 11px;
+      font-weight: 760;
+    }
+
+    .food-entry strong,
+    .food-entry span {
+      display: block;
+    }
+
+    .food-entry strong {
+      overflow: hidden;
+      font-size: 14px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .food-entry span {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .food-entry > em {
+      color: var(--green-text);
+      font-size: 12px;
+      font-style: normal;
+      font-weight: 780;
+    }
+
+    .food-empty {
+      margin: 0;
+      padding: 28px 16px;
+      border-top: 1px solid rgba(17, 21, 27, 0.07);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+      text-align: center;
+    }
+
+    .sheet-options,
+    .chip-options {
+      display: grid;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .sheet-options {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sheet-options button,
+    .chip-option {
+      min-height: 58px;
+      padding: 0 12px;
+      border-radius: 14px;
+      background: var(--surface-soft);
+      font-size: 13px;
+      font-weight: 780;
+    }
+
+    .sheet-options button:first-child {
+      background: rgba(36, 200, 105, 0.16);
+    }
+
+    .field-error {
+      min-height: 17px;
+      margin: 5px 0 0 !important;
+      color: #a33b22 !important;
+      font-size: 11px !important;
+      font-weight: 700;
+    }
+
+    .macro-fields {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .local-draft {
+      margin-top: 16px;
+      padding: 16px;
+      border: 1px dashed rgba(8, 123, 58, 0.45);
+      border-radius: 16px;
+      background: rgba(36, 200, 105, 0.1);
+    }
+
+    .local-draft strong,
+    .local-draft span {
+      display: block;
+    }
+
+    .local-draft strong {
+      margin-top: 6px;
+      font-size: 16px;
+    }
+
+    .local-draft span {
+      margin-top: 5px;
+      color: var(--green-text);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .profile-summary {
+      padding: 18px;
+    }
+
+    .profile-summary h2,
+    .profile-summary p {
+      margin: 0;
+    }
+
+    .profile-summary h2 {
+      font-size: 22px;
+    }
+
+    .profile-summary p {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .profile-summary button {
+      width: 100%;
+      margin-top: 16px;
+      border-radius: 14px;
+      background: var(--surface-soft);
+      font-size: 13px;
+      font-weight: 780;
+    }
+
+    .profile-metrics {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 10px;
+    }
+
+    .profile-metric {
+      min-height: 86px;
+      padding: 13px 11px;
+    }
+
+    .profile-metric strong {
+      margin-top: 10px;
+      font-size: 18px;
+    }
+
+    .settings-row {
+      display: grid;
+      width: 100%;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      min-height: 62px;
+      padding: 10px 16px;
+      border-top: 1px solid rgba(17, 21, 27, 0.07);
+      background: transparent;
+      font-size: 14px;
+      font-weight: 750;
+      text-align: left;
+    }
+
+    .settings-row:first-child {
+      border-top: 0;
+    }
+
+    .settings-row span:last-child {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 680;
+    }
+
+    .settings-card {
+      padding: 18px;
+    }
+
+    .settings-card h2,
+    .settings-card p {
+      margin: 0;
+    }
+
+    .settings-card h2 {
+      font-size: 18px;
+    }
+
+    .settings-card p {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .smart-status-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(17, 21, 27, 0.07);
+    }
+
+    .smart-status-line strong {
+      color: var(--green-text);
+    }
+
+    .chip-options {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .chip-option[aria-pressed="true"] {
+      background: var(--green);
+      color: #112016;
+    }
+
+    .danger-action {
+      width: 100%;
+      margin-top: 10px;
+      border: 1px solid rgba(163, 59, 34, 0.25);
+      border-radius: 14px;
+      background: transparent;
+      color: #8f321d;
+      font-size: 13px;
+      font-weight: 780;
     }
 
     .training-prep-screen,
@@ -1345,6 +1674,8 @@
       libraryFilter: '胸',
       foodEntries: [],
       profile: { nickname: '我', goal: '增肌减脂', heightCm: 176, weightKg: 75 },
+      venue: { name: '公司健身房', equipment: ['史密斯机', '哑铃'] },
+      smartConfigured: false,
     };
 
     function loadState() {
@@ -1358,7 +1689,7 @@
     let state = loadState();
     let toastTimer;
     let restTimer;
-    let planEditorOpener;
+    let overlayOpener;
 
     function saveState() {
       try {
@@ -1423,7 +1754,7 @@
           </section>
 
           <div class="quick-actions" aria-label="快捷操作">
-            <button class="quick-action" data-route="food">记饮食</button>
+            <button class="quick-action" data-route="food">记一餐</button>
             <button class="quick-action" data-testid="open-library" data-route="library">动作库</button>
           </div>
         </div>`;
@@ -1510,7 +1841,7 @@
           <button class="back-action" data-route="home" aria-label="返回首页">← 首页</button>
           <header class="page-header"><div><p>本地动作资源</p><h1>动作库</h1></div></header>
           <div class="library-search-wrap">
-            <input class="library-search" data-testid="library-search" type="search" value="${state.libraryQuery || ''}" placeholder="搜索动作、部位或器械" aria-label="搜索动作">
+            <input class="library-search" data-testid="library-search" type="search" value="${escapeHtml(state.libraryQuery || '')}" placeholder="搜索动作、部位或器械" aria-label="搜索动作">
           </div>
           <div class="library-filters" aria-label="动作筛选">
             ${filters.map(filter => `<button class="library-filter ${state.libraryFilter === filter ? 'active' : ''}" data-library-filter="${filter}" aria-pressed="${state.libraryFilter === filter}">${filter}</button>`).join('')}
@@ -1685,6 +2016,156 @@
         </div>`;
     }
 
+    function numericValue(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : 0;
+    }
+
+    function formatMealTime(value) {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '--:--';
+      return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+    }
+
+    function renderFood() {
+      const entries = Array.isArray(state.foodEntries) ? state.foodEntries : [];
+      const totals = entries.reduce((summary, entry) => ({
+        calories: summary.calories + numericValue(entry.calories),
+        protein: summary.protein + numericValue(entry.protein),
+        carbs: summary.carbs + numericValue(entry.carbs),
+        fat: summary.fat + numericValue(entry.fat),
+      }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+      const newestFirst = [...entries].sort((left, right) => {
+        const rightTime = new Date(right.loggedAt).getTime() || 0;
+        const leftTime = new Date(left.loggedAt).getTime() || 0;
+        return rightTime - leftTime;
+      });
+
+      return `
+        <div class="screen-content food-screen" data-testid="food-screen">
+          <header class="page-header">
+            <div><p>今天·仅保存在本机</p><h1>饮食记录</h1></div>
+          </header>
+          <section class="nutrition-grid" aria-label="今日营养摘要">
+            <div class="nutrition-card"><span>热量</span><strong data-testid="calorie-total">${totals.calories} kcal</strong></div>
+            <div class="nutrition-card"><span>蛋白质</span><strong>${totals.protein} g</strong></div>
+            <div class="nutrition-card"><span>碳水</span><strong>${totals.carbs} g</strong></div>
+            <div class="nutrition-card"><span>脂肪</span><strong>${totals.fat} g</strong></div>
+          </section>
+          <button class="food-add" data-testid="add-meal" data-action="open-food-sheet">添加一餐</button>
+          <section class="food-timeline" aria-labelledby="food-timeline-title">
+            <h2 id="food-timeline-title">今日时间线</h2>
+            ${newestFirst.length ? newestFirst.map(entry => `
+              <article class="food-entry">
+                <time datetime="${escapeHtml(entry.loggedAt || '')}">${formatMealTime(entry.loggedAt)}</time>
+                <div><strong>${escapeHtml(entry.name || '未命名食物')}</strong><span>蛋白 ${numericValue(entry.protein)} g · 碳水 ${numericValue(entry.carbs)} g · 脂肪 ${numericValue(entry.fat)} g</span></div>
+                <em>${numericValue(entry.calories)} kcal</em>
+              </article>`).join('') : '<p class="food-empty">还没有记录。添加第一餐后，今日摘要会在这里实时更新。</p>'}
+          </section>
+        </div>`;
+    }
+
+    function renderProfile() {
+      const profile = { ...DEFAULT_STATE.profile, ...(state.profile || {}) };
+      const logs = Array.isArray(state.logs) ? state.logs : [];
+      const volume = logs.reduce((sum, log) => sum + numericValue(log.weightKg) * numericValue(log.reps), 0);
+      const smartStatus = state.smartConfigured ? '已连接' : '未配置';
+
+      return `
+        <div class="screen-content profile-screen" data-testid="profile-screen">
+          <header class="page-header"><div><p>个人本地档案</p><h1>我的</h1></div></header>
+          <section class="profile-summary" data-testid="profile-summary">
+            <h2>${escapeHtml(profile.nickname)}</h2>
+            <p>${escapeHtml(profile.goal)} · ${numericValue(profile.heightCm)} cm · ${numericValue(profile.weightKg)} kg</p>
+            <button data-route="profile-edit">编辑资料</button>
+          </section>
+          <section class="profile-metrics" aria-label="训练摘要">
+            <div class="profile-metric"><span>本周训练</span><strong>${numericValue(state.weeklyCompleted)} / 3</strong></div>
+            <div class="profile-metric"><span>已记录组</span><strong>${logs.length}</strong></div>
+            <div class="profile-metric"><span>累计容量</span><strong>${volume} kg</strong></div>
+          </section>
+          <section class="settings-list" aria-label="个人设置">
+            <button class="settings-row" data-route="profile-edit"><span>训练偏好</span><span>${escapeHtml(profile.goal)} ›</span></button>
+            <button class="settings-row" data-route="venue-settings"><span>场地与器械</span><span>${escapeHtml((state.venue || DEFAULT_STATE.venue).name)} ›</span></button>
+            <button class="settings-row" data-route="smart-settings"><span>智能设置</span><span>${smartStatus} ›</span></button>
+            <button class="settings-row" data-route="data-settings"><span>数据备份</span><span>仅本机 ›</span></button>
+            <button class="settings-row" data-route="about"><span>关于</span><span>i fitness ›</span></button>
+          </section>
+        </div>`;
+    }
+
+    function renderProfileEdit() {
+      const profile = { ...DEFAULT_STATE.profile, ...(state.profile || {}) };
+      return `
+        <div class="screen-content settings-screen" data-testid="profile-edit-screen">
+          <button class="back-action" data-route="profile" aria-label="返回我的">← 我的</button>
+          <header class="page-header"><div><p>仅修改本地档案</p><h1>编辑资料</h1></div></header>
+          <section class="settings-card profile-form">
+            <label>昵称<input data-profile-field="nickname" value="${escapeHtml(profile.nickname)}"></label>
+            <label>训练目标<input data-profile-field="goal" value="${escapeHtml(profile.goal)}"></label>
+            <label>身高 cm<input data-profile-field="heightCm" type="number" min="1" value="${numericValue(profile.heightCm)}"></label>
+            <label>体重 kg<input data-profile-field="weightKg" type="number" min="1" step="0.1" value="${numericValue(profile.weightKg)}"></label>
+            <button class="settings-primary" type="button" data-action="save-profile">保存资料</button>
+          </section>
+        </div>`;
+    }
+
+    function renderVenueSettings() {
+      const venue = { ...DEFAULT_STATE.venue, ...(state.venue || {}) };
+      const selected = Array.isArray(venue.equipment) ? venue.equipment : [];
+      const equipment = ['史密斯机', '哑铃', '杠铃', '高位下拉', '自重区', '跑步机'];
+      return `
+        <div class="screen-content settings-screen" data-testid="venue-settings-screen">
+          <button class="back-action" data-route="profile" aria-label="返回我的">← 我的</button>
+          <header class="page-header"><div><p>生成计划时作为约束</p><h1>场地与器械</h1></div></header>
+          <section class="settings-card">
+            <h2>${escapeHtml(venue.name)}</h2>
+            <p>选择当前可用器械，修改会立即保存在本机。</p>
+            <div class="chip-options" aria-label="可用器械">
+              ${equipment.map(item => `<button class="chip-option" data-venue-equipment="${escapeHtml(item)}" aria-pressed="${selected.includes(item)}">${escapeHtml(item)}</button>`).join('')}
+            </div>
+          </section>
+        </div>`;
+    }
+
+    function renderSmartSettings() {
+      const smartStatus = state.smartConfigured ? '已连接' : '未配置';
+      return `
+        <div class="screen-content settings-screen" data-testid="smart-settings-screen">
+          <button class="back-action" data-route="profile" aria-label="返回我的">← 我的</button>
+          <header class="page-header"><div><p>智能能力本地配置</p><h1>智能设置</h1></div></header>
+          <section class="settings-card">
+            <h2>DeepSeek 演示连接</h2>
+            <p>${state.smartConfigured ? '配置状态已保存在本机，原型不会发起网络请求。' : '密钥未保存。可启用本地演示连接，不会上传数据。'}</p>
+            <div class="smart-status-line"><span>连接状态</span><strong data-testid="smart-status">${smartStatus}</strong></div>
+            <button class="settings-primary" data-action="toggle-smart">${state.smartConfigured ? '断开演示连接' : '启用演示连接'}</button>
+          </section>
+        </div>`;
+    }
+
+    function renderDataSettings() {
+      return `
+        <div class="screen-content settings-screen" data-testid="data-settings-screen">
+          <button class="back-action" data-route="profile" aria-label="返回我的">← 我的</button>
+          <header class="page-header"><div><p>本地数据管理</p><h1>数据备份</h1></div></header>
+          <section class="settings-card">
+            <h2>备份演示数据</h2>
+            <p>确认后生成一份仅用于原型验证的本地备份状态。</p>
+            <button class="settings-primary" data-action="request-backup">备份本地数据</button>
+            <button class="danger-action" data-action="request-reset">重置演示数据</button>
+          </section>
+        </div>`;
+    }
+
+    function renderAbout() {
+      return `
+        <div class="screen-content settings-screen" data-testid="about-screen">
+          <button class="back-action" data-route="profile" aria-label="返回我的">← 我的</button>
+          <header class="page-header"><div><p>本地优先健身助手</p><h1>关于</h1></div></header>
+          <section class="settings-card"><h2>i fitness 交互原型</h2><p>训练、饮食与个人设置均保存在当前浏览器，无账号，无云同步。</p></section>
+        </div>`;
+    }
+
     function renderPlaceholder(route) {
       const content = {
         plan: ['PL', '训练计划', '把本周要练什么安排在这里。'],
@@ -1703,26 +2184,30 @@
     }
 
     function render() {
-      teardownPlanEditor();
+      closeOverlay();
       const screen = document.getElementById('screen');
-      const content = state.route === 'home'
-        ? renderHome()
-        : state.route === 'plan'
-          ? renderPlan()
-          : state.route === 'plan-detail'
-            ? renderPlanDetail()
-            : state.route === 'library'
-              ? renderLibrary()
-              : state.route === 'exercise-detail'
-                ? renderExerciseDetail()
-        : state.route === 'training-prep'
-          ? renderTrainingPrep()
-          : state.route === 'training-active'
-            ? renderTrainingActive()
-            : state.route === 'workout-summary'
-              ? renderWorkoutSummary()
-              : renderPlaceholder(state.route);
-      const hidesNavigation = ['training-active', 'workout-summary', 'library', 'exercise-detail', 'plan-detail'].includes(state.route);
+      const routeRenderers = {
+        home: renderHome,
+        plan: renderPlan,
+        'plan-detail': renderPlanDetail,
+        library: renderLibrary,
+        'exercise-detail': renderExerciseDetail,
+        'training-prep': renderTrainingPrep,
+        'training-active': renderTrainingActive,
+        'workout-summary': renderWorkoutSummary,
+        food: renderFood,
+        profile: renderProfile,
+        'profile-edit': renderProfileEdit,
+        'venue-settings': renderVenueSettings,
+        'smart-settings': renderSmartSettings,
+        'data-settings': renderDataSettings,
+        about: renderAbout,
+      };
+      const content = (routeRenderers[state.route] || (() => renderPlaceholder(state.route)))();
+      const hidesNavigation = [
+        'training-active', 'workout-summary', 'library', 'exercise-detail', 'plan-detail',
+        'profile-edit', 'venue-settings', 'smart-settings', 'data-settings', 'about',
+      ].includes(state.route);
       screen.innerHTML = `${content}${hidesNavigation ? '' : renderBottomNav()}`;
       syncRestCountdown();
     }
@@ -1733,13 +2218,8 @@
     }
 
     function showPlanEditor(index = null) {
-      teardownPlanEditor();
       const existing = index === null ? null : (state.plans || weekPlan)[index];
-      planEditorOpener = document.activeElement;
-      document.getElementById('screen').inert = true;
-      const overlayRoot = document.getElementById('overlay-root');
-      overlayRoot.innerHTML = `
-        <div class="confirm-overlay" role="presentation">
+      openOverlay(`
           <section class="confirm-card plan-editor-card" role="dialog" aria-modal="true" aria-labelledby="plan-editor-title">
             <h2 id="plan-editor-title">${existing ? '编辑计划' : '新计划'}</h2>
             <p>修改会保存在当前浏览器，不会同步到云端。</p>
@@ -1749,25 +2229,36 @@
               <button data-action="cancel-plan-editor">取消</button>
               <button class="confirm-end" data-action="save-plan" data-plan-edit-index="${index ?? ''}">保存计划</button>
             </div>
-          </section>
-        </div>`;
-      overlayRoot.addEventListener('keydown', trapPlanEditorFocus);
-      document.querySelector('[data-testid="plan-name-input"]').focus();
+          </section>`, { initialFocus: '[data-testid="plan-name-input"]' });
     }
 
-    function teardownPlanEditor({ restoreFocus = false } = {}) {
+    function openOverlay(content, { initialFocus, preserveOpener = false } = {}) {
+      const preservedOpener = preserveOpener ? overlayOpener : undefined;
+      closeOverlay();
+      overlayOpener = preservedOpener?.isConnected ? preservedOpener : document.activeElement;
+      document.getElementById('screen').inert = true;
       const overlayRoot = document.getElementById('overlay-root');
-      overlayRoot.removeEventListener('keydown', trapPlanEditorFocus);
+      overlayRoot.innerHTML = `<div class="confirm-overlay" role="presentation">${content}</div>`;
+      overlayRoot.addEventListener('keydown', trapOverlayFocus);
+      const focusTarget = initialFocus
+        ? overlayRoot.querySelector(initialFocus)
+        : overlayRoot.querySelector('button:not([disabled]), input:not([disabled])');
+      focusTarget?.focus();
+    }
+
+    function closeOverlay({ restoreFocus = false } = {}) {
+      const overlayRoot = document.getElementById('overlay-root');
+      overlayRoot.removeEventListener('keydown', trapOverlayFocus);
       document.getElementById('screen').inert = false;
       overlayRoot.innerHTML = '';
-      const opener = planEditorOpener;
-      planEditorOpener = undefined;
+      const opener = overlayOpener;
+      overlayOpener = undefined;
       if (restoreFocus && opener?.isConnected) opener.focus();
       return opener;
     }
 
-    function trapPlanEditorFocus(event) {
-      const dialog = event.target.closest('.plan-editor-card');
+    function trapOverlayFocus(event) {
+      const dialog = event.target.closest('[role="dialog"]');
       if (!dialog || event.key !== 'Tab') return;
 
       const focusable = [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled])')];
@@ -1799,13 +2290,139 @@
       else plans.push(plan);
       state.plans = plans;
       saveState();
-      teardownPlanEditor();
+      closeOverlay();
       navigate('plan');
       const focusTarget = Number.isInteger(index) && index >= 0
         ? document.querySelector(`[data-plan-index="${index}"]`)
         : document.querySelector('[data-action="show-plan-editor"]');
       focusTarget?.focus();
       showToast('计划已保存');
+    }
+
+    function openFoodSheet({ preserveOpener = false } = {}) {
+      openOverlay(`
+        <section class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="food-sheet-title">
+          <h2 id="food-sheet-title">添加一餐</h2>
+          <p>拍照估算只生成本地演示草稿；也可以手动输入准确数值。</p>
+          <div class="sheet-options">
+            <button type="button" data-action="food-photo">拍照估算</button>
+            <button type="button" data-action="food-manual">手动记录</button>
+          </div>
+          <button class="danger-action" type="button" data-action="close-overlay">取消</button>
+        </section>`, { preserveOpener });
+    }
+
+    function openFoodManualForm() {
+      openOverlay(`
+        <section class="confirm-card food-form" role="dialog" aria-modal="true" aria-labelledby="food-manual-title">
+          <h2 id="food-manual-title">手动记录</h2>
+          <p>食物名称和热量为必填项，错误时会保留已输入内容。</p>
+          <form data-testid="meal-form" novalidate>
+            <label for="meal-name">食物名称</label>
+            <input id="meal-name" name="name" aria-describedby="meal-name-error" autocomplete="off">
+            <p class="field-error" id="meal-name-error" aria-live="polite"></p>
+            <label for="meal-calories">热量 kcal</label>
+            <input id="meal-calories" name="calories" type="number" min="1" inputmode="decimal" aria-describedby="meal-calories-error">
+            <p class="field-error" id="meal-calories-error" aria-live="polite"></p>
+            <div class="macro-fields">
+              <label for="meal-protein">蛋白质 g<input id="meal-protein" name="protein" type="number" min="0" inputmode="decimal"></label>
+              <label for="meal-carbs">碳水 g<input id="meal-carbs" name="carbs" type="number" min="0" inputmode="decimal"></label>
+              <label for="meal-fat">脂肪 g<input id="meal-fat" name="fat" type="number" min="0" inputmode="decimal"></label>
+            </div>
+            <div class="confirm-actions">
+              <button type="button" data-action="food-back">返回</button>
+              <button type="button" class="confirm-end" data-testid="save-meal" data-action="save-meal">保存记录</button>
+            </div>
+          </form>
+        </section>`, { initialFocus: '#meal-name', preserveOpener: true });
+    }
+
+    function openFoodPhotoDraft() {
+      openOverlay(`
+        <section class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="food-photo-title">
+          <h2 id="food-photo-title">拍照估算</h2>
+          <p>本原型不上传图片，以预设结果演示“确认后入库”。</p>
+          <div class="local-draft" data-testid="local-photo-draft">
+            <span>本地演示草稿</span>
+            <strong>鸡肉杂粮碗</strong>
+            <span>480 kcal · 蛋白 38 g · 碳水 52 g · 脂肪 13 g</span>
+          </div>
+          <div class="confirm-actions">
+            <button type="button" data-action="food-back">返回</button>
+            <button type="button" class="confirm-end" data-action="confirm-food-photo">确认加入</button>
+          </div>
+        </section>`, { preserveOpener: true });
+    }
+
+    function submitFoodForm(formElement) {
+      const form = Object.fromEntries(new FormData(formElement).entries());
+      const nameInput = formElement.elements.name;
+      const caloriesInput = formElement.elements.calories;
+      const nameError = document.getElementById('meal-name-error');
+      const caloriesError = document.getElementById('meal-calories-error');
+      const validName = Boolean(String(form.name || '').trim());
+      const calories = Number(form.calories);
+      const validCalories = String(form.calories || '').trim() !== '' && Number.isFinite(calories) && calories > 0;
+
+      nameInput.setAttribute('aria-invalid', String(!validName));
+      caloriesInput.setAttribute('aria-invalid', String(!validCalories));
+      nameError.textContent = validName ? '' : '请输入食物名称';
+      caloriesError.textContent = validCalories ? '' : '请输入大于 0 的热量';
+      if (!validName || !validCalories) {
+        (validName ? caloriesInput : nameInput).focus();
+        return;
+      }
+      saveFoodEntry(form);
+    }
+
+    function saveFoodEntry(form) {
+      const entry = {
+        id: crypto.randomUUID(),
+        name: String(form.name).trim(),
+        calories: Number(form.calories),
+        protein: Number(form.protein || 0),
+        carbs: Number(form.carbs || 0),
+        fat: Number(form.fat || 0),
+        loggedAt: new Date().toISOString(),
+      };
+      state.foodEntries = Array.isArray(state.foodEntries) ? state.foodEntries : [];
+      state.foodEntries.push(entry);
+      saveState();
+      closeOverlay();
+      render();
+      showToast('饮食记录已保存');
+    }
+
+    function saveProfile() {
+      const inputs = document.querySelectorAll('[data-profile-field]');
+      const values = Object.fromEntries([...inputs].map(input => [input.dataset.profileField, input.value]));
+      const heightCm = Number(values.heightCm);
+      const weightKg = Number(values.weightKg);
+      if (!values.nickname.trim() || !values.goal.trim() || heightCm <= 0 || weightKg <= 0) {
+        showToast('请完整填写档案信息');
+        return;
+      }
+      state.profile = {
+        nickname: values.nickname.trim(),
+        goal: values.goal.trim(),
+        heightCm,
+        weightKg,
+      };
+      saveState();
+      navigate('profile');
+      showToast('个人资料已保存');
+    }
+
+    function showConfirmation({ title, body, confirmAction, confirmLabel, testId = '' }) {
+      openOverlay(`
+        <section class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirmation-title">
+          <h2 id="confirmation-title">${escapeHtml(title)}</h2>
+          <p>${escapeHtml(body)}</p>
+          <div class="confirm-actions">
+            <button type="button" data-action="close-overlay">取消</button>
+            <button type="button" class="confirm-end" ${testId ? `data-testid="${escapeHtml(testId)}"` : ''} data-action="${escapeHtml(confirmAction)}">${escapeHtml(confirmLabel)}</button>
+          </div>
+        </section>`);
     }
 
     function syncRestCountdown() {
@@ -1829,8 +2446,7 @@
 
     function showEndWorkoutConfirmation() {
       clearInterval(restTimer);
-      document.getElementById('overlay-root').innerHTML = `
-        <div class="confirm-overlay" role="presentation">
+      openOverlay(`
           <section class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="end-workout-title">
             <h2 id="end-workout-title">确认结束训练？</h2>
             <p>已完成的组数会保留，本次训练将进入总结。</p>
@@ -1838,8 +2454,7 @@
               <button data-action="cancel-end-workout">继续训练</button>
               <button class="confirm-end" data-testid="confirm-end-workout" data-action="confirm-end-workout">确认结束</button>
             </div>
-          </section>
-        </div>`;
+          </section>`);
     }
 
     function showToast(message) {
@@ -1886,6 +2501,18 @@
       const libraryFilterTarget = event.target.closest('[data-library-filter]');
       if (libraryFilterTarget) {
         state.libraryFilter = libraryFilterTarget.dataset.libraryFilter;
+        saveState();
+        render();
+        return;
+      }
+
+      const venueEquipmentTarget = event.target.closest('[data-venue-equipment]');
+      if (venueEquipmentTarget) {
+        const venue = { ...DEFAULT_STATE.venue, ...(state.venue || {}) };
+        const selected = new Set(Array.isArray(venue.equipment) ? venue.equipment : []);
+        if (selected.has(venueEquipmentTarget.dataset.venueEquipment)) selected.delete(venueEquipmentTarget.dataset.venueEquipment);
+        else selected.add(venueEquipmentTarget.dataset.venueEquipment);
+        state.venue = { ...venue, equipment: [...selected] };
         saveState();
         render();
         return;
@@ -1945,6 +2572,34 @@
         case 'show-plan-editor':
           showPlanEditor(actionTarget.dataset.planEditIndex === undefined ? null : Number(actionTarget.dataset.planEditIndex));
           break;
+        case 'open-food-sheet':
+          openFoodSheet();
+          break;
+        case 'save-profile':
+          saveProfile();
+          break;
+        case 'toggle-smart':
+          state.smartConfigured = !state.smartConfigured;
+          saveState();
+          render();
+          showToast(state.smartConfigured ? '演示连接已启用' : '演示连接已断开');
+          break;
+        case 'request-backup':
+          showConfirmation({
+            title: '确认备份？',
+            body: '将为当前原型数据生成一份本地演示备份状态。',
+            confirmAction: 'confirm-backup',
+            confirmLabel: '确认备份',
+          });
+          break;
+        case 'request-reset':
+          showConfirmation({
+            title: '重置演示数据？',
+            body: '训练、计划、饮食和个人设置都会恢复默认值，此操作不可撤销。',
+            confirmAction: 'confirm-reset',
+            confirmLabel: '确认重置',
+          });
+          break;
       }
     });
 
@@ -1963,13 +2618,35 @@
       if (actionTarget.dataset.action === 'confirm-end-workout') {
         finishWorkout();
       } else if (actionTarget.dataset.action === 'cancel-end-workout') {
-        document.getElementById('overlay-root').innerHTML = '';
+        closeOverlay({ restoreFocus: true });
         syncRestCountdown();
       } else if (actionTarget.dataset.action === 'save-plan') {
         const rawIndex = actionTarget.dataset.planEditIndex;
         savePlan(rawIndex === '' ? null : Number(rawIndex));
       } else if (actionTarget.dataset.action === 'cancel-plan-editor') {
-        teardownPlanEditor({ restoreFocus: true });
+        closeOverlay({ restoreFocus: true });
+      } else if (actionTarget.dataset.action === 'close-overlay') {
+        closeOverlay({ restoreFocus: true });
+      } else if (actionTarget.dataset.action === 'food-manual') {
+        openFoodManualForm();
+      } else if (actionTarget.dataset.action === 'food-photo') {
+        openFoodPhotoDraft();
+      } else if (actionTarget.dataset.action === 'food-back') {
+        openFoodSheet({ preserveOpener: true });
+      } else if (actionTarget.dataset.action === 'save-meal') {
+        submitFoodForm(actionTarget.closest('form'));
+      } else if (actionTarget.dataset.action === 'confirm-food-photo') {
+        saveFoodEntry({ name: '鸡肉杂粮碗（本地照片演示）', calories: 480, protein: 38, carbs: 52, fat: 13 });
+      } else if (actionTarget.dataset.action === 'confirm-backup') {
+        closeOverlay({ restoreFocus: true });
+        showToast('本地演示备份已确认');
+      } else if (actionTarget.dataset.action === 'confirm-reset') {
+        closeOverlay();
+        localStorage.removeItem(STORAGE_KEY);
+        state = structuredClone(DEFAULT_STATE);
+        history.replaceState(null, '', '#home');
+        render();
+        showToast('演示数据已重置');
       }
     });
 
