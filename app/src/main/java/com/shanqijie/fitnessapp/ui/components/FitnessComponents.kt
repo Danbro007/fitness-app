@@ -1,5 +1,7 @@
 package com.shanqijie.fitnessapp.ui.components
 
+import android.content.Context
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,12 +38,46 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.ImageLoader
 import coil.compose.AsyncImage
-import coil.imageLoader
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import com.shanqijie.fitnessapp.ui.navigation.FitnessTestTags
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import com.shanqijie.fitnessapp.ui.theme.FitnessDimensions
+
+internal enum class GifDecoderKind {
+    GifDecoder,
+    ImageDecoder,
+}
+
+internal fun gifDecoderKindFor(apiLevel: Int): GifDecoderKind =
+    if (apiLevel >= 28) GifDecoderKind.ImageDecoder else GifDecoderKind.GifDecoder
+
+internal class SharedInstance<T : Any> {
+    @Volatile
+    private var instance: T? = null
+
+    fun get(create: () -> T): T =
+        instance ?: synchronized(this) {
+            instance ?: create().also { instance = it }
+        }
+}
+
+private val SharedGifImageLoader = SharedInstance<ImageLoader>()
+
+private fun fitnessGifImageLoader(context: Context): ImageLoader =
+    SharedGifImageLoader.get {
+        ImageLoader.Builder(context.applicationContext)
+            .components {
+                when (gifDecoderKindFor(Build.VERSION.SDK_INT)) {
+                    GifDecoderKind.ImageDecoder -> add(ImageDecoderDecoder.Factory())
+                    GifDecoderKind.GifDecoder -> add(GifDecoder.Factory())
+                }
+            }
+            .build()
+    }
 
 @Composable
 fun FitnessPrimaryButton(
@@ -159,7 +195,7 @@ fun FitnessGifImage(
     contentScale: ContentScale = ContentScale.Crop,
 ) {
     val context = LocalContext.current
-    val imageLoader = context.imageLoader
+    val imageLoader = fitnessGifImageLoader(context)
     val model = remember(assetPath) {
         when {
             "://" in assetPath -> assetPath

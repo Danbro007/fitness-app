@@ -2,6 +2,9 @@ package com.shanqijie.fitnessapp
 
 import com.shanqijie.fitnessapp.domain.HomePrimaryAction
 import com.shanqijie.fitnessapp.domain.HomeSnapshot
+import com.shanqijie.fitnessapp.ui.components.GifDecoderKind
+import com.shanqijie.fitnessapp.ui.components.SharedInstance
+import com.shanqijie.fitnessapp.ui.components.gifDecoderKindFor
 import com.shanqijie.fitnessapp.ui.model.TrainingEvent
 import com.shanqijie.fitnessapp.ui.model.TrainingExerciseUi
 import com.shanqijie.fitnessapp.ui.model.TrainingPhase
@@ -12,6 +15,7 @@ import com.shanqijie.fitnessapp.ui.navigation.AppRoute
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -85,6 +89,31 @@ class FitnessUiModelsTest {
                 blocked.reduce(TrainingEvent.SetCompleted(restEndsAt = 120_000L)),
             )
         }
+    }
+
+    @Test
+    fun gifLoaderSingletonCreatesValueOnlyOnce() {
+        val singleton = SharedInstance<Any>()
+        var createCount = 0
+
+        val first = singleton.get {
+            createCount += 1
+            Any()
+        }
+        val second = singleton.get {
+            createCount += 1
+            Any()
+        }
+
+        assertSame(first, second)
+        assertEquals(1, createCount)
+    }
+
+    @Test
+    fun gifLoaderSelectsDecoderForAndroidApiLevel() {
+        assertEquals(GifDecoderKind.GifDecoder, gifDecoderKindFor(27))
+        assertEquals(GifDecoderKind.ImageDecoder, gifDecoderKindFor(28))
+        assertEquals(GifDecoderKind.ImageDecoder, gifDecoderKindFor(36))
     }
 
     private fun contrastRatio(foreground: androidx.compose.ui.graphics.Color, background: androidx.compose.ui.graphics.Color): Double {
