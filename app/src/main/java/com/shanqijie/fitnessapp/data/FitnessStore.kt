@@ -2,9 +2,25 @@ package com.shanqijie.fitnessapp.data
 
 import android.content.ContentValues
 import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteStatement
 
 class FitnessStore(private val database: FitnessDatabase) {
+    @Synchronized
+    fun <T> transaction(block: FitnessStore.() -> T): T {
+        val db = database.writableDatabase
+        if (db.inTransaction()) return block()
+
+        db.beginTransaction()
+        return try {
+            val result = block()
+            db.setTransactionSuccessful()
+            result
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     fun upsertVenue(entity: TrainingVenueEntity) {
         database.writableDatabase.insertWithOnConflict(
             "training_venue",
@@ -1024,31 +1040,34 @@ class FitnessStore(private val database: FitnessDatabase) {
         )
     }
 
+    @Synchronized
     fun clearPersonalData() {
         val db = database.writableDatabase
-        db.beginTransaction()
-        try {
-            listOf(
-                "workout_set_log",
-                "workout_session_exercise",
-                "workout_session",
-                "planned_exercise",
-                "planned_workout",
-                "food_log",
-                "ai_draft",
-                "training_adjustment",
-                "app_preference",
-                "venue_equipment",
-                "user_profile",
-                "equipment",
-                "training_venue",
-                "ai_provider",
-            ).forEach { table ->
-                db.delete(table, null, null)
-            }
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
+        if (db.inTransaction()) {
+            clearPersonalDataTables(db)
+        } else {
+            transaction { clearPersonalDataTables(db) }
+        }
+    }
+
+    private fun clearPersonalDataTables(db: SQLiteDatabase) {
+        listOf(
+            "workout_set_log",
+            "workout_session_exercise",
+            "workout_session",
+            "planned_exercise",
+            "planned_workout",
+            "food_log",
+            "ai_draft",
+            "training_adjustment",
+            "app_preference",
+            "venue_equipment",
+            "user_profile",
+            "equipment",
+            "training_venue",
+            "ai_provider",
+        ).forEach { table ->
+            db.delete(table, null, null)
         }
     }
 

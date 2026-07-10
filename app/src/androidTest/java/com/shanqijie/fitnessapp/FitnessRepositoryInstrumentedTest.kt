@@ -17,6 +17,11 @@ import com.shanqijie.fitnessapp.data.TrainingVenueEntity
 import com.shanqijie.fitnessapp.data.UserProfileEntity
 import com.shanqijie.fitnessapp.data.WorkoutSessionEntity
 import com.shanqijie.fitnessapp.domain.HomePrimaryAction
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -390,6 +395,203 @@ class FitnessRepositoryInstrumentedTest {
         assertEquals(timeProvider.currentTimeMillis() + 75_000L, restoredSession?.restEndsAt)
         assertEquals(listOf("0748", "0289"), store.sessionExercises(session.id).map { it.exerciseId })
         assertEquals(store.sessionExercises(session.id).first().id, store.setLogs(session.id).single().sessionExerciseId)
+    }
+
+    @Test
+    fun legacyCompatibilityApisShareOneLinkedSessionAcrossExercises() = runBlocking {
+        seedExercises()
+        seedPlan(
+            planId = "plan-legacy",
+            scheduledDate = "2026-07-10",
+            exercises = listOf(
+                PlannedExerciseSeed("0748", targetSets = 1, targetWeightKg = 70.0),
+                PlannedExerciseSeed("0289", targetSets = 1, targetWeightKg = 24.0),
+            ),
+        )
+
+        val firstSessionId = repository.sessionIdFor("plan-legacy", "0748")
+        val secondSessionId = repository.sessionIdFor("plan-legacy", "0289")
+        assertEquals(firstSessionId, secondSessionId)
+
+        repository.completeSet(
+            sessionId = firstSessionId,
+            exerciseId = "0748",
+            setIndex = 1,
+            reps = 8,
+            weightKg = 70.0,
+            feeling = "合适",
+        )
+        repository.completeSet(
+            sessionId = secondSessionId,
+            exerciseId = "0289",
+            setIndex = 1,
+            reps = 10,
+            weightKg = 24.0,
+            feeling = "轻松",
+        )
+        repository.finishWorkoutSession(
+            sessionId = secondSessionId,
+            plannedWorkoutId = "plan-legacy",
+            venueId = "venue-1",
+            exerciseId = "0289",
+        )
+
+        val session = store.workoutSessions().single()
+        val logs = store.setLogs(session.id)
+        assertEquals("completed", session.status)
+        assertEquals(listOf("0748", "0289"), store.sessionExercises(session.id).map { it.exerciseId })
+        assertEquals(2, logs.size)
+        assertTrue(logs.all { it.sessionId == session.id })
+        assertTrue(logs.all { it.sessionExerciseId != null })
+    }
+
+    @Test
+    fun concurrentWorkoutStartsReturnOneActiveSession() = runBlocking {
+        seedExercises()
+        seedPlan(
+            planId = "plan-concurrent-start",
+            scheduledDate = "2026-07-10",
+            exercises = listOf(PlannedExerciseSeed("0748", targetSets = 2, targetWeightKg = 70.0)),
+        )
+
+        val gate = CompletableDeferred<Unit>()
+        val results = coroutineScope {
+            List(16) {
+                async(Dispatchers.IO) {
+                    gate.await()
+                    repository.startWorkout("plan-concurrent-start")
+                }
+            }.also { gate.complete(Unit) }.awaitAll()
+        }
+
+        assertEquals(1, results.map { it.id }.distinct().size)
+        assertEquals(1, store.workoutSessions().count { it.plannedWorkoutId == "plan-concurrent-start" })
+        assertEquals(1, store.sessionExercises(results.first().id).size)
+    }
+
+    @Test
+    fun concurrentDuplicateSetTapsPersistExactlyOneSet() = runBlocking {
+        seedExercises()
+        seedPlan(
+            planId = "plan-concurrent-record",
+            scheduledDate = "2026-07-10",
+            exercises = listOf(PlannedExerciseSeed("0748", targetSets = 1, targetWeightKg = 70.0)),
+        )
+        val session = repository.startWorkout("plan-concurrent-record")
+        val gate = CompletableDeferred<Unit>()
+
+        val results = coroutineScope {
+            List(12) {
+                async(Dispatchers.IO) {
+                    gate.await()
+                    runCatching {
+                        repository.recordWorkoutSet(
+                            sessionId = session.id,
+                            exerciseId = "0748",
+                            reps = 8,
+                            weightKg = 70.0,
+                            feeling = "合适",
+                        )
+                    }
+                }
+            }.also { gate.complete(Unit) }.awaitAll()
+        }
+
+        assertEquals(1, results.count { it.isSuccess })
+        assertEquals(11, results.count { it.isFailure })
+        assertEquals(1, store.setLogs(session.id, "0748").size)
+        assertEquals(1, store.setLogs(session.id, "0748").single().setIndex)
+    }
+
+    @Test
+    fun failedV2ImportLeavesExistingLocalDataUntouched() = runBlocking {
+        seedExercises()
+        seedPlan(
+            planId = "plan-import-atomic",
+            scheduledDate = "2026-07-10",
+            exercises = listOf(PlannedExerciseSeed("0748", targetSets = 2, targetWeightKg = 70.0)),
+        )
+        repository.saveUserProfile(
+            displayName = "导入前用户",
+            birthYear = 1994,
+            heightCm = 176.0,
+            weightKg = 76.0,
+            goal = "增肌",
+            injuries = "",
+            weeklyTrainingDays = 4,
+            preferredMinutes = 50,
+        )
+        val session = repository.startWorkout("plan-import-atomic")
+        repository.recordWorkoutSet(
+            sessionId = session.id,
+            exerciseId = "0748",
+            reps = 8,
+            weightKg = 70.0,
+            feeling = "合适",
+        )
+        val payload = FitnessBackupCodec.decode(repository.exportBackupJson())
+        val originalLog = payload.setLogs.single()
+        val invalidPayload = payload.copy(
+            userProfile = payload.userProfile?.copy(displayName = "不应写入"),
+            setLogs = payload.setLogs + originalLog.copy(id = "duplicate-linked-set"),
+        )
+
+        val failure = runCatching {
+            repository.importBackupJson(FitnessBackupCodec.encode(invalidPayload))
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertEquals("导入前用户", store.userProfile()?.displayName)
+        assertEquals(listOf(session.id), store.workoutSessions().map { it.id })
+        assertEquals(listOf(originalLog.id), store.setLogs(session.id).map { it.id })
+    }
+
+    @Test
+    fun recordWorkoutSetRejectsBlankFeeling() = runBlocking {
+        seedExercises()
+        seedPlan(
+            planId = "plan-blank-feeling",
+            scheduledDate = "2026-07-10",
+            exercises = listOf(PlannedExerciseSeed("0748", targetSets = 1, targetWeightKg = 70.0)),
+        )
+        val session = repository.startWorkout("plan-blank-feeling")
+
+        val failure = runCatching {
+            repository.recordWorkoutSet(
+                sessionId = session.id,
+                exerciseId = "0748",
+                reps = 8,
+                weightKg = 70.0,
+                feeling = "   ",
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(store.setLogs(session.id).isEmpty())
+    }
+
+    @Test
+    fun startWorkoutRejectsSkippedAndCompletedPlansWithoutActiveSessions() = runBlocking {
+        seedExercises()
+        seedPlan(
+            planId = "plan-skipped",
+            scheduledDate = "2026-07-10",
+            status = "skipped",
+            exercises = listOf(PlannedExerciseSeed("0748", targetSets = 1, targetWeightKg = 70.0)),
+        )
+        seedPlan(
+            planId = "plan-completed-state",
+            scheduledDate = "2026-07-10",
+            status = "completed",
+            exercises = listOf(PlannedExerciseSeed("0748", targetSets = 1, targetWeightKg = 70.0)),
+        )
+
+        val skippedFailure = runCatching { repository.startWorkout("plan-skipped") }.exceptionOrNull()
+        val completedFailure = runCatching { repository.startWorkout("plan-completed-state") }.exceptionOrNull()
+
+        assertTrue(skippedFailure is IllegalArgumentException)
+        assertTrue(completedFailure is IllegalArgumentException)
+        assertTrue(store.workoutSessions().isEmpty())
     }
 
     @Test
