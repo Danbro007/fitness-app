@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,7 +57,9 @@ import com.shanqijie.fitnessapp.ui.components.FitnessSurfaceCard
 import com.shanqijie.fitnessapp.ui.navigation.FitnessTestTags
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import com.shanqijie.fitnessapp.ui.theme.FitnessDimensions
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.max
@@ -108,7 +111,7 @@ fun TrainingPreparationScreen(
     ) {
         Text(
             text = "TRAINING / READY",
-            color = FitnessColors.Green,
+            color = FitnessColors.Ink,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
         )
@@ -131,7 +134,7 @@ fun TrainingPreparationScreen(
                 ) {
                     Text(
                         text = (index + 1).toString().padStart(2, '0'),
-                        color = FitnessColors.Green,
+                        color = FitnessColors.Ink,
                         fontWeight = FontWeight.Bold,
                     )
                     Column(
@@ -161,7 +164,7 @@ fun TrainingPreparationScreen(
 fun TrainingActiveScreen(
     state: TrainingActiveScreenUi,
     onSelectExercise: (String) -> Unit,
-    onRecordSet: (reps: Int, weightKg: Double, feeling: String) -> Unit,
+    onRecordSet: suspend (reps: Int, weightKg: Double, feeling: String) -> Unit,
     onRestFinished: () -> Unit,
     onSkipRest: () -> Unit,
     onFinishWorkout: () -> Unit,
@@ -174,7 +177,22 @@ fun TrainingActiveScreen(
     var weightKg by rememberSaveable(current.exerciseId) { mutableStateOf(current.targetWeightKg) }
     var feeling by rememberSaveable(current.exerciseId) { mutableStateOf(WorkoutFeelings[1]) }
     var showFinishDialog by rememberSaveable { mutableStateOf(false) }
+    var isRecording by remember { mutableStateOf(false) }
+    var submittedCompletedSets by remember { mutableStateOf<Int?>(null) }
+    var recordError by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
     val resting = state.restEndsAt != null
+
+    LaunchedEffect(current.exerciseId, current.completedSets, state.restEndsAt) {
+        val submittedSets = submittedCompletedSets
+        if (
+            isRecording && submittedSets != null &&
+            (current.completedSets > submittedSets || state.restEndsAt != null)
+        ) {
+            isRecording = false
+            submittedCompletedSets = null
+        }
+    }
 
     BackHandler { showFinishDialog = true }
 
@@ -217,17 +235,46 @@ fun TrainingActiveScreen(
             }
         },
         bottomBar = {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(FitnessColors.Hero)
                     .navigationBarsPadding()
                     .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                recordError?.let { message ->
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
                 FitnessPrimaryButton(
-                    text = if (resting) "休息中" else "完成本组",
-                    onClick = { onRecordSet(reps, weightKg, feeling) },
-                    enabled = !resting && current.completedSets < current.targetSets,
+                    text = when {
+                        resting -> "休息中"
+                        isRecording -> "保存中…"
+                        else -> "完成本组"
+                    },
+                    onClick = {
+                        if (!isRecording) {
+                            isRecording = true
+                            submittedCompletedSets = current.completedSets
+                            recordError = null
+                            coroutineScope.launch {
+                                try {
+                                    onRecordSet(reps, weightKg, feeling)
+                                } catch (cancellation: CancellationException) {
+                                    throw cancellation
+                                } catch (error: Exception) {
+                                    recordError = error.message ?: "保存训练组失败，请重试"
+                                    isRecording = false
+                                    submittedCompletedSets = null
+                                }
+                            }
+                        }
+                    },
+                    enabled = !resting && !isRecording && current.completedSets < current.targetSets,
                     testTag = FitnessTestTags.CompleteSet,
                 )
             }
@@ -483,7 +530,7 @@ fun WorkoutSummaryScreen(
     ) {
         Text(
             text = "WORKOUT / SAVED",
-            color = FitnessColors.Green,
+            color = FitnessColors.Ink,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
         )

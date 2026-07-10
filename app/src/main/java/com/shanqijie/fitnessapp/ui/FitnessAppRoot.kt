@@ -31,6 +31,7 @@ import com.shanqijie.fitnessapp.domain.ExerciseChineseNameTranslator
 import com.shanqijie.fitnessapp.domain.HomePrimaryAction
 import com.shanqijie.fitnessapp.domain.WorkoutSummary
 import com.shanqijie.fitnessapp.ui.components.FitnessBottomNav
+import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
 import com.shanqijie.fitnessapp.ui.home.HomeDayUi
 import com.shanqijie.fitnessapp.ui.home.HomeScreen
 import com.shanqijie.fitnessapp.ui.model.HomeUiState
@@ -71,8 +72,10 @@ fun FitnessAppRoot(
 
     val snapshot = repository.homeSnapshot(state)
     val initialRoute = state.unfinishedSessions
-        .maxByOrNull { it.updatedAt }
-        ?.let { AppRoute.TrainingActive(it.id) }
+        .sortedByDescending { it.updatedAt }
+        .firstNotNullOfOrNull { session ->
+            state.toTrainingActive(session.id)?.let { AppRoute.TrainingActive(session.id) }
+        }
         ?: AppRoute.Primary(PrimaryTab.Home)
     FitnessAppRootContent(
         homeUiState = snapshot.toHomeUiState(),
@@ -105,10 +108,18 @@ fun FitnessAppRootContent(
     var completedSummary by remember { mutableStateOf<WorkoutSummary?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val navigate: (AppRoute) -> Unit = { route -> navState = navState.navigateTo(route) }
+    val activeRouteState = (navState.route as? AppRoute.TrainingActive)
+        ?.let { route -> appState?.toTrainingActive(route.sessionId) }
+    val activeRouteRecoverable = activeRouteState != null && repository != null
     BackHandler(
-        enabled = navState.route !is AppRoute.Primary && navState.route !is AppRoute.TrainingActive,
+        enabled = navState.route !is AppRoute.Primary &&
+            (navState.route !is AppRoute.TrainingActive || !activeRouteRecoverable),
     ) {
-        navState = navState.navigateTo(navState.backRoute())
+        navState = if (navState.route is AppRoute.TrainingActive && !activeRouteRecoverable) {
+            navState.selectPrimary(PrimaryTab.Home)
+        } else {
+            navState.navigateTo(navState.backRoute())
+        }
     }
 
     Scaffold(
@@ -183,11 +194,10 @@ fun FitnessAppRootContent(
                 modifier = Modifier.padding(contentPadding),
             )
             is AppRoute.TrainingActive -> {
-                val activeState = appState?.toTrainingActive(route.sessionId)
+                val activeState = activeRouteState
                 if (activeState == null || repository == null) {
-                    RoutePlaceholder(
-                        title = "正在恢复训练",
-                        subtitle = "读取这台设备上的训练进度…",
+                    UnrecoverableTrainingRoute(
+                        onReturnHome = { navState = navState.selectPrimary(PrimaryTab.Home) },
                         modifier = Modifier.padding(contentPadding),
                     )
                 } else {
@@ -214,15 +224,13 @@ fun FitnessAppRootContent(
                             }
                         },
                         onRecordSet = { reps, weightKg, feeling ->
-                            coroutineScope.launch {
-                                repository.recordWorkoutSet(
-                                    sessionId = activeState.sessionId,
-                                    exerciseId = activeState.currentExerciseId,
-                                    reps = reps,
-                                    weightKg = weightKg,
-                                    feeling = feeling,
-                                )
-                            }
+                            repository.recordWorkoutSet(
+                                sessionId = activeState.sessionId,
+                                exerciseId = activeState.currentExerciseId,
+                                reps = reps,
+                                weightKg = weightKg,
+                                feeling = feeling,
+                            )
                         },
                         onRestFinished = completeRest,
                         onSkipRest = completeRest,
@@ -268,6 +276,27 @@ fun FitnessAppRootContent(
             AppRoute.DataBackup -> RoutePlaceholder("数据备份", "导出或恢复本地数据", Modifier.padding(contentPadding))
             AppRoute.About -> RoutePlaceholder("关于", "i fitness 本地优先版", Modifier.padding(contentPadding))
         }
+    }
+}
+
+@Composable
+private fun UnrecoverableTrainingRoute(
+    onReturnHome: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(FitnessColors.Phone)
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text("无法恢复这次训练", style = MaterialTheme.typography.headlineLarge)
+        Text("这条旧记录没有可恢复的动作快照。", style = MaterialTheme.typography.bodyLarge)
+        FitnessPrimaryButton(
+            text = "返回首页",
+            onClick = onReturnHome,
+        )
     }
 }
 

@@ -3,26 +3,46 @@ package com.shanqijie.fitnessapp
 import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso.pressBack
 import com.shanqijie.fitnessapp.data.FitnessDatabase
 import com.shanqijie.fitnessapp.data.FitnessRepository
 import com.shanqijie.fitnessapp.data.FitnessStore
+import com.shanqijie.fitnessapp.data.WorkoutSessionEntity
+import com.shanqijie.fitnessapp.domain.WorkoutSummary
 import com.shanqijie.fitnessapp.ui.FitnessAppRoot
+import com.shanqijie.fitnessapp.ui.FitnessAppRootContent
+import com.shanqijie.fitnessapp.ui.model.toHomeUiState
+import com.shanqijie.fitnessapp.ui.navigation.AppRoute
 import com.shanqijie.fitnessapp.ui.navigation.FitnessTestTags
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
 import com.shanqijie.fitnessapp.ui.theme.FitnessTheme
+import com.shanqijie.fitnessapp.ui.theme.FitnessColors
+import com.shanqijie.fitnessapp.ui.training.TrainingActiveScreen
+import com.shanqijie.fitnessapp.ui.training.TrainingActiveScreenUi
+import com.shanqijie.fitnessapp.ui.training.TrainingExerciseScreenUi
+import com.shanqijie.fitnessapp.ui.training.WorkoutSummaryScreen
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -35,6 +55,7 @@ class FitnessTrainingFlowUiTest {
 
     private lateinit var context: Context
     private lateinit var database: FitnessDatabase
+    private lateinit var store: FitnessStore
     private lateinit var repository: FitnessRepository
     private lateinit var databaseName: String
 
@@ -44,9 +65,9 @@ class FitnessTrainingFlowUiTest {
         databaseName = "fitness-training-ui-${System.nanoTime()}.db"
         context.deleteDatabase(databaseName)
         database = FitnessDatabase(context, databaseName)
-        repository = FitnessRepository(context, FitnessStore(database))
+        store = FitnessStore(database)
+        repository = FitnessRepository(context, store)
         runBlocking { repository.bootstrap() }
-        showRealRoot()
     }
 
     @After
@@ -59,6 +80,7 @@ class FitnessTrainingFlowUiTest {
 
     @Test
     fun workoutFlowPersistsAcrossActivityRecreationAndUpdatesHome() {
+        showRealRoot()
         composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Training)).performClick()
         composeRule.onNodeWithTag(FitnessTestTags.TrainingPrep).assertIsDisplayed()
         composeRule.onNodeWithTag(FitnessTestTags.StartWorkout).performClick()
@@ -112,6 +134,152 @@ class FitnessTrainingFlowUiTest {
         assertEquals("completed", completedState.workoutSessions.single().status)
     }
 
+    @Test
+    fun legacyUnfinishedSessionWithoutExerciseSnapshotStartsOnHome() {
+        val state = runBlocking { repository.appState().first() }
+        val now = System.currentTimeMillis()
+        store.upsertWorkoutSession(
+            WorkoutSessionEntity(
+                id = "legacy-unrecoverable-session",
+                plannedWorkoutId = null,
+                venueId = requireNotNull(state.venue).id,
+                exerciseId = FitnessRepository.SMITH_BENCH_PRESS_ID,
+                status = "in_progress",
+                startedAt = now,
+                endedAt = null,
+                updatedAt = now,
+                currentExerciseId = FitnessRepository.SMITH_BENCH_PRESS_ID,
+            ),
+        )
+
+        composeRule.setContent {
+            FitnessTheme { FitnessAppRoot(repository = repository) }
+        }
+        composeRule.waitUntil(timeoutMillis = 30_000) {
+            composeRule.onAllNodesWithTag(FitnessTestTags.HomePrimaryAction).fetchSemanticsNodes().isNotEmpty() ||
+                composeRule.onAllNodesWithTag(FitnessTestTags.BottomNav).fetchSemanticsNodes().isNotEmpty() ||
+                composeRule.onAllNodesWithTag(FitnessTestTags.TrainingActive).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithTag(FitnessTestTags.HomePrimaryAction).assertIsDisplayed()
+        composeRule.onNodeWithTag(FitnessTestTags.BottomNav).assertIsDisplayed()
+        composeRule.onNodeWithTag(FitnessTestTags.TrainingActive).assertDoesNotExist()
+    }
+
+    @Test
+    fun invalidSavedActiveRouteOffersReturnHomeAndAllowsSystemBack() {
+        val state = runBlocking { repository.appState().first() }
+        val homeUiState = repository.homeSnapshot(state).toHomeUiState()
+        composeRule.setContent {
+            FitnessTheme {
+                FitnessAppRootContent(
+                    homeUiState = homeUiState,
+                    repository = repository,
+                    appState = state,
+                    initialRoute = AppRoute.TrainingActive("missing-session"),
+                )
+            }
+        }
+
+        waitForText("无法恢复这次训练")
+        composeRule.onNodeWithText("返回首页").assertIsDisplayed()
+        pressBack()
+        waitForTag(FitnessTestTags.HomePrimaryAction)
+    }
+
+    @Test
+    fun rapidDoubleTapOnCompleteSetWritesOnlyOneLog() {
+        showRealRoot()
+        composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Training)).performClick()
+        composeRule.onNodeWithTag(FitnessTestTags.StartWorkout).performClick()
+        waitForTag(FitnessTestTags.TrainingActive)
+
+        composeRule.onNodeWithTag(FitnessTestTags.CompleteSet).performTouchInput {
+            click()
+            click()
+        }
+
+        waitForTag(FitnessTestTags.RestPanel)
+        val state = runBlocking { repository.appState().first() }
+        val session = state.unfinishedSessions.single()
+        assertEquals(1, state.workoutSetLogs.count { it.sessionId == session.id })
+    }
+
+    @Test
+    fun recordFailureIsShownAndDoesNotEscapeComposition() {
+        val activeState = sampleActiveState()
+        composeRule.setContent {
+            FitnessTheme {
+                TrainingActiveScreen(
+                    state = activeState,
+                    onSelectExercise = {},
+                    onRecordSet = { _, _, _ -> error("保存训练组失败") },
+                    onRestFinished = {},
+                    onSkipRest = {},
+                    onFinishWorkout = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(FitnessTestTags.CompleteSet).performClick()
+        composeRule.onNodeWithText("保存训练组失败").assertIsDisplayed()
+        composeRule.onNodeWithTag(FitnessTestTags.CompleteSet).assertIsDisplayed().assertIsEnabled()
+    }
+
+    @Test
+    fun phoneSurfaceLabelsUseInkInsteadOfSuccessGreen() {
+        showRealRoot()
+        composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Training)).performClick()
+        assertTextContainsColor("TRAINING / READY", FitnessColors.Ink)
+        assertTextDoesNotContainColor("TRAINING / READY", FitnessColors.Green)
+        assertTextContainsColor("01", FitnessColors.Ink)
+        assertTextDoesNotContainColor("01", FitnessColors.Green)
+
+        composeRule.runOnUiThread {
+            composeRule.activity.setContent {
+                FitnessTheme {
+                    WorkoutSummaryScreen(
+                        summary = WorkoutSummary(
+                            sessionId = "summary-contrast",
+                            completedSets = 1,
+                            targetSets = 4,
+                            totalVolumeKg = 560.0,
+                            durationSeconds = 60,
+                            feelingCounts = mapOf("合适" to 1),
+                        ),
+                        weeklyCompleted = 1,
+                        weeklyTarget = 3,
+                        onDone = {},
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+        assertTextContainsColor("WORKOUT / SAVED", FitnessColors.Ink)
+        assertTextDoesNotContainColor("WORKOUT / SAVED", FitnessColors.Green)
+    }
+
+    @Test
+    fun naturalRestExpiryCallsRestFinishedOnce() {
+        val activeState = sampleActiveState().copy(restEndsAt = System.currentTimeMillis() + 250L)
+        val restFinishedCount = mutableIntStateOf(0)
+        composeRule.setContent {
+            FitnessTheme {
+                TrainingActiveScreen(
+                    state = activeState,
+                    onSelectExercise = {},
+                    onRecordSet = { _, _, _ -> },
+                    onRestFinished = { restFinishedCount.intValue += 1 },
+                    onSkipRest = {},
+                    onFinishWorkout = {},
+                )
+            }
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) { restFinishedCount.intValue == 1 }
+        assertEquals(1, restFinishedCount.intValue)
+    }
+
     private fun showRealRoot() {
         composeRule.setContent {
             FitnessTheme {
@@ -125,5 +293,67 @@ class FitnessTrainingFlowUiTest {
         composeRule.waitUntil(timeoutMillis = 60_000) {
             composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    private fun waitForText(text: String) {
+        composeRule.waitUntil(timeoutMillis = 30_000) {
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun sampleActiveState(): TrainingActiveScreenUi {
+        val state = runBlocking { repository.appState().first() }
+        val view = state.plannedExerciseViews.first()
+        return TrainingActiveScreenUi(
+            sessionId = "screen-only-session",
+            planName = "界面回归训练",
+            currentExerciseId = view.plannedExercise.exerciseId,
+            restEndsAt = null,
+            exercises = listOf(
+                TrainingExerciseScreenUi(
+                    sessionExerciseId = view.plannedExercise.id,
+                    exerciseId = view.plannedExercise.exerciseId,
+                    name = view.media.name,
+                    detail = "胸部 · 史密斯机",
+                    assetPath = view.media.localPath,
+                    targetSets = view.plannedExercise.targetSets,
+                    targetReps = view.plannedExercise.targetReps,
+                    targetWeightKg = view.plannedExercise.targetWeightKg,
+                    completedSets = 0,
+                ),
+            ),
+        )
+    }
+
+    private fun assertTextContainsColor(text: String, expected: Color) {
+        assertTrue(
+            "Expected '$text' to contain ${expected.value.toString(16)}",
+            nodeContainsColor(text, expected),
+        )
+    }
+
+    private fun assertTextDoesNotContainColor(text: String, unexpected: Color) {
+        assertFalse(
+            "Expected '$text' not to contain ${unexpected.value.toString(16)}",
+            nodeContainsColor(text, unexpected),
+        )
+    }
+
+    private fun nodeContainsColor(text: String, expected: Color): Boolean {
+        val pixels = composeRule.onNodeWithText(text).captureToImage().toPixelMap()
+        for (x in 0 until pixels.width) {
+            for (y in 0 until pixels.height) {
+                val color = pixels[x, y]
+                if (
+                    kotlin.math.abs(color.red - expected.red) < 0.025f &&
+                    kotlin.math.abs(color.green - expected.green) < 0.025f &&
+                    kotlin.math.abs(color.blue - expected.blue) < 0.025f &&
+                    color.alpha > 0.8f
+                ) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 }
