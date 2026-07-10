@@ -30,19 +30,27 @@ class FitnessNavigationTest {
 
     @Test
     fun secondaryRoutesReturnToTheirRecordedOrigin() {
-        val library = AppRoute.Library(
+        val sessionLibrary = AppRoute.Library(
             origin = PrimaryTab.Training,
             sessionId = "session-1",
         )
         val detail = AppRoute.ExerciseDetail(
             exerciseId = "0748",
-            origin = library,
+            origin = sessionLibrary,
+        )
+        val planLibrary = AppRoute.Library(
+            origin = PrimaryTab.Plan,
+            planId = "plan-1",
         )
 
-        assertEquals(library, FitnessNavState(detail).backRoute())
+        assertEquals(sessionLibrary, FitnessNavState(detail).backRoute())
         assertEquals(
-            AppRoute.Primary(PrimaryTab.Training),
-            FitnessNavState(library).backRoute(),
+            AppRoute.TrainingActive("session-1"),
+            FitnessNavState(sessionLibrary).backRoute(),
+        )
+        assertEquals(
+            AppRoute.PlanEdit("plan-1"),
+            FitnessNavState(planLibrary).backRoute(),
         )
         assertEquals(
             AppRoute.Primary(PrimaryTab.Plan),

@@ -222,6 +222,62 @@ class FitnessRepositoryInstrumentedTest {
     }
 
     @Test
+    fun fourWeekDraftConfirmationCreatesAllPlansOnceAndRejectsInvalidDrafts() = runBlocking {
+        seedExercises()
+        val draft = repository.generateWeeklyPlanDraft()
+        store.upsertAiDraft(draft.copy(id = "wrong-type-draft", type = "food_estimate"))
+
+        val wrongTypeError = runCatching {
+            repository.confirmFourWeekPlanDraft("wrong-type-draft")
+        }.exceptionOrNull()
+        assertTrue(wrongTypeError is IllegalArgumentException)
+        assertTrue(store.plannedWorkouts().isEmpty())
+
+        val workouts = repository.confirmFourWeekPlanDraft(draft.id)
+
+        assertEquals(
+            listOf("2026-07-11", "2026-07-18", "2026-07-25", "2026-08-01"),
+            workouts.map { it.scheduledDate },
+        )
+        assertEquals(4, workouts.map { it.id }.distinct().size)
+        workouts.forEach { workout ->
+            assertEquals(listOf("0748", "0289"), store.plannedExercises(workout.id).map { it.exerciseId })
+        }
+        assertEquals("confirmed", store.aiDraft(draft.id)?.status)
+
+        val repeatedError = runCatching {
+            repository.confirmFourWeekPlanDraft(draft.id)
+        }.exceptionOrNull()
+        assertTrue(repeatedError is IllegalArgumentException)
+        assertEquals(4, store.plannedWorkouts().size)
+    }
+
+    @Test
+    fun fourWeekDraftConfirmationRollsBackPlansAndDraftWhenAWriteFails() = runBlocking {
+        seedExercises()
+        val draft = repository.generateWeeklyPlanDraft()
+        db.writableDatabase.execSQL(
+            """
+            CREATE TEMP TRIGGER fail_third_four_week_plan
+            BEFORE INSERT ON planned_workout
+            WHEN NEW.scheduled_date = '2026-07-25'
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated interruption');
+            END
+            """.trimIndent(),
+        )
+
+        val error = runCatching {
+            repository.confirmFourWeekPlanDraft(draft.id)
+        }.exceptionOrNull()
+
+        assertNotNull(error)
+        assertTrue(store.plannedWorkouts().isEmpty())
+        assertEquals("draft", store.aiDraft(draft.id)?.status)
+        assertNull(store.aiDraft(draft.id)?.confirmedAt)
+    }
+
+    @Test
     fun homeAndNutritionSummariesUsePersistedData() = runBlocking {
         store.upsertUserProfile(
             UserProfileEntity(

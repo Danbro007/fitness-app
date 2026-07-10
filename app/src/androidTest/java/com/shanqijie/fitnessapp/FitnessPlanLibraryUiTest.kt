@@ -126,6 +126,7 @@ class FitnessPlanLibraryUiTest {
         }
 
         recreateRealRoot()
+        waitForTag(FitnessTestTags.HomePrimaryAction)
         composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Plan)).performClick()
         waitForTag(PlanScreenTag)
         assertEquals(
@@ -159,6 +160,7 @@ class FitnessPlanLibraryUiTest {
 
         waitForTag(ExerciseDetailTag)
         composeRule.onNodeWithText("绳索高位下拉全程").assertIsDisplayed()
+        composeRule.onNodeWithText("添加到计划").assertIsDisplayed()
         composeRule.onNodeWithTag(AddExerciseTag).performClick()
         waitUntilState { state ->
             state.plannedExercises.any { it.plannedWorkoutId == planId && it.exerciseId == "2330" }
@@ -197,6 +199,7 @@ class FitnessPlanLibraryUiTest {
         waitForTag(LibraryResult2330Tag)
         composeRule.onNodeWithTag(LibraryResult2330Tag).performClick()
         waitForTag(ExerciseDetailTag)
+        composeRule.onNodeWithText("用于本次训练").assertIsDisplayed()
         composeRule.onNodeWithTag(AddExerciseTag).performClick()
 
         waitUntilState { refreshed ->
@@ -209,6 +212,51 @@ class FitnessPlanLibraryUiTest {
         recreateRealRoot()
         waitForTag(FitnessTestTags.TrainingActive)
         composeRule.onNodeWithText("绳索高位下拉全程 0/3").assertIsDisplayed()
+    }
+
+    @Test
+    fun planLibraryBackReturnsToThePlanEditor() {
+        showRealRoot()
+        val planId = currentState().plannedWorkouts.first().id
+        composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Plan)).performClick()
+        waitForTag(PlanScreenTag)
+        composeRule.onNodeWithTag("plan-row-$planId").performScrollTo().performClick()
+        waitForTag(PlanDetailTag)
+        composeRule.onNodeWithTag(EditPlanTag).performClick()
+        waitForTag(PlanEditTag)
+        composeRule.onNodeWithTag(OpenPlanLibraryTag).performClick()
+        waitForTag(LibraryScreenTag)
+
+        pressBack()
+
+        waitForTag(PlanEditTag)
+        composeRule.onNodeWithTag(FitnessTestTags.BottomNav).assertDoesNotExist()
+    }
+
+    @Test
+    fun sessionLibraryBackReturnsToTheRunningWorkout() {
+        val planId = currentState().plannedWorkouts.first().id
+        val session = runBlocking { repository.startWorkout(planId) }
+        val state = currentState()
+        composeRule.setContent {
+            FitnessTheme {
+                FitnessAppRootContent(
+                    homeUiState = repository.homeSnapshot(state).toHomeUiState(),
+                    repository = repository,
+                    appState = state,
+                    initialRoute = AppRoute.Library(
+                        origin = PrimaryTab.Training,
+                        sessionId = session.id,
+                    ),
+                )
+            }
+        }
+        waitForTag(LibraryScreenTag)
+
+        pressBack()
+
+        waitForTag(FitnessTestTags.TrainingActive)
+        composeRule.onNodeWithTag(FitnessTestTags.BottomNav).assertDoesNotExist()
     }
 
     private fun showRealRoot() {

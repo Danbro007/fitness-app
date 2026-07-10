@@ -63,7 +63,11 @@ data class FitnessNavState(
 
     fun backRoute(): AppRoute = when (val current = route) {
         is AppRoute.Primary -> current
-        is AppRoute.Library -> AppRoute.Primary(current.origin)
+        is AppRoute.Library -> when {
+            current.sessionId != null -> AppRoute.TrainingActive(current.sessionId)
+            current.planId != null -> AppRoute.PlanEdit(current.planId)
+            else -> AppRoute.Primary(current.origin)
+        }
         is AppRoute.ExerciseDetail -> current.origin
         is AppRoute.PlanDetail,
         is AppRoute.PlanEdit,

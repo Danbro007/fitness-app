@@ -962,6 +962,52 @@ class FitnessRepository(
         workout
     }
 
+    suspend fun confirmFourWeekPlanDraft(draftId: String): List<PlannedWorkoutEntity> =
+        withContext(Dispatchers.IO) {
+            val now = timeProvider.currentTimeMillis()
+            val workouts = store.transaction {
+                val draft = requireNotNull(aiDraft(draftId)) { "草稿不存在" }
+                require(draft.type == "weekly_plan") { "不是周计划草稿" }
+                require(draft.status == "draft") { "草稿已经确认或失效" }
+                val template = defaultTemplateExercises()
+                require(template.isNotEmpty()) { "没有可用的动作模板" }
+                val venueId = defaultVenue()?.id ?: DEFAULT_VENUE_ID
+                val startDate = localDateAt(now).plusDays(1)
+                val generated = (0 until 4).map { week ->
+                    PlannedWorkoutEntity(
+                        id = "planned-four-week-${UUID.randomUUID()}",
+                        name = "AI 生成训练 第 ${week + 1} 周",
+                        scheduledDate = startDate.plusDays(week * 7L).toString(),
+                        venueId = venueId,
+                        status = "planned",
+                        createdAt = now,
+                        updatedAt = now,
+                    )
+                }
+                generated.forEach { workout ->
+                    upsertPlannedWorkout(workout)
+                    template.forEachIndexed { index, exercise ->
+                        upsertPlannedExercise(
+                            PlannedExerciseEntity(
+                                id = "${workout.id}-${exercise.exerciseId}-${index + 1}",
+                                plannedWorkoutId = workout.id,
+                                exerciseId = exercise.exerciseId,
+                                orderIndex = index + 1,
+                                targetSets = if (index == 0) 4 else 3,
+                                targetReps = if (index == 0) "8-12" else "10-12",
+                                targetWeightKg = if (index == 0) 70.0 else 24.0,
+                                note = if (index == 0) "主项" else "辅助",
+                            ),
+                        )
+                    }
+                }
+                updateAiDraftStatus(draftId, status = "confirmed", confirmedAt = now, updatedAt = now)
+                generated
+            }
+            refreshSignal.update { it + 1 }
+            workouts
+        }
+
     suspend fun generateReplacementDraft(exerciseId: String): AiDraftEntity = withContext(Dispatchers.IO) {
         val current = store.exerciseById(exerciseId)
         val replacement = store.exercisesByEquipment(current?.equipment ?: "smith machine")

@@ -177,14 +177,7 @@ fun FitnessAppRootContent(
                                 fitnessRepository.generateWeeklyPlanDraft()
                             },
                             onConfirmMonthlyDraft = { draftId ->
-                                val firstWeek = fitnessRepository.confirmWeeklyPlanDraft(draftId)
-                                val startDate = LocalDate.parse(firstWeek.scheduledDate)
-                                listOf(7L, 14L, 21L).forEach { days ->
-                                    fitnessRepository.copyWorkout(
-                                        id = firstWeek.id,
-                                        newScheduledDate = startDate.plusDays(days).toString(),
-                                    )
-                                }
+                                fitnessRepository.confirmFourWeekPlanDraft(draftId)
                             },
                             modifier = Modifier.padding(contentPadding),
                         )
@@ -253,6 +246,7 @@ fun FitnessAppRootContent(
                     ExerciseDetailScreen(
                         exercise = exercise,
                         actionContextLabel = targetLabel,
+                        actionLabel = if (origin.sessionId != null) "用于本次训练" else "添加到计划",
                         onAddExercise = {
                             when {
                                 origin.sessionId != null -> {

@@ -192,6 +192,7 @@ private fun ExerciseResultRow(
 fun ExerciseDetailScreen(
     exercise: ExerciseMediaEntity,
     actionContextLabel: String,
+    actionLabel: String,
     onAddExercise: suspend () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -244,7 +245,7 @@ fun ExerciseDetailScreen(
         }
         item {
             FitnessPrimaryButton(
-                text = if (adding) "添加中…" else "用于本次训练",
+                text = if (adding) "添加中…" else actionLabel,
                 enabled = !adding,
                 testTag = LibraryTags.AddExercise,
                 onClick = {
