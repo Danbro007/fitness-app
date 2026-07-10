@@ -14,8 +14,10 @@ import com.shanqijie.fitnessapp.ui.model.toHomeUiState
 import com.shanqijie.fitnessapp.ui.navigation.AppRoute
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
+import androidx.compose.ui.graphics.toArgb
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -81,6 +83,22 @@ class FitnessUiModelsTest {
         assertTrue(contrastRatio(onErrorContainer, errorContainer) >= 4.5)
         assertTrue(source.contains(".background(WorkoutErrorContainer)"))
         assertTrue(source.contains("color = WorkoutOnErrorContainer"))
+    }
+
+    @Test
+    fun smartConnectionStatusUsesAccessibleInkPixelsOnTheLightSurface() {
+        val source = listOf(
+            File("src/main/java/com/shanqijie/fitnessapp/ui/settings/SettingsScreens.kt"),
+            File("app/src/main/java/com/shanqijie/fitnessapp/ui/settings/SettingsScreens.kt"),
+        ).first(File::isFile).readText()
+        val smartSection = source
+            .substringAfter("fun SmartSettingsScreen(")
+            .substringBefore("fun BackupSettingsScreen(")
+
+        assertEquals(0xFF11151B.toInt(), FitnessColors.Ink.toArgb())
+        assertTrue(contrastRatio(FitnessColors.Ink, FitnessColors.Phone) >= 4.5)
+        assertTrue(smartSection.contains("color = FitnessColors.Ink"))
+        assertFalse(smartSection.contains("color = if (provider?.apiKeyStored == true) FitnessColors.Green"))
     }
 
     @Test

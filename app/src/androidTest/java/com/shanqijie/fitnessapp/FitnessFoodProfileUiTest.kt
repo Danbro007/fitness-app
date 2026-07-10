@@ -145,6 +145,12 @@ class FitnessFoodProfileUiTest {
 
     @Test
     fun profileIsReadOnlyUntilEditAndSmartStatusUsesStoredCredential() {
+        runBlocking { repository.importBackupJson(providerFlagBackup(apiKeyStored = true)) }
+        assertFalse(
+            currentState().aiProviders
+                .single { it.id == FitnessRepository.DEEPSEEK_PROVIDER_ID }
+                .apiKeyStored,
+        )
         showRealRoot()
         openPrimary(PrimaryTab.Profile, ProfileScreenTag)
         composeRule.onAllNodes(hasSetTextAction()).assertCountEquals(0)
@@ -267,6 +273,32 @@ class FitnessFoodProfileUiTest {
             composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
         }
     }
+
+    private fun providerFlagBackup(apiKeyStored: Boolean): String =
+        """
+        {
+          "version": 2,
+          "exportedAt": 1000,
+          "userProfile": null,
+          "venues": [],
+          "equipment": [],
+          "plannedWorkouts": [],
+          "plannedExercises": [],
+          "workoutSessions": [],
+          "setLogs": [],
+          "foodLogs": [],
+          "aiDrafts": [],
+          "aiProviders": [{
+            "id": "${FitnessRepository.DEEPSEEK_PROVIDER_ID}",
+            "displayName": "DeepSeek",
+            "baseUrl": "https://api.deepseek.com",
+            "model": "deepseek-v4-flash",
+            "enabled": true,
+            "apiKeyStored": $apiKeyStored,
+            "updatedAt": 1000
+          }]
+        }
+        """.trimIndent()
 
     private companion object {
         const val FoodScreenTag = "food-screen"

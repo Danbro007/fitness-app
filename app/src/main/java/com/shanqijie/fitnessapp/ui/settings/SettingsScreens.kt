@@ -190,7 +190,7 @@ fun SmartSettingsScreen(
             Text("连接状态", style = MaterialTheme.typography.headlineSmall)
             Text(
                 text = if (provider?.apiKeyStored == true) "已连接" else "未连接",
-                color = if (provider?.apiKeyStored == true) FitnessColors.Green else FitnessColors.Muted,
+                color = FitnessColors.Ink,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.testTag(SettingsTags.SmartConnectionStatus),
             )

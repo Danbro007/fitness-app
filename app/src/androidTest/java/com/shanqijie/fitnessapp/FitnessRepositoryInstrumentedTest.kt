@@ -371,6 +371,59 @@ class FitnessRepositoryInstrumentedTest {
     }
 
     @Test
+    fun importedProviderFlagCannotClaimAConnectionWithoutTheLocalKeystoreKey() = runBlocking {
+        val rawBackup = providerFlagBackup(apiKeyStored = true)
+
+        repository.importBackupJson(rawBackup)
+
+        assertTrue(store.aiProvider(FitnessRepository.DEEPSEEK_PROVIDER_ID)?.apiKeyStored == true)
+        assertNull(credentialStore.loadApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID))
+        assertFalse(
+            repository.appState().first().aiProviders
+                .single { it.id == FitnessRepository.DEEPSEEK_PROVIDER_ID }
+                .apiKeyStored,
+        )
+    }
+
+    @Test
+    fun foodDraftConfirmationCreatesOneLogAndRejectsRepeatConfirmation() = runBlocking {
+        val draft = repository.generateFoodEstimateDraft("鸡胸肉米饭")
+
+        val foodLog = repository.confirmFoodEstimateDraft(draft.id)
+        val repeatedError = runCatching {
+            repository.confirmFoodEstimateDraft(draft.id)
+        }.exceptionOrNull()
+
+        assertEquals(foodLog.id, store.foodLogs().single().id)
+        assertTrue(repeatedError is IllegalArgumentException)
+        assertEquals("confirmed", store.aiDraft(draft.id)?.status)
+    }
+
+    @Test
+    fun foodDraftConfirmationRollsBackLogWhenDraftStatusWriteFails() = runBlocking {
+        val draft = repository.generateFoodEstimateDraft("鸡胸肉米饭")
+        db.writableDatabase.execSQL(
+            """
+            CREATE TEMP TRIGGER fail_food_draft_status_update
+            BEFORE UPDATE OF status ON ai_draft
+            WHEN NEW.id = '${draft.id}' AND NEW.status = 'confirmed'
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated interruption');
+            END
+            """.trimIndent(),
+        )
+
+        val error = runCatching {
+            repository.confirmFoodEstimateDraft(draft.id)
+        }.exceptionOrNull()
+
+        assertNotNull(error)
+        assertTrue(store.foodLogs().isEmpty())
+        assertEquals("draft", store.aiDraft(draft.id)?.status)
+        assertNull(store.aiDraft(draft.id)?.confirmedAt)
+    }
+
+    @Test
     fun backupV1StillImportsAndV2RoundTripsRuntime() = runBlocking {
         val v1 =
             """
@@ -1050,6 +1103,32 @@ class FitnessRepositoryInstrumentedTest {
             bytes = 1L,
             sha256 = "sha-$id",
         )
+
+    private fun providerFlagBackup(apiKeyStored: Boolean): String =
+        """
+        {
+          "version": 2,
+          "exportedAt": 1000,
+          "userProfile": null,
+          "venues": [],
+          "equipment": [],
+          "plannedWorkouts": [],
+          "plannedExercises": [],
+          "workoutSessions": [],
+          "setLogs": [],
+          "foodLogs": [],
+          "aiDrafts": [],
+          "aiProviders": [{
+            "id": "${FitnessRepository.DEEPSEEK_PROVIDER_ID}",
+            "displayName": "DeepSeek",
+            "baseUrl": "https://api.deepseek.com",
+            "model": "deepseek-v4-flash",
+            "enabled": true,
+            "apiKeyStored": $apiKeyStored,
+            "updatedAt": 1000
+          }]
+        }
+        """.trimIndent()
 
     private fun foodLog(
         id: String,

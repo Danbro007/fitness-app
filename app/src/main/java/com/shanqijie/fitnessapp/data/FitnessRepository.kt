@@ -880,29 +880,33 @@ class FitnessRepository(
     }
 
     suspend fun confirmFoodEstimateDraft(draftId: String): FoodLogEntity = withContext(Dispatchers.IO) {
-        val draft = requireNotNull(store.aiDraft(draftId)) { "草稿不存在" }
-        require(draft.type == "food_estimate") { "不是饮食估算草稿" }
-        val estimate = parseFoodEstimateDraft(draft)
-        val metadata = parseFoodDraftMetadata(draft.metadataJson)
-        val now = System.currentTimeMillis()
-        val foodLog = FoodLogEntity(
-            id = "food-${UUID.randomUUID()}",
-            loggedDate = LocalDate.now().toString(),
-            name = estimate.name,
-            calories = estimate.calories,
-            proteinGrams = estimate.protein,
-            carbsGrams = estimate.carbs,
-            fatGrams = estimate.fat,
-            source = if (metadata.imageUri.isNotBlank()) "vision_ai" else "ai_estimate",
-            imageNote = if (metadata.imageUri.isNotBlank()) "已选择食物照片" else draft.content.substringAfter("依据：", missingDelimiterValue = ""),
-            imageUri = metadata.imageUri,
-            providerId = metadata.providerId,
-            model = metadata.model,
-            confirmed = true,
-            createdAt = now,
-        )
-        store.insertFoodLog(foodLog)
-        store.updateAiDraftStatus(draft.id, status = "confirmed", confirmedAt = now, updatedAt = now)
+        val now = timeProvider.currentTimeMillis()
+        val foodLog = store.transaction {
+            val draft = requireNotNull(aiDraft(draftId)) { "草稿不存在" }
+            require(draft.type == "food_estimate") { "不是饮食估算草稿" }
+            require(draft.status == "draft") { "草稿已经确认或失效" }
+            val estimate = parseFoodEstimateDraft(draft)
+            val metadata = parseFoodDraftMetadata(draft.metadataJson)
+            val log = FoodLogEntity(
+                id = "food-${UUID.randomUUID()}",
+                loggedDate = localDateAt(now).toString(),
+                name = estimate.name,
+                calories = estimate.calories,
+                proteinGrams = estimate.protein,
+                carbsGrams = estimate.carbs,
+                fatGrams = estimate.fat,
+                source = if (metadata.imageUri.isNotBlank()) "vision_ai" else "ai_estimate",
+                imageNote = if (metadata.imageUri.isNotBlank()) "已选择食物照片" else draft.content.substringAfter("依据：", missingDelimiterValue = ""),
+                imageUri = metadata.imageUri,
+                providerId = metadata.providerId,
+                model = metadata.model,
+                confirmed = true,
+                createdAt = now,
+            )
+            insertFoodLog(log)
+            updateAiDraftStatus(draft.id, status = "confirmed", confirmedAt = now, updatedAt = now)
+            log
+        }
         refreshSignal.update { it + 1 }
         foodLog
     }
@@ -1418,6 +1422,9 @@ class FitnessRepository(
                 ?: store.allEquipment()
             val workoutSessions = store.workoutSessions()
             val workoutSessionExercises = workoutSessions.flatMap { store.sessionExercises(it.id) }
+            val aiProviders = store.aiProviders().map { provider ->
+                provider.copy(apiKeyStored = credentialStore.loadApiKey(provider.id) != null)
+            }
 
             FitnessAppState(
                 venue = selectedVenue,
@@ -1439,7 +1446,7 @@ class FitnessRepository(
                 trainingAdjustments = store.trainingAdjustments(),
                 smithMachineExercises = store.exercisesByEquipment("smith machine"),
                 exercises = store.allExercises(limit = 1_500),
-                aiProviders = store.aiProviders(),
+                aiProviders = aiProviders,
             )
         }
 
@@ -1537,7 +1544,7 @@ class FitnessRepository(
 
     private fun seedDefaultAiProviders(now: Long) {
         val existing = store.aiProvider(DEEPSEEK_PROVIDER_ID)
-        val apiKeyStored = existing?.apiKeyStored ?: (credentialStore.loadApiKey(DEEPSEEK_PROVIDER_ID) != null)
+        val apiKeyStored = credentialStore.loadApiKey(DEEPSEEK_PROVIDER_ID) != null
         store.upsertAiProvider(
             AiProviderEntity(
                 id = DEEPSEEK_PROVIDER_ID,
