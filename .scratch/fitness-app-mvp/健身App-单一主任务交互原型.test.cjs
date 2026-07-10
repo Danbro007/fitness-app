@@ -158,3 +158,20 @@ test('neutral and status labels keep semantic colors with accessible contrast', 
   assert.equal(summary.color, prep.greenText);
   assert.ok(contrastRatio(summary.color, summary.background) >= 4.5);
 });
+
+test('plan prioritizes the weekly schedule over monthly generation', async () => {
+  await page.getByRole('button', { name: '计划' }).click();
+  const scheduleTop = await page.getByTestId('weekly-schedule').boundingBox();
+  const generatorTop = await page.getByTestId('monthly-plan-generator').boundingBox();
+  assert.ok(scheduleTop.y < generatorTop.y);
+  assert.equal(await page.getByText('休息日').count() > 0, true);
+});
+
+test('action library is secondary, searchable, and row-clickable', async () => {
+  await page.getByRole('button', { name: '首页' }).click();
+  await page.getByTestId('open-library').click();
+  await page.getByTestId('library-search').fill('史密斯');
+  assert.equal(await page.getByTestId('exercise-row').count(), 1);
+  await page.getByTestId('exercise-row').click();
+  assert.equal(await page.getByRole('heading', { name: '史密斯机卧推' }).isVisible(), true);
+});

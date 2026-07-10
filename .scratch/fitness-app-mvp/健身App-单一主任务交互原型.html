@@ -366,6 +366,383 @@
       line-height: 1.6;
     }
 
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin: 2px 0 18px;
+    }
+
+    .page-header h1,
+    .page-header p,
+    .plan-detail-screen h1,
+    .exercise-detail-screen h1,
+    .exercise-detail-screen p {
+      margin: 0;
+    }
+
+    .page-header h1,
+    .plan-detail-screen h1,
+    .exercise-detail-screen h1 {
+      font-family: ui-rounded, "SF Pro Rounded", "PingFang SC", sans-serif;
+      font-size: 29px;
+      font-weight: 850;
+      letter-spacing: -0.045em;
+      line-height: 1.08;
+    }
+
+    .page-header p {
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .header-action,
+    .back-action {
+      flex: 0 0 auto;
+      min-height: var(--touch);
+      padding: 0 16px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-soft);
+      font-size: 13px;
+      font-weight: 780;
+    }
+
+    .back-action {
+      min-width: var(--touch);
+      margin-bottom: 22px;
+      padding: 0 14px;
+    }
+
+    .plan-week-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .plan-week-day {
+      padding: 11px 4px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-soft);
+      text-align: center;
+    }
+
+    .plan-week-day:first-child {
+      background: var(--green);
+      color: #112016;
+    }
+
+    .plan-week-day span,
+    .plan-week-day strong {
+      display: block;
+    }
+
+    .plan-week-day span {
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .plan-week-day strong {
+      margin-top: 5px;
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+      font-size: 13px;
+    }
+
+    .weekly-schedule,
+    .monthly-plan-generator,
+    .detail-card,
+    .library-list,
+    .exercise-detail-card {
+      border: 1px solid rgba(17, 21, 27, 0.07);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 16px 9px;
+    }
+
+    .section-heading h2,
+    .section-heading p {
+      margin: 0;
+    }
+
+    .section-heading h2 {
+      font-size: 15px;
+      font-weight: 820;
+    }
+
+    .section-heading p {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 680;
+    }
+
+    .plan-row {
+      display: grid;
+      width: 100%;
+      grid-template-columns: 48px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      min-height: 68px;
+      padding: 10px 16px;
+      border-top: 1px solid rgba(17, 21, 27, 0.07);
+      background: transparent;
+      text-align: left;
+    }
+
+    .plan-row-date,
+    .plan-row-copy strong,
+    .plan-row-copy span {
+      display: block;
+    }
+
+    .plan-row-date {
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .plan-row-copy strong {
+      overflow: hidden;
+      font-size: 14px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .plan-row-copy span,
+    .plan-row > em {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11px;
+      font-style: normal;
+      font-weight: 680;
+    }
+
+    .plan-row > em {
+      margin: 0;
+      color: var(--green-text);
+    }
+
+    .plan-row.rest-day {
+      cursor: default;
+    }
+
+    .plan-row.rest-day > em {
+      color: var(--muted);
+    }
+
+    .monthly-plan-generator {
+      margin-top: 12px;
+      padding: 18px;
+    }
+
+    .monthly-plan-generator h2,
+    .monthly-plan-generator p {
+      margin: 0;
+    }
+
+    .monthly-plan-generator h2 {
+      font-size: 16px;
+    }
+
+    .monthly-plan-generator p {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .monthly-plan-generator button,
+    .detail-primary {
+      width: 100%;
+      margin-top: 15px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-soft);
+      font-size: 13px;
+      font-weight: 780;
+    }
+
+    .detail-card {
+      margin-top: 22px;
+      padding: 18px;
+    }
+
+    .detail-card dl {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 0;
+    }
+
+    .detail-card dt {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .detail-card dd {
+      margin: 5px 0 0;
+      font-size: 14px;
+      font-weight: 780;
+    }
+
+    .library-search-wrap {
+      position: relative;
+    }
+
+    .library-search {
+      width: 100%;
+      min-height: 52px;
+      padding: 0 16px 0 42px;
+      border: 1px solid rgba(17, 21, 27, 0.1);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--ink);
+      font: inherit;
+      font-size: 14px;
+    }
+
+    .library-search-wrap::before {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      color: var(--muted);
+      content: "⌕";
+      font-size: 18px;
+    }
+
+    .library-search:focus-visible {
+      outline: 3px solid rgba(36, 200, 105, 0.35);
+      outline-offset: 2px;
+    }
+
+    .library-filters {
+      display: flex;
+      gap: 8px;
+      margin: 12px 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .library-filter {
+      flex: 0 0 auto;
+      min-height: var(--touch);
+      padding: 0 16px;
+      border-radius: 999px;
+      background: var(--surface-soft);
+      font-size: 12px;
+      font-weight: 740;
+    }
+
+    .library-filter.active {
+      background: var(--green);
+      color: #112016;
+    }
+
+    .exercise-row {
+      display: grid;
+      width: 100%;
+      grid-template-columns: 58px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      min-height: 82px;
+      padding: 11px 14px;
+      border-top: 1px solid rgba(17, 21, 27, 0.07);
+      background: transparent;
+      text-align: left;
+    }
+
+    .exercise-row:first-child {
+      border-top: 0;
+    }
+
+    .exercise-row img {
+      width: 58px;
+      height: 58px;
+      border-radius: 14px;
+      background: var(--surface-soft);
+      object-fit: contain;
+    }
+
+    .exercise-row strong,
+    .exercise-row span {
+      display: block;
+    }
+
+    .exercise-row strong {
+      overflow: hidden;
+      font-size: 14px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .exercise-row span {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .exercise-row-chevron {
+      color: var(--muted);
+      font-size: 22px;
+    }
+
+    .library-empty {
+      margin: 0;
+      padding: 28px 18px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .exercise-detail-card {
+      margin-top: 20px;
+      overflow: hidden;
+    }
+
+    .exercise-detail-card img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: #f2eee5;
+      object-fit: contain;
+    }
+
+    .exercise-detail-meta {
+      padding: 16px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .plan-editor-card label {
+      display: block;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .plan-editor-card input {
+      width: 100%;
+      min-height: var(--touch);
+      margin-top: 6px;
+      padding: 0 12px;
+      border: 1px solid rgba(17, 21, 27, 0.12);
+      border-radius: 12px;
+      background: var(--surface);
+      color: var(--ink);
+      font: inherit;
+    }
+
     .training-prep-screen,
     .workout-summary-screen {
       padding-bottom: 28px;
@@ -938,8 +1315,17 @@
   <script>
     const STORAGE_KEY = 'ifitness-layout-prototype-v1';
     const exercises = [
-      { id: 'smith', name: '史密斯机卧推', image: '../../app/src/main/assets/exercise-media/gifs/0748-trqKQv2.gif' },
-      { id: 'dumbbell', name: '哑铃卧推', image: '../../app/src/main/assets/exercise-media/gifs/0289-SpYC0Kp.gif' },
+      { id: 'smith', name: '史密斯机卧推', bodyPart: '胸', equipment: '史密斯机', sets: 4, weightKg: 70, image: '../../app/src/main/assets/exercise-media/gifs/0748-trqKQv2.gif' },
+      { id: 'dumbbell', name: '哑铃卧推', bodyPart: '胸', equipment: '哑铃', sets: 3, weightKg: 24, image: '../../app/src/main/assets/exercise-media/gifs/0289-SpYC0Kp.gif' },
+      { id: 'squat', name: '史密斯深蹲', bodyPart: '腿', equipment: '史密斯机', sets: 4, weightKg: 80, image: '../../app/src/main/assets/exercise-media/gifs/0770-jFtipLl.gif' },
+      { id: 'pulldown', name: '高位下拉', bodyPart: '背', equipment: '器械', sets: 4, weightKg: 45, image: '../../app/src/main/assets/exercise-media/gifs/2330-LEprlgG.gif' },
+    ];
+    const workoutExercises = exercises.slice(0, 2);
+    const weekPlan = [
+      { date: '7/10', day: '五', title: '胸部力量 A', status: '今天' },
+      { date: '7/11', day: '六', title: '下肢力量 A', status: '已计划' },
+      { date: '7/12', day: '日', title: '休息日', status: '恢复' },
+      { date: '7/13', day: '一', title: '背部拉力 A', status: '已计划' },
     ];
     const DEFAULT_STATE = {
       route: 'home',
@@ -952,6 +1338,11 @@
       feeling: '合适',
       restEndsAt: null,
       weeklyCompleted: 0,
+      plans: weekPlan,
+      selectedPlanIndex: 0,
+      selectedExerciseId: 'smith',
+      libraryQuery: '',
+      libraryFilter: '胸',
       foodEntries: [],
       profile: { nickname: '我', goal: '增肌减脂', heightCm: 176, weightKg: 75 },
     };
@@ -1032,8 +1423,107 @@
 
           <div class="quick-actions" aria-label="快捷操作">
             <button class="quick-action" data-route="food">记饮食</button>
-            <button class="quick-action" data-route="library">动作库</button>
+            <button class="quick-action" data-testid="open-library" data-route="library">动作库</button>
           </div>
+        </div>`;
+    }
+
+    function renderPlan() {
+      const plans = state.plans || weekPlan;
+      return `
+        <div class="screen-content plan-screen" data-testid="plan-screen">
+          <header class="page-header">
+            <div><p>7月10日 — 7月13日</p><h1>本周训练</h1></div>
+            <button class="header-action" data-action="show-plan-editor">新计划</button>
+          </header>
+          <div class="plan-week-strip" aria-label="本周日期">
+            ${weekPlan.map(plan => `<div class="plan-week-day"><span>周${plan.day}</span><strong>${plan.date}</strong></div>`).join('')}
+          </div>
+          <section class="weekly-schedule" data-testid="weekly-schedule" aria-labelledby="weekly-schedule-title">
+            <div class="section-heading"><h2 id="weekly-schedule-title">训练安排</h2><p>${plans.filter(plan => plan.title !== '休息日').length} 次训练</p></div>
+            ${plans.map((plan, index) => `
+              <button class="plan-row ${plan.title === '休息日' ? 'rest-day' : ''}" data-plan-index="${index}">
+                <span class="plan-row-date">${plan.date}<br>周${plan.day}</span>
+                <span class="plan-row-copy"><strong>${plan.title}</strong><span>${plan.title === '休息日' ? '主动恢复 · 不安排训练' : '约 45 分钟 · 本地计划'}</span></span>
+                <em>${plan.status}</em>
+              </button>`).join('')}
+          </section>
+          <section class="monthly-plan-generator" data-testid="monthly-plan-generator">
+            <h2>生成月度计划</h2>
+            <p>根据训练目标和可用器械生成本地草稿，确认后再加入日程。</p>
+            <button data-action="show-plan-editor">创建计划草稿</button>
+          </section>
+        </div>`;
+    }
+
+    function renderPlanDetail() {
+      const plan = (state.plans || weekPlan)[state.selectedPlanIndex] || weekPlan[0];
+      return `
+        <div class="screen-content plan-detail-screen" data-testid="plan-detail-screen">
+          <button class="back-action" data-route="plan" aria-label="返回计划">← 计划</button>
+          <p class="page-kicker">${plan.date} · 周${plan.day}</p>
+          <h1>${plan.title}</h1>
+          <section class="detail-card">
+            <dl>
+              <div><dt>状态</dt><dd>${plan.status}</dd></div>
+              <div><dt>预计时长</dt><dd>${plan.title === '休息日' ? '恢复日' : '45 分钟'}</dd></div>
+              <div><dt>训练地点</dt><dd>公司健身房</dd></div>
+              <div><dt>保存位置</dt><dd>仅本机</dd></div>
+            </dl>
+          </section>
+          <button class="detail-primary" data-action="show-plan-editor" data-plan-edit-index="${state.selectedPlanIndex}">编辑计划</button>
+        </div>`;
+    }
+
+    function filteredLibraryExercises() {
+      const query = (state.libraryQuery || '').trim().toLowerCase();
+      return exercises.filter(exercise => {
+        const matchesFilter = state.libraryFilter === '全部'
+          || exercise.bodyPart === state.libraryFilter
+          || exercise.equipment === state.libraryFilter;
+        const searchable = `${exercise.name} ${exercise.bodyPart} ${exercise.equipment}`.toLowerCase();
+        return matchesFilter && (!query || searchable.includes(query));
+      });
+    }
+
+    function renderExerciseRows() {
+      const results = filteredLibraryExercises();
+      if (!results.length) return '<p class="library-empty">没有匹配动作，试试其他关键词或筛选。</p>';
+      return results.map(exercise => `
+        <button class="exercise-row" data-testid="exercise-row" data-exercise-id="${exercise.id}">
+          <img src="${exercise.image}" alt="">
+          <span><strong>${exercise.name}</strong><span>${exercise.bodyPart} · ${exercise.equipment}</span></span>
+          <span class="exercise-row-chevron" aria-hidden="true">›</span>
+        </button>`).join('');
+    }
+
+    function renderLibrary() {
+      const filters = ['全部', '胸', '背', '腿', '史密斯机'];
+      return `
+        <div class="screen-content library-screen" data-testid="library-screen">
+          <button class="back-action" data-route="home" aria-label="返回首页">← 首页</button>
+          <header class="page-header"><div><p>本地动作资源</p><h1>动作库</h1></div></header>
+          <div class="library-search-wrap">
+            <input class="library-search" data-testid="library-search" type="search" value="${state.libraryQuery || ''}" placeholder="搜索动作、部位或器械" aria-label="搜索动作">
+          </div>
+          <div class="library-filters" aria-label="动作筛选">
+            ${filters.map(filter => `<button class="library-filter ${state.libraryFilter === filter ? 'active' : ''}" data-library-filter="${filter}" aria-pressed="${state.libraryFilter === filter}">${filter}</button>`).join('')}
+          </div>
+          <section class="library-list" id="library-results" aria-label="动作列表">${renderExerciseRows()}</section>
+        </div>`;
+    }
+
+    function renderExerciseDetail() {
+      const exercise = exercises.find(item => item.id === state.selectedExerciseId) || exercises[0];
+      return `
+        <div class="screen-content exercise-detail-screen" data-testid="exercise-detail-screen">
+          <button class="back-action" data-route="library" aria-label="返回动作库">← 动作库</button>
+          <p class="page-kicker">${exercise.bodyPart} · ${exercise.equipment}</p>
+          <h1>${exercise.name}</h1>
+          <section class="exercise-detail-card">
+            <img src="${exercise.image}" alt="${exercise.name}动作演示">
+            <div class="exercise-detail-meta">建议 ${exercise.sets} 组 · 参考重量 ${exercise.weightKg} kg<br>训练前确认器械高度与安全挡位。</div>
+          </section>
         </div>`;
     }
 
@@ -1047,7 +1537,7 @@
     }
 
     function completeSet() {
-      const id = exercises[state.currentExerciseIndex].id;
+      const id = workoutExercises[state.currentExerciseIndex].id;
       state.completedSets[id] = Math.min(state.targetSets[id], state.completedSets[id] + 1);
       state.logs ||= [];
       state.logs.push({ id, weightKg: state.weightKg[id], reps: state.reps, feeling: state.feeling, completedAt: Date.now() });
@@ -1060,8 +1550,8 @@
     function skipRest() {
       state.workoutStatus = 'active';
       state.restEndsAt = null;
-      const current = exercises[state.currentExerciseIndex];
-      if (state.completedSets[current.id] >= state.targetSets[current.id] && state.currentExerciseIndex < exercises.length - 1) {
+      const current = workoutExercises[state.currentExerciseIndex];
+      if (state.completedSets[current.id] >= state.targetSets[current.id] && state.currentExerciseIndex < workoutExercises.length - 1) {
         state.currentExerciseIndex += 1;
       }
       saveState();
@@ -1083,14 +1573,14 @@
     }
 
     function renderTrainingPrep() {
-      const completed = exercises.reduce((sum, exercise) => sum + state.completedSets[exercise.id], 0);
+      const completed = workoutExercises.reduce((sum, exercise) => sum + state.completedSets[exercise.id], 0);
       return `
         <div class="screen-content training-prep-screen" data-testid="training-prep-screen">
           <p class="page-kicker">Today's plan</p>
           <h1>胸部力量 A</h1>
           <p class="prep-meta">2 个动作 · 7 组 · 约 42 分钟<br>公司健身房</p>
           <section class="prep-card" aria-label="今日动作">
-            ${exercises.map(exercise => `
+            ${workoutExercises.map(exercise => `
               <article class="prep-exercise">
                 <img src="${exercise.image}" alt="${exercise.name}动作演示">
                 <div><strong>${exercise.name}</strong><span>${state.weightKg[exercise.id]} kg · ${state.reps} 次</span></div>
@@ -1104,13 +1594,13 @@
     }
 
     function renderTrainingActive() {
-      const exercise = exercises[state.currentExerciseIndex];
-      const completed = exercises.reduce((sum, item) => sum + state.completedSets[item.id], 0);
+      const exercise = workoutExercises[state.currentExerciseIndex];
+      const completed = workoutExercises.reduce((sum, item) => sum + state.completedSets[item.id], 0);
       const elapsedMinutes = Math.max(0, Math.floor((Date.now() - (state.startedAt || Date.now())) / 60_000));
       const isResting = state.workoutStatus === 'resting';
       const currentCompleted = state.completedSets[exercise.id];
-      const nextLabel = currentCompleted >= state.targetSets[exercise.id] && state.currentExerciseIndex < exercises.length - 1
-        ? `下一动作 · ${exercises[state.currentExerciseIndex + 1].name}`
+      const nextLabel = currentCompleted >= state.targetSets[exercise.id] && state.currentExerciseIndex < workoutExercises.length - 1
+        ? `下一动作 · ${workoutExercises[state.currentExerciseIndex + 1].name}`
         : `下一组 · ${exercise.name}`;
 
       return `
@@ -1121,7 +1611,7 @@
           </header>
 
           <div class="exercise-chips" aria-label="切换动作">
-            ${exercises.map((item, index) => `
+            ${workoutExercises.map((item, index) => `
               <button class="exercise-chip ${index === state.currentExerciseIndex ? 'active' : ''}" data-exercise-index="${index}">
                 ${index + 1}. ${item.name}
               </button>`).join('')}
@@ -1167,7 +1657,7 @@
 
     function renderWorkoutSummary() {
       const logs = state.logs || [];
-      const completed = exercises.reduce((sum, exercise) => sum + state.completedSets[exercise.id], 0);
+      const completed = workoutExercises.reduce((sum, exercise) => sum + state.completedSets[exercise.id], 0);
       const volume = logs.reduce((sum, log) => sum + log.weightKg * log.reps, 0);
       const durationMinutes = Math.max(1, Math.round(((state.finishedAt || Date.now()) - (state.startedAt || Date.now())) / 60_000));
       const feelingCounts = logs.reduce((counts, log) => ({ ...counts, [log.feeling]: (counts[log.feeling] || 0) + 1 }), {});
@@ -1210,6 +1700,14 @@
       const screen = document.getElementById('screen');
       const content = state.route === 'home'
         ? renderHome()
+        : state.route === 'plan'
+          ? renderPlan()
+          : state.route === 'plan-detail'
+            ? renderPlanDetail()
+            : state.route === 'library'
+              ? renderLibrary()
+              : state.route === 'exercise-detail'
+                ? renderExerciseDetail()
         : state.route === 'training-prep'
           ? renderTrainingPrep()
           : state.route === 'training-active'
@@ -1217,10 +1715,53 @@
             : state.route === 'workout-summary'
               ? renderWorkoutSummary()
               : renderPlaceholder(state.route);
-      const immersive = state.route === 'training-active' || state.route === 'workout-summary';
-      screen.innerHTML = `${content}${immersive ? '' : renderBottomNav()}`;
+      const hidesNavigation = ['training-active', 'workout-summary', 'library', 'exercise-detail', 'plan-detail'].includes(state.route);
+      screen.innerHTML = `${content}${hidesNavigation ? '' : renderBottomNav()}`;
       document.getElementById('overlay-root').innerHTML = '';
       syncRestCountdown();
+    }
+
+    function planDateForInput(date) {
+      const [month, day] = date.split('/').map(Number);
+      return `2026-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+
+    function showPlanEditor(index = null) {
+      const existing = index === null ? null : (state.plans || weekPlan)[index];
+      document.getElementById('overlay-root').innerHTML = `
+        <div class="confirm-overlay" role="presentation">
+          <section class="confirm-card plan-editor-card" role="dialog" aria-modal="true" aria-labelledby="plan-editor-title">
+            <h2 id="plan-editor-title">${existing ? '编辑计划' : '新计划'}</h2>
+            <p>修改会保存在当前浏览器，不会同步到云端。</p>
+            <label>计划名称<input data-testid="plan-name-input" value="${existing?.title || '力量训练'}"></label>
+            <label>训练日期<input data-testid="plan-date-input" type="date" value="${existing ? planDateForInput(existing.date) : '2026-07-14'}"></label>
+            <div class="confirm-actions">
+              <button data-action="cancel-plan-editor">取消</button>
+              <button class="confirm-end" data-action="save-plan" data-plan-edit-index="${index ?? ''}">保存计划</button>
+            </div>
+          </section>
+        </div>`;
+    }
+
+    function savePlan(index) {
+      const overlay = document.getElementById('overlay-root');
+      const title = overlay.querySelector('[data-testid="plan-name-input"]').value.trim();
+      const inputDate = overlay.querySelector('[data-testid="plan-date-input"]').value;
+      if (!title || !inputDate) return;
+      const date = new Date(`${inputDate}T00:00:00`);
+      const plan = {
+        date: `${date.getMonth() + 1}/${date.getDate()}`,
+        day: ['日', '一', '二', '三', '四', '五', '六'][date.getDay()],
+        title,
+        status: inputDate === '2026-07-10' ? '今天' : '已计划',
+      };
+      const plans = [...(state.plans || weekPlan)];
+      if (Number.isInteger(index) && index >= 0) plans[index] = plan;
+      else plans.push(plan);
+      state.plans = plans;
+      saveState();
+      navigate('plan');
+      showToast('计划已保存');
     }
 
     function syncRestCountdown() {
@@ -1282,6 +1823,30 @@
         return;
       }
 
+      const planTarget = event.target.closest('[data-plan-index]');
+      if (planTarget) {
+        state.selectedPlanIndex = Number(planTarget.dataset.planIndex);
+        saveState();
+        navigate('plan-detail');
+        return;
+      }
+
+      const libraryExerciseTarget = event.target.closest('[data-exercise-id]');
+      if (libraryExerciseTarget) {
+        state.selectedExerciseId = libraryExerciseTarget.dataset.exerciseId;
+        saveState();
+        navigate('exercise-detail');
+        return;
+      }
+
+      const libraryFilterTarget = event.target.closest('[data-library-filter]');
+      if (libraryFilterTarget) {
+        state.libraryFilter = libraryFilterTarget.dataset.libraryFilter;
+        saveState();
+        render();
+        return;
+      }
+
       const feelingTarget = event.target.closest('[data-feeling]');
       if (feelingTarget) {
         state.feeling = feelingTarget.dataset.feeling;
@@ -1293,7 +1858,7 @@
       const actionTarget = event.target.closest('[data-action]');
       if (!actionTarget) return;
 
-      const currentId = exercises[state.currentExerciseIndex].id;
+      const currentId = workoutExercises[state.currentExerciseIndex].id;
       switch (actionTarget.dataset.action) {
         case 'start-workout':
           navigate('training-prep');
@@ -1333,7 +1898,18 @@
         case 'summary-done':
           navigate('home');
           break;
+        case 'show-plan-editor':
+          showPlanEditor(actionTarget.dataset.planEditIndex === undefined ? null : Number(actionTarget.dataset.planEditIndex));
+          break;
       }
+    });
+
+    document.getElementById('screen').addEventListener('input', event => {
+      if (!event.target.matches('[data-testid="library-search"]')) return;
+      state.libraryQuery = event.target.value;
+      saveState();
+      const results = document.getElementById('library-results');
+      if (results) results.innerHTML = renderExerciseRows();
     });
 
     document.getElementById('overlay-root').addEventListener('click', event => {
@@ -1345,6 +1921,11 @@
       } else if (actionTarget.dataset.action === 'cancel-end-workout') {
         document.getElementById('overlay-root').innerHTML = '';
         syncRestCountdown();
+      } else if (actionTarget.dataset.action === 'save-plan') {
+        const rawIndex = actionTarget.dataset.planEditIndex;
+        savePlan(rawIndex === '' ? null : Number(rawIndex));
+      } else if (actionTarget.dataset.action === 'cancel-plan-editor') {
+        document.getElementById('overlay-root').innerHTML = '';
       }
     });
 
