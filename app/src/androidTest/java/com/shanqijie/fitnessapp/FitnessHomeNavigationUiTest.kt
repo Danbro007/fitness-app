@@ -1,12 +1,14 @@
 package com.shanqijie.fitnessapp
 
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -29,13 +31,14 @@ import com.shanqijie.fitnessapp.ui.navigation.FitnessTestTags
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
 import com.shanqijie.fitnessapp.ui.theme.FitnessTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import kotlinx.coroutines.runBlocking
 
 class FitnessHomeNavigationUiTest {
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
     fun shellShowsExactlyFiveTabsInApprovedOrder() {
@@ -191,17 +194,24 @@ class FitnessHomeNavigationUiTest {
         val repository = FitnessRepository(context, FitnessStore(database))
         runBlocking { repository.bootstrap() }
 
-        composeRule.setContent {
-            FitnessTheme {
-                com.shanqijie.fitnessapp.ui.FitnessAppRoot(repository = repository)
+        try {
+            composeRule.setContent {
+                FitnessTheme {
+                    com.shanqijie.fitnessapp.ui.FitnessAppRoot(repository = repository)
+                }
             }
+            composeRule.waitUntil(timeoutMillis = 60_000) {
+                composeRule.onAllNodesWithTag(FitnessTestTags.HomePrimaryAction)
+                    .fetchSemanticsNodes().size == 1
+            }
+            composeRule.onNodeWithTag(FitnessTestTags.HomePrimaryAction).assertIsDisplayed()
+            composeRule.onNodeWithTag(FitnessTestTags.WeeklyProgress).assertIsDisplayed()
+        } finally {
+            composeRule.runOnUiThread { composeRule.activity.setContent {} }
+            composeRule.waitForIdle()
+            database.close()
+            assertTrue(context.deleteDatabase(dbName))
         }
-        composeRule.waitUntil(timeoutMillis = 60_000) {
-            composeRule.onAllNodesWithTag(FitnessTestTags.HomePrimaryAction)
-                .fetchSemanticsNodes().size == 1
-        }
-        composeRule.onNodeWithTag(FitnessTestTags.HomePrimaryAction).assertIsDisplayed()
-        composeRule.onNodeWithTag(FitnessTestTags.WeeklyProgress).assertIsDisplayed()
     }
 
     private fun startHome() = HomeUiState(
