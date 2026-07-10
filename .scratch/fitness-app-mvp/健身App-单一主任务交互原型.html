@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f2ec">
+  <title>i fitness · 单一主任务交互原型</title>
+  <style>
+    :root {
+      --phone: #f5f2ec;
+      --surface: #fffdfa;
+      --surface-soft: #eee8dc;
+      --ink: #11151b;
+      --muted: #5f6874;
+      --orange: #ff7426;
+      --green: #24c869;
+      --hero: #151b24;
+      --radius-sm: 14px;
+      --radius-md: 22px;
+      --radius-lg: 32px;
+      --touch: 48px;
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+    }
+
+    body {
+      display: grid;
+      min-height: 100dvh;
+      place-items: center;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 20% 12%, rgba(255, 116, 38, 0.14), transparent 28rem),
+        #d9d5cc;
+      color: var(--ink);
+    }
+
+    button {
+      min-height: var(--touch);
+      border: 0;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    button:focus-visible {
+      outline: 3px solid rgba(255, 116, 38, 0.52);
+      outline-offset: 3px;
+    }
+
+    .app-shell {
+      position: relative;
+      width: 100%;
+      max-width: 430px;
+      height: 100dvh;
+      min-height: 640px;
+      overflow: hidden;
+      background: var(--phone);
+      box-shadow: 0 34px 90px rgba(28, 31, 37, 0.26), 0 4px 18px rgba(28, 31, 37, 0.12);
+    }
+
+    .screen {
+      display: flex;
+      height: 100%;
+      flex-direction: column;
+      overflow-x: hidden;
+      overflow-y: auto;
+      scrollbar-width: none;
+    }
+
+    .screen::-webkit-scrollbar {
+      display: none;
+    }
+
+    .screen-content {
+      flex: 1 0 auto;
+      padding: max(18px, env(safe-area-inset-top)) 20px 18px;
+    }
+
+    .home-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin: 2px 2px 18px;
+    }
+
+    .home-header p,
+    .home-header h1 {
+      margin: 0;
+    }
+
+    .home-header p {
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 720;
+      letter-spacing: 0.12em;
+    }
+
+    .home-header h1 {
+      font-family: ui-rounded, "SF Pro Rounded", "PingFang SC", sans-serif;
+      font-size: clamp(27px, 7.5vw, 32px);
+      font-weight: 840;
+      letter-spacing: -0.045em;
+    }
+
+    .day-mark {
+      display: grid;
+      width: var(--touch);
+      height: var(--touch);
+      min-height: 0;
+      place-items: center;
+      border: 1px solid rgba(17, 21, 27, 0.09);
+      border-radius: 50%;
+      background: var(--surface);
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.05;
+      text-align: center;
+    }
+
+    .workout-hero {
+      position: relative;
+      min-height: 408px;
+      overflow: hidden;
+      padding: 24px;
+      border-radius: var(--radius-lg);
+      background: var(--hero);
+      color: #fff;
+      isolation: isolate;
+    }
+
+    .workout-hero::after {
+      position: absolute;
+      z-index: -1;
+      right: -68px;
+      bottom: 54px;
+      width: 246px;
+      height: 246px;
+      border: 36px solid rgba(255, 116, 38, 0.18);
+      border-radius: 50%;
+      content: "";
+    }
+
+    .hero-eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 10px;
+      color: rgba(255, 255, 255, 0.65);
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .hero-eyebrow::before {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--orange);
+      content: "";
+      box-shadow: 0 0 0 5px rgba(255, 116, 38, 0.14);
+    }
+
+    .workout-hero h2,
+    .workout-hero p {
+      margin: 0;
+    }
+
+    .workout-hero h2 {
+      max-width: 230px;
+      font-family: ui-rounded, "SF Pro Rounded", "PingFang SC", sans-serif;
+      font-size: 30px;
+      font-weight: 850;
+      letter-spacing: -0.045em;
+      line-height: 1.08;
+    }
+
+    .hero-meta {
+      margin-top: 8px !important;
+      color: rgba(255, 255, 255, 0.68);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .hero-media {
+      position: absolute;
+      top: 104px;
+      right: 12px;
+      display: grid;
+      width: 208px;
+      height: 190px;
+      place-items: center;
+      overflow: hidden;
+      border-radius: 48% 52% 42% 58% / 56% 42% 58% 44%;
+      background: #f2eee5;
+      transform: rotate(-2deg);
+    }
+
+    .hero-media img {
+      width: 94%;
+      height: 94%;
+      object-fit: contain;
+      transform: rotate(2deg);
+    }
+
+    .hero-progress {
+      position: absolute;
+      bottom: 96px;
+      left: 24px;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .hero-progress strong {
+      font-family: ui-rounded, "SF Pro Rounded", sans-serif;
+      font-size: 28px;
+      font-weight: 850;
+      letter-spacing: -0.05em;
+    }
+
+    .hero-progress span {
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .primary-action {
+      position: absolute;
+      right: 20px;
+      bottom: 20px;
+      left: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 60px;
+      padding: 0 20px;
+      border-radius: var(--radius-md);
+      background: var(--orange);
+      color: #17120f;
+      font-weight: 840;
+      box-shadow: 0 12px 24px rgba(255, 116, 38, 0.24);
+    }
+
+    .primary-action::after {
+      font-size: 22px;
+      content: "→";
+    }
+
+    .weekly-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 60px;
+      margin-top: 14px;
+      padding: 0 18px;
+      border: 1px solid rgba(17, 21, 27, 0.07);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+    }
+
+    .weekly-strip span {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .weekly-strip strong {
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+      font-size: 14px;
+      letter-spacing: -0.04em;
+    }
+
+    .week-dots {
+      display: flex;
+      gap: 5px;
+    }
+
+    .week-dots i {
+      display: block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--surface-soft);
+    }
+
+    .quick-actions {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .quick-action {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 58px;
+      padding: 0 16px;
+      border: 1px solid rgba(17, 21, 27, 0.07);
+      border-radius: var(--radius-sm);
+      background: transparent;
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .quick-action::after {
+      color: var(--muted);
+      content: "↗";
+    }
+
+    .placeholder {
+      display: grid;
+      min-height: calc(100dvh - 112px);
+      place-content: center;
+      padding: 32px;
+      text-align: center;
+    }
+
+    .placeholder-icon {
+      display: grid;
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 18px;
+      place-items: center;
+      border-radius: 24px;
+      background: var(--surface-soft);
+      color: var(--orange);
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .placeholder h2,
+    .placeholder p {
+      margin: 0;
+    }
+
+    .placeholder h2 {
+      font-family: ui-rounded, "SF Pro Rounded", "PingFang SC", sans-serif;
+      font-size: 28px;
+      letter-spacing: -0.04em;
+    }
+
+    .placeholder p {
+      max-width: 260px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .bottom-nav {
+      position: sticky;
+      z-index: 10;
+      bottom: 0;
+      display: grid;
+      flex: 0 0 auto;
+      grid-template-columns: repeat(5, 1fr);
+      min-height: calc(76px + env(safe-area-inset-bottom));
+      padding: 7px 10px max(7px, env(safe-area-inset-bottom));
+      border-top: 1px solid rgba(17, 21, 27, 0.08);
+      background: rgba(255, 253, 250, 0.94);
+      backdrop-filter: blur(18px);
+    }
+
+    .nav-item {
+      display: flex;
+      min-width: 0;
+      min-height: 58px;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 3px;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 740;
+    }
+
+    .nav-item.active {
+      background: var(--surface-soft);
+      color: var(--ink);
+    }
+
+    .nav-icon {
+      display: grid;
+      width: 26px;
+      height: 26px;
+      place-items: center;
+      border-radius: 9px;
+      font-family: ui-monospace, "SFMono-Regular", monospace;
+      font-size: 13px;
+      font-weight: 850;
+      line-height: 1;
+    }
+
+    .nav-icon[data-symbol="home"]::before { content: "⌂"; }
+    .nav-icon[data-symbol="calendar_month"]::before { content: "□"; }
+    .nav-icon[data-symbol="fitness_center"]::before { content: "+"; }
+    .nav-icon[data-symbol="restaurant"]::before { content: "◇"; }
+    .nav-icon[data-symbol="person"]::before { content: "○"; }
+
+    .nav-item.active .nav-icon {
+      background: var(--orange);
+      color: #17120f;
+    }
+
+    .toast {
+      position: absolute;
+      z-index: 30;
+      right: 20px;
+      bottom: calc(92px + env(safe-area-inset-bottom));
+      left: 20px;
+      padding: 14px 16px;
+      border-radius: var(--radius-sm);
+      background: var(--ink);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 650;
+      text-align: center;
+      box-shadow: 0 18px 42px rgba(17, 21, 27, 0.24);
+    }
+
+    .toast[hidden] {
+      display: none;
+    }
+
+    @media (max-width: 430px) {
+      body {
+        display: block;
+        background: var(--phone);
+      }
+
+      .app-shell {
+        width: 100%;
+        min-height: 100dvh;
+        box-shadow: none;
+      }
+    }
+
+    @media (max-height: 720px) {
+      .workout-hero {
+        min-height: 360px;
+      }
+
+      .hero-media {
+        top: 90px;
+        width: 176px;
+        height: 164px;
+      }
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .screen-content {
+        animation: screen-in 260ms ease-out both;
+      }
+
+      .nav-item,
+      .primary-action,
+      .quick-action {
+        transition: transform 160ms ease, background-color 160ms ease;
+      }
+
+      .nav-item:active,
+      .primary-action:active,
+      .quick-action:active {
+        transform: scale(0.97);
+      }
+
+      @keyframes screen-in {
+        from { opacity: 0; transform: translateY(5px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app-shell" data-testid="app-shell">
+    <section class="screen" id="screen" aria-live="polite"></section>
+    <div id="overlay-root"></div>
+    <div class="toast" id="toast" role="status" hidden></div>
+  </main>
+
+  <script>
+    const STORAGE_KEY = 'ifitness-layout-prototype-v1';
+    const DEFAULT_STATE = {
+      route: 'home',
+      workoutStatus: 'idle',
+      currentExerciseIndex: 0,
+      completedSets: { smith: 0, dumbbell: 0 },
+      targetSets: { smith: 4, dumbbell: 3 },
+      weightKg: { smith: 70, dumbbell: 24 },
+      reps: 8,
+      feeling: '合适',
+      restEndsAt: null,
+      weeklyCompleted: 0,
+      foodEntries: [],
+      profile: { nickname: '我', goal: '增肌减脂', heightCm: 176, weightKg: 75 },
+    };
+
+    function loadState() {
+      try {
+        return { ...structuredClone(DEFAULT_STATE), ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') };
+      } catch {
+        return structuredClone(DEFAULT_STATE);
+      }
+    }
+
+    let state = loadState();
+    let toastTimer;
+
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch {
+        showToast('当前浏览器不会在刷新后保留演示数据');
+      }
+    }
+
+    const PRIMARY_ROUTES = ['home', 'plan', 'training-prep', 'food', 'profile'];
+
+    function routeFromHash() {
+      const route = location.hash.replace(/^#\/?/, '');
+      return route || state.route || 'home';
+    }
+
+    function navigate(route) {
+      state.route = route;
+      saveState();
+      location.hash = route;
+      render();
+    }
+
+    function renderBottomNav() {
+      const items = [
+        ['home', 'home', '首页'],
+        ['plan', 'calendar_month', '计划'],
+        ['training-prep', 'fitness_center', '训练'],
+        ['food', 'restaurant', '饮食'],
+        ['profile', 'person', '我的'],
+      ];
+      return `<nav class="bottom-nav" data-testid="bottom-nav" aria-label="主导航">${items.map(([route, icon, label]) => `
+        <button class="nav-item ${state.route === route ? 'active' : ''}" data-route="${route}" aria-current="${state.route === route ? 'page' : 'false'}">
+          <span class="material-symbols-rounded nav-icon" data-symbol="${icon}" aria-hidden="true"></span><span>${label}</span>
+        </button>`).join('')}</nav>`;
+    }
+
+    function renderHome() {
+      const completed = state.completedSets.smith + state.completedSets.dumbbell;
+      return `
+        <div class="screen-content home-screen" data-testid="home-screen">
+          <header class="home-header">
+            <div><p>今天 · 周五</p><h1>开始动起来</h1></div>
+            <div class="day-mark" aria-label="7月10日">07<br>10</div>
+          </header>
+
+          <section class="workout-hero" aria-labelledby="today-workout-title">
+            <p class="hero-eyebrow">Today's workout</p>
+            <h2 id="today-workout-title">胸部力量 A</h2>
+            <p class="hero-meta">2 个动作 · 约 42 分钟</p>
+            <div class="hero-media">
+              <img src="../../app/src/main/assets/exercise-media/gifs/0748-trqKQv2.gif" alt="史密斯机卧推动作演示">
+            </div>
+            <div class="hero-progress"><strong>${completed} / 7</strong> <span>组</span></div>
+            <button class="primary-action" data-testid="home-primary-action" data-action="start-workout">开始训练</button>
+          </section>
+
+          <section class="weekly-strip" aria-label="本周训练进度">
+            <span>本周</span>
+            <strong>${state.weeklyCompleted} / 3 次</strong>
+            <div class="week-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+          </section>
+
+          <div class="quick-actions" aria-label="快捷操作">
+            <button class="quick-action" data-route="food">记饮食</button>
+            <button class="quick-action" data-route="library">动作库</button>
+          </div>
+        </div>`;
+    }
+
+    function renderPlaceholder(route) {
+      const content = {
+        plan: ['PL', '训练计划', '把本周要练什么安排在这里。'],
+        'training-prep': ['GO', '准备训练', '确认今天的动作后进入训练。'],
+        food: ['FD', '饮食记录', '快速记下今天吃了什么。'],
+        profile: ['ME', '我的', '查看训练偏好与个人数据。'],
+        library: ['LB', '动作库', '从本地动作资源中选择训练动作。'],
+      }[route] || ['IF', 'i fitness', '选择一个主要目的地继续。'];
+
+      return `
+        <div class="screen-content placeholder" data-testid="${route}-screen">
+          <div class="placeholder-icon" aria-hidden="true">${content[0]}</div>
+          <h2>${content[1]}</h2>
+          <p>${content[2]}</p>
+        </div>`;
+    }
+
+    function render() {
+      const screen = document.getElementById('screen');
+      screen.innerHTML = `${state.route === 'home' ? renderHome() : renderPlaceholder(state.route)}${renderBottomNav()}`;
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      clearTimeout(toastTimer);
+      toast.textContent = message;
+      toast.hidden = false;
+      toastTimer = setTimeout(() => {
+        toast.hidden = true;
+      }, 2400);
+    }
+
+    document.getElementById('screen').addEventListener('click', event => {
+      const routeTarget = event.target.closest('[data-route]');
+      if (routeTarget) {
+        navigate(routeTarget.dataset.route);
+        return;
+      }
+
+      if (event.target.closest('[data-action="start-workout"]')) {
+        navigate('training-prep');
+      }
+    });
+
+    window.addEventListener('hashchange', () => {
+      state.route = routeFromHash();
+      saveState();
+      render();
+    });
+
+    state.route = routeFromHash();
+    saveState();
+    render();
+  </script>
+</body>
+</html>
