@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -179,10 +180,11 @@ class FitnessHomeNavigationUiTest {
             }
         }
 
-        composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Food)).performClick()
-        composeRule.onNodeWithText("记录今日营养与餐食").assertIsDisplayed()
+        composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Food))
+            .performClick()
+            .assertIsSelected()
         restorationTester.emulateSavedInstanceStateRestore()
-        composeRule.onNodeWithText("记录今日营养与餐食").assertIsDisplayed()
+        composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Food)).assertIsSelected()
     }
 
     @Test
