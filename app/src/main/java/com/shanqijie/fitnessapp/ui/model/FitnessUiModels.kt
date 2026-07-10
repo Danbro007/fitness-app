@@ -99,7 +99,7 @@ fun TrainingUiState.reduce(event: TrainingEvent): TrainingUiState = when (event)
 
 private fun TrainingUiState.completeCurrentSet(restEndsAt: Long): TrainingUiState {
     val current = currentExercise ?: return this
-    if (current.completedSets >= current.targetSets || phase == TrainingPhase.Completed) return this
+    if (phase != TrainingPhase.Active || current.completedSets >= current.targetSets) return this
 
     val updatedExercises = exercises.toMutableList().apply {
         this[currentExerciseIndex] = current.copy(completedSets = current.completedSets + 1)

@@ -20,7 +20,7 @@ object FitnessColors {
     val Orange = Color(0xFFFF7426)
     val Green = Color(0xFF24C869)
     val Hero = Color(0xFF151B24)
-    val OnOrange = Color.White
+    val OnOrange = Ink
     val OnHero = Color.White
 }
 

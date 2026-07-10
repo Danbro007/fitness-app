@@ -10,6 +10,7 @@ import com.shanqijie.fitnessapp.ui.model.reduce
 import com.shanqijie.fitnessapp.ui.model.toHomeUiState
 import com.shanqijie.fitnessapp.ui.navigation.AppRoute
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
+import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -55,5 +56,53 @@ class FitnessUiModelsTest {
         assertEquals(1, advanced.currentExerciseIndex)
         assertEquals(TrainingPhase.Active, advanced.phase)
         assertTrue(advanced.currentExercise?.exerciseId == "0289")
+    }
+
+    @Test
+    fun orangePrimaryUsesInkForAccessibleText() {
+        assertEquals(FitnessColors.Ink, FitnessColors.OnOrange)
+        assertTrue(contrastRatio(FitnessColors.Ink, FitnessColors.Orange) >= 4.5)
+    }
+
+    @Test
+    fun trainingReducerCompletesSetsOnlyWhileActive() {
+        val active = TrainingUiState(
+            sessionId = "session-1",
+            exercises = listOf(
+                TrainingExerciseUi(id = "session-exercise-1", exerciseId = "0748", targetSets = 2),
+            ),
+        )
+        val blockedPhases = listOf(
+            TrainingPhase.Preparation,
+            TrainingPhase.Resting(endsAt = 60_000L),
+            TrainingPhase.Paused,
+        )
+
+        blockedPhases.forEach { phase ->
+            val blocked = active.copy(phase = phase)
+            assertEquals(
+                blocked,
+                blocked.reduce(TrainingEvent.SetCompleted(restEndsAt = 120_000L)),
+            )
+        }
+    }
+
+    private fun contrastRatio(foreground: androidx.compose.ui.graphics.Color, background: androidx.compose.ui.graphics.Color): Double {
+        val lighter = maxOf(relativeLuminance(foreground), relativeLuminance(background))
+        val darker = minOf(relativeLuminance(foreground), relativeLuminance(background))
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    private fun relativeLuminance(color: androidx.compose.ui.graphics.Color): Double {
+        fun linear(channel: Float): Double =
+            if (channel <= 0.04045f) {
+                channel / 12.92
+            } else {
+                Math.pow((channel + 0.055) / 1.055, 2.4)
+            }
+
+        return 0.2126 * linear(color.red) +
+            0.7152 * linear(color.green) +
+            0.0722 * linear(color.blue)
     }
 }
