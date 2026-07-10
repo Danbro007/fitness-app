@@ -34,11 +34,16 @@ import com.shanqijie.fitnessapp.ui.components.FitnessBottomNav
 import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
 import com.shanqijie.fitnessapp.ui.home.HomeDayUi
 import com.shanqijie.fitnessapp.ui.home.HomeScreen
+import com.shanqijie.fitnessapp.ui.library.ExerciseDetailScreen
+import com.shanqijie.fitnessapp.ui.library.LibraryScreen
 import com.shanqijie.fitnessapp.ui.model.HomeUiState
 import com.shanqijie.fitnessapp.ui.model.toHomeUiState
 import com.shanqijie.fitnessapp.ui.navigation.AppRoute
 import com.shanqijie.fitnessapp.ui.navigation.FitnessNavState
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
+import com.shanqijie.fitnessapp.ui.plan.PlanDetailScreen
+import com.shanqijie.fitnessapp.ui.plan.PlanEditScreen
+import com.shanqijie.fitnessapp.ui.plan.PlanScreen
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import com.shanqijie.fitnessapp.ui.training.TrainingActiveScreen
 import com.shanqijie.fitnessapp.ui.training.TrainingActiveScreenUi
@@ -145,11 +150,46 @@ fun FitnessAppRootContent(
                     onNavigate = navigate,
                     modifier = Modifier.padding(contentPadding),
                 )
-                PrimaryTab.Plan -> RoutePlaceholder(
-                    title = "计划",
-                    subtitle = "查看和编辑本周训练安排",
-                    modifier = Modifier.padding(contentPadding),
-                )
+                PrimaryTab.Plan -> {
+                    val currentState = appState
+                    val fitnessRepository = repository
+                    if (currentState == null || fitnessRepository == null) {
+                        RoutePlaceholder(
+                            title = "计划",
+                            subtitle = "正在读取本地训练安排…",
+                            modifier = Modifier.padding(contentPadding),
+                        )
+                    } else {
+                        PlanScreen(
+                            plans = currentState.plannedWorkouts,
+                            plannedExerciseViews = currentState.plannedExerciseViews,
+                            activeMonthlyDraft = currentState.aiDrafts
+                                .firstOrNull { it.type == "weekly_plan" && it.status == "draft" },
+                            onOpenPlan = { planId -> navigate(AppRoute.PlanDetail(planId)) },
+                            onCreatePlan = { name, date ->
+                                fitnessRepository.createWorkoutFromTemplate(
+                                    name = name,
+                                    scheduledDate = date,
+                                    venueId = currentState.venue?.id.orEmpty(),
+                                )
+                            },
+                            onGenerateMonthlyDraft = {
+                                fitnessRepository.generateWeeklyPlanDraft()
+                            },
+                            onConfirmMonthlyDraft = { draftId ->
+                                val firstWeek = fitnessRepository.confirmWeeklyPlanDraft(draftId)
+                                val startDate = LocalDate.parse(firstWeek.scheduledDate)
+                                listOf(7L, 14L, 21L).forEach { days ->
+                                    fitnessRepository.copyWorkout(
+                                        id = firstWeek.id,
+                                        newScheduledDate = startDate.plusDays(days).toString(),
+                                    )
+                                }
+                            },
+                            modifier = Modifier.padding(contentPadding),
+                        )
+                    }
+                }
                 PrimaryTab.Training -> TrainingPreparationScreen(
                     state = appState?.toTrainingPreparation(homeUiState.nextWorkout?.id),
                     onStartWorkout = { planId ->
@@ -173,26 +213,117 @@ fun FitnessAppRootContent(
                     modifier = Modifier.padding(contentPadding),
                 )
             }
-            is AppRoute.Library -> RoutePlaceholder(
-                title = "动作库",
-                subtitle = "搜索、筛选并查看本地 GIF 动作",
-                modifier = Modifier.padding(contentPadding),
-            )
-            is AppRoute.ExerciseDetail -> RoutePlaceholder(
-                title = "动作详情",
-                subtitle = route.exerciseId,
-                modifier = Modifier.padding(contentPadding),
-            )
-            is AppRoute.PlanDetail -> RoutePlaceholder(
-                title = "计划详情",
-                subtitle = route.planId,
-                modifier = Modifier.padding(contentPadding),
-            )
-            is AppRoute.PlanEdit -> RoutePlaceholder(
-                title = "编辑计划",
-                subtitle = route.planId,
-                modifier = Modifier.padding(contentPadding),
-            )
+            is AppRoute.Library -> {
+                val currentState = appState
+                if (currentState == null) {
+                    RoutePlaceholder(
+                        title = "动作库",
+                        subtitle = "正在读取本地动作…",
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                } else {
+                    LibraryScreen(
+                        exercises = currentState.exercises,
+                        onOpenExercise = { exerciseId ->
+                            navigate(AppRoute.ExerciseDetail(exerciseId = exerciseId, origin = route))
+                        },
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                }
+            }
+            is AppRoute.ExerciseDetail -> {
+                val currentState = appState
+                val fitnessRepository = repository
+                val exercise = currentState?.exercises?.firstOrNull { it.exerciseId == route.exerciseId }
+                if (currentState == null || fitnessRepository == null || exercise == null) {
+                    RoutePlaceholder(
+                        title = "动作详情",
+                        subtitle = "无法读取这个本地动作",
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                } else {
+                    val origin = route.origin
+                    val targetPlanId = origin.planId
+                        ?: homeUiState.nextWorkout?.id?.takeIf { origin.origin == PrimaryTab.Home }
+                    val targetLabel = when {
+                        origin.sessionId != null -> "将添加到进行中的训练"
+                        targetPlanId != null -> "将添加到当前计划"
+                        else -> "请先选择一个训练计划"
+                    }
+                    ExerciseDetailScreen(
+                        exercise = exercise,
+                        actionContextLabel = targetLabel,
+                        onAddExercise = {
+                            when {
+                                origin.sessionId != null -> {
+                                    fitnessRepository.addExerciseToSession(
+                                        sessionId = origin.sessionId,
+                                        exerciseId = exercise.exerciseId,
+                                    )
+                                    navigate(AppRoute.TrainingActive(origin.sessionId))
+                                }
+                                targetPlanId != null -> {
+                                    fitnessRepository.addExerciseToPlan(
+                                        planId = targetPlanId,
+                                        exerciseId = exercise.exerciseId,
+                                    )
+                                    navigate(AppRoute.PlanEdit(targetPlanId))
+                                }
+                                else -> error("动作库缺少可添加的计划或训练")
+                            }
+                        },
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                }
+            }
+            is AppRoute.PlanDetail -> {
+                val currentState = appState
+                val plan = currentState?.plannedWorkouts?.firstOrNull { it.id == route.planId }
+                if (currentState == null || plan == null) {
+                    RoutePlaceholder(
+                        title = "计划详情",
+                        subtitle = "这个本地计划已不存在",
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                } else {
+                    PlanDetailScreen(
+                        plan = plan,
+                        exercises = currentState.plannedExerciseViews
+                            .filter { it.plannedExercise.plannedWorkoutId == plan.id },
+                        onEdit = { navigate(AppRoute.PlanEdit(plan.id)) },
+                        onOpenLibrary = {
+                            navigate(AppRoute.Library(origin = PrimaryTab.Plan, planId = plan.id))
+                        },
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                }
+            }
+            is AppRoute.PlanEdit -> {
+                val currentState = appState
+                val fitnessRepository = repository
+                val plan = currentState?.plannedWorkouts?.firstOrNull { it.id == route.planId }
+                if (currentState == null || fitnessRepository == null || plan == null) {
+                    RoutePlaceholder(
+                        title = "编辑计划",
+                        subtitle = "这个本地计划已不存在",
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                } else {
+                    PlanEditScreen(
+                        plan = plan,
+                        exercises = currentState.plannedExerciseViews
+                            .filter { it.plannedExercise.plannedWorkoutId == plan.id },
+                        onSave = { name, date ->
+                            fitnessRepository.updatePlannedWorkoutDetails(plan.id, name, date)
+                            navigate(AppRoute.PlanDetail(plan.id))
+                        },
+                        onOpenLibrary = {
+                            navigate(AppRoute.Library(origin = PrimaryTab.Plan, planId = plan.id))
+                        },
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                }
+            }
             is AppRoute.TrainingActive -> {
                 val activeState = activeRouteState
                 if (activeState == null || repository == null) {
