@@ -1,6 +1,6 @@
 ---
 title: i fitness 单一主任务交互原型设计
-status: review
+status: approved
 date: 2026-07-10
 scope: interactive-web-prototype
 selected_direction: single-today-task
