@@ -255,3 +255,107 @@ test('profile is summary-first and smart status is internally consistent', async
   assert.ok(status === '未配置' || status === '已连接');
   assert.equal(status.includes('已连接') && (await page.getByText('密钥未保存').count() > 0), false);
 });
+
+test('invalid manual meal values remain visible with linked field errors', async () => {
+  await page.getByRole('button', { name: '饮食', exact: true }).click();
+  await page.getByTestId('add-meal').click();
+  await page.getByRole('button', { name: '手动记录' }).click();
+
+  const nameInput = page.getByLabel('食物名称');
+  const calorieInput = page.getByLabel('热量 kcal');
+  await nameInput.fill('   ');
+  await calorieInput.fill('0');
+  await page.getByTestId('save-meal').click();
+
+  assert.equal(await nameInput.inputValue(), '   ');
+  assert.equal(await calorieInput.inputValue(), '0');
+  assert.equal(await nameInput.getAttribute('aria-describedby'), 'meal-name-error');
+  assert.equal(await calorieInput.getAttribute('aria-describedby'), 'meal-calories-error');
+  assert.equal(await nameInput.getAttribute('aria-invalid'), 'true');
+  assert.equal(await calorieInput.getAttribute('aria-invalid'), 'true');
+  assert.equal(await page.locator('#meal-name-error').innerText(), '请输入食物名称');
+  assert.equal(await page.locator('#meal-calories-error').innerText(), '请输入大于 0 的热量');
+});
+
+test('hostile meal names render literally and persist without injecting elements', async () => {
+  const unsafeName = '主食 <b data-testid="injected-meal-name">篡改</b>';
+  await page.getByRole('button', { name: '饮食', exact: true }).click();
+  await page.getByTestId('add-meal').click();
+  await page.getByRole('button', { name: '手动记录' }).click();
+  await page.getByLabel('食物名称').fill(unsafeName);
+  await page.getByLabel('热量 kcal').fill('360');
+  await page.getByTestId('save-meal').click();
+
+  assert.equal(await page.getByText(unsafeName, { exact: true }).isVisible(), true);
+  assert.equal(await page.getByTestId('injected-meal-name').count(), 0);
+  await page.reload();
+  assert.equal(await page.getByText(unsafeName, { exact: true }).isVisible(), true);
+  assert.equal(await page.getByTestId('injected-meal-name').count(), 0);
+});
+
+test('photo estimation is explicitly a local demo draft', async () => {
+  await page.getByRole('button', { name: '饮食', exact: true }).click();
+  await page.getByTestId('add-meal').click();
+  await page.getByRole('button', { name: '拍照估算' }).click();
+
+  const draft = page.getByTestId('local-photo-draft');
+  assert.equal(await draft.isVisible(), true);
+  assert.match(await draft.innerText(), /本地演示草稿/);
+  assert.equal(await page.getByText(/不上传图片/).isVisible(), true);
+});
+
+test('smart status stays consistent through connect, refresh, and disconnect', async () => {
+  await page.getByRole('button', { name: '我的', exact: true }).click();
+  await page.getByRole('button', { name: /智能设置/ }).click();
+  assert.equal(await page.getByTestId('smart-status').innerText(), '未配置');
+
+  await page.getByRole('button', { name: '启用演示连接' }).click();
+  assert.equal(await page.getByTestId('smart-status').innerText(), '已连接');
+  assert.equal(await page.getByText('密钥未保存').count(), 0);
+  await page.reload();
+  assert.equal(await page.getByTestId('smart-status').innerText(), '已连接');
+  assert.equal(await page.getByText('密钥未保存').count(), 0);
+
+  await page.getByRole('button', { name: '断开演示连接' }).click();
+  assert.equal(await page.getByTestId('smart-status').innerText(), '未配置');
+  assert.equal(await page.getByText('密钥未保存').isVisible(), true);
+});
+
+test('reset requires confirmation and removes persisted prototype state', async () => {
+  await page.getByRole('button', { name: '我的', exact: true }).click();
+  await page.getByRole('button', { name: /数据备份/ }).click();
+  await page.getByRole('button', { name: '重置演示数据' }).click();
+
+  assert.equal(await page.getByRole('heading', { name: '重置演示数据？' }).isVisible(), true);
+  assert.notEqual(await page.evaluate(() => localStorage.getItem('ifitness-layout-prototype-v1')), null);
+  await page.getByRole('button', { name: '取消' }).click();
+  assert.notEqual(await page.evaluate(() => localStorage.getItem('ifitness-layout-prototype-v1')), null);
+
+  await page.getByRole('button', { name: '重置演示数据' }).click();
+  await page.getByRole('button', { name: '确认重置' }).click();
+  assert.equal(await page.evaluate(() => localStorage.getItem('ifitness-layout-prototype-v1')), null);
+  assert.equal(new URL(page.url()).hash, '#home');
+  assert.equal(await page.getByTestId('home-screen').isVisible(), true);
+});
+
+test('food sheet traps focus, makes the background inert, and restores its opener', async () => {
+  await page.getByRole('button', { name: '饮食', exact: true }).click();
+  const opener = page.getByTestId('add-meal');
+  await opener.click();
+
+  const firstAction = page.getByRole('button', { name: '拍照估算' });
+  const lastAction = page.getByRole('button', { name: '取消' });
+  assert.equal(await firstAction.evaluate(element => element === document.activeElement), true);
+  assert.equal(await page.locator('#screen').evaluate(element => element.inert), true);
+
+  await lastAction.focus();
+  await page.keyboard.press('Tab');
+  assert.equal(await firstAction.evaluate(element => element === document.activeElement), true);
+  await firstAction.focus();
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await lastAction.evaluate(element => element === document.activeElement), true);
+
+  await lastAction.click();
+  assert.equal(await page.locator('#screen').evaluate(element => element.inert), false);
+  assert.equal(await opener.evaluate(element => element === document.activeElement), true);
+});
