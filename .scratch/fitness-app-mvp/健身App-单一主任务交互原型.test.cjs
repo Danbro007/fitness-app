@@ -684,6 +684,51 @@ test('exercise detail can be used for this workout', async () => {
   assert.equal(await page.getByText(exerciseName, { exact: true }).count() > 0, true);
 });
 
+test('a new library exercise joins the persisted workout with initialized training state', async () => {
+  await page.getByTestId('open-library').click();
+  await page.getByRole('button', { name: '背', exact: true }).click();
+  await page.getByTestId('exercise-row').click();
+  assert.equal(await page.getByRole('heading', { name: '高位下拉' }).isVisible(), true);
+  await page.getByRole('button', { name: '用于本次训练' }).click();
+
+  assert.match(page.url(), /#training-prep$/);
+  assert.equal(await page.getByText('高位下拉', { exact: true }).count(), 1);
+  const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('ifitness-layout-prototype-v1')));
+  assert.deepEqual(persisted.sessionExerciseIds, ['smith', 'dumbbell', 'pulldown']);
+  assert.equal(persisted.targetSets.pulldown, 4);
+  assert.equal(persisted.completedSets.pulldown, 0);
+  assert.equal(persisted.weightKg.pulldown, 45);
+  assert.equal(persisted.currentExerciseIndex, 2);
+
+  await page.reload();
+  assert.equal(await page.getByText('高位下拉', { exact: true }).count(), 1);
+  await page.getByTestId('start-workout').click();
+  const pulldownChip = page.getByRole('button', { name: '3. 高位下拉' });
+  await pulldownChip.click();
+  assert.equal(await pulldownChip.getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('.active-media img').getAttribute('alt'), '高位下拉动作演示');
+  assert.match(await page.locator('.stepper-row').first().locator('output').innerText(), /45 kg/);
+});
+
+test('legacy persisted workout state normalizes the default session list safely', async () => {
+  await page.evaluate(() => {
+    const legacy = JSON.parse(localStorage.getItem('ifitness-layout-prototype-v1'));
+    delete legacy.sessionExerciseIds;
+    legacy.currentExerciseIndex = 99;
+    localStorage.setItem('ifitness-layout-prototype-v1', JSON.stringify(legacy));
+  });
+  await page.reload();
+  await page.goto(`${prototypeUrl}#training-prep`);
+
+  assert.equal(await page.locator('.prep-exercise').count(), 2);
+  const normalized = await page.evaluate(() => JSON.parse(localStorage.getItem('ifitness-layout-prototype-v1')));
+  assert.deepEqual(normalized.sessionExerciseIds, ['smith', 'dumbbell']);
+  assert.equal(normalized.currentExerciseIndex, 1);
+  await page.getByTestId('start-workout').click();
+  assert.equal(await page.getByRole('button', { name: '2. 哑铃卧推' }).getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.getByTestId('complete-set').isVisible(), true);
+});
+
 test('active workout GIF expands through the accessible overlay lifecycle', async () => {
   await page.getByTestId('home-primary-action').click();
   await page.getByTestId('start-workout').click();

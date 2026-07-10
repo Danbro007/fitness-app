@@ -1755,7 +1755,7 @@
       { id: 'squat', name: '史密斯深蹲', bodyPart: '腿', equipment: '史密斯机', sets: 4, weightKg: 80, image: '../../app/src/main/assets/exercise-media/gifs/0770-jFtipLl.gif' },
       { id: 'pulldown', name: '高位下拉', bodyPart: '背', equipment: '器械', sets: 4, weightKg: 45, image: '../../app/src/main/assets/exercise-media/gifs/2330-LEprlgG.gif' },
     ];
-    const workoutExercises = exercises.slice(0, 2);
+    const DEFAULT_SESSION_EXERCISE_IDS = ['smith', 'dumbbell'];
     const weekPlan = [
       { date: '7/10', day: '五', title: '胸部力量 A', status: '今天' },
       { date: '7/11', day: '六', title: '下肢力量 A', status: '已计划' },
@@ -1766,6 +1766,7 @@
       route: 'home',
       workoutStatus: 'idle',
       currentExerciseIndex: 0,
+      sessionExerciseIds: DEFAULT_SESSION_EXERCISE_IDS,
       completedSets: { smith: 0, dumbbell: 0 },
       targetSets: { smith: 4, dumbbell: 3 },
       weightKg: { smith: 70, dumbbell: 24 },
@@ -1785,11 +1786,42 @@
       smartConfigured: false,
     };
 
+    function normalizeState(rawState = {}) {
+      const normalized = { ...structuredClone(DEFAULT_STATE), ...rawState };
+      const requestedIds = Array.isArray(rawState.sessionExerciseIds)
+        ? rawState.sessionExerciseIds
+        : DEFAULT_SESSION_EXERCISE_IDS;
+      const sessionExerciseIds = [...new Set(requestedIds)]
+        .filter(id => exercises.some(exercise => exercise.id === id));
+      normalized.sessionExerciseIds = sessionExerciseIds.length
+        ? sessionExerciseIds
+        : [...DEFAULT_SESSION_EXERCISE_IDS];
+      normalized.completedSets = { ...DEFAULT_STATE.completedSets, ...(rawState.completedSets || {}) };
+      normalized.targetSets = { ...DEFAULT_STATE.targetSets, ...(rawState.targetSets || {}) };
+      normalized.weightKg = { ...DEFAULT_STATE.weightKg, ...(rawState.weightKg || {}) };
+
+      normalized.sessionExerciseIds.forEach(id => {
+        const exercise = exercises.find(item => item.id === id);
+        const completed = Number(normalized.completedSets[id]);
+        const target = Number(normalized.targetSets[id]);
+        const weight = Number(normalized.weightKg[id]);
+        normalized.completedSets[id] = Number.isFinite(completed) && completed >= 0 ? completed : 0;
+        normalized.targetSets[id] = Number.isFinite(target) && target > 0 ? target : exercise.sets;
+        normalized.weightKg[id] = Number.isFinite(weight) && weight >= 0 ? weight : exercise.weightKg;
+      });
+
+      const requestedIndex = Number(normalized.currentExerciseIndex);
+      normalized.currentExerciseIndex = Number.isInteger(requestedIndex)
+        ? Math.max(0, Math.min(requestedIndex, normalized.sessionExerciseIds.length - 1))
+        : 0;
+      return normalized;
+    }
+
     function loadState() {
       try {
-        return { ...structuredClone(DEFAULT_STATE), ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') };
+        return normalizeState(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'));
       } catch {
-        return structuredClone(DEFAULT_STATE);
+        return normalizeState();
       }
     }
 
@@ -1797,6 +1829,20 @@
     let toastTimer;
     let restTimer;
     let overlayOpener;
+
+    function sessionExercises() {
+      return state.sessionExerciseIds
+        .map(id => exercises.find(exercise => exercise.id === id))
+        .filter(Boolean);
+    }
+
+    function sessionTargetSetCount(workoutExercises = sessionExercises()) {
+      return workoutExercises.reduce((sum, exercise) => sum + state.targetSets[exercise.id], 0);
+    }
+
+    function sessionCompletedSetCount(workoutExercises = sessionExercises()) {
+      return workoutExercises.reduce((sum, exercise) => sum + state.completedSets[exercise.id], 0);
+    }
 
     function saveState() {
       try {
@@ -1838,14 +1884,17 @@
     }
 
     function renderHome() {
-      const completed = state.completedSets.smith + state.completedSets.dumbbell;
+      const workoutExercises = sessionExercises();
+      const completed = sessionCompletedSetCount(workoutExercises);
+      const targetSets = sessionTargetSetCount(workoutExercises);
+      const estimatedMinutes = 42 + Math.max(0, workoutExercises.length - 2) * 12;
       const isInProgress = ['active', 'resting'].includes(state.workoutStatus);
       const isCompleted = state.workoutStatus === 'completed';
       const presentation = isCompleted
         ? {
             eyebrow: 'Workout completed',
             title: '今日训练已完成',
-            summary: `今日训练已完成 · ${completed} / 7 组<br>下次训练 · 下肢力量 A`,
+            summary: `今日训练已完成 · ${completed} / ${targetSets} 组<br>下次训练 · 下肢力量 A`,
             action: '查看训练总结',
             route: 'workout-summary',
           }
@@ -1853,14 +1902,14 @@
           ? {
               eyebrow: 'Workout in progress',
               title: '胸部力量 A',
-              summary: `训练进行中 · ${completed} / 7 组`,
+              summary: `训练进行中 · ${completed} / ${targetSets} 组`,
               action: '继续训练',
               route: 'training-active',
             }
           : {
               eyebrow: "Today's workout",
               title: '胸部力量 A',
-              summary: '2 个动作 · 约 42 分钟',
+              summary: `${workoutExercises.length} 个动作 · 约 ${estimatedMinutes} 分钟`,
               action: '开始训练',
               route: 'training-prep',
             };
@@ -1878,7 +1927,7 @@
             <div class="hero-media">
               <img src="../../app/src/main/assets/exercise-media/gifs/0748-trqKQv2.gif" alt="史密斯机卧推动作演示">
             </div>
-            <div class="hero-progress"><strong>${completed} / 7</strong> <span>组</span></div>
+            <div class="hero-progress"><strong>${completed} / ${targetSets}</strong> <span>组</span></div>
             <button class="primary-action" data-testid="home-primary-action" data-route="${presentation.route}">${presentation.action}</button>
           </section>
 
@@ -2017,6 +2066,7 @@
     }
 
     function completeSet() {
+      const workoutExercises = sessionExercises();
       const id = workoutExercises[state.currentExerciseIndex].id;
       state.completedSets[id] = Math.min(state.targetSets[id], state.completedSets[id] + 1);
       state.logs ||= [];
@@ -2028,6 +2078,7 @@
     }
 
     function skipRest() {
+      const workoutExercises = sessionExercises();
       state.workoutStatus = 'active';
       state.restEndsAt = null;
       const current = workoutExercises[state.currentExerciseIndex];
@@ -2053,12 +2104,15 @@
     }
 
     function renderTrainingPrep() {
-      const completed = workoutExercises.reduce((sum, exercise) => sum + state.completedSets[exercise.id], 0);
+      const workoutExercises = sessionExercises();
+      const completed = sessionCompletedSetCount(workoutExercises);
+      const targetSets = sessionTargetSetCount(workoutExercises);
+      const estimatedMinutes = 42 + Math.max(0, workoutExercises.length - 2) * 12;
       return `
         <div class="screen-content training-prep-screen" data-testid="training-prep-screen">
           <p class="page-kicker">Today's plan</p>
           <h1>胸部力量 A</h1>
-          <p class="prep-meta">2 个动作 · 7 组 · 约 42 分钟<br>公司健身房</p>
+          <p class="prep-meta">${workoutExercises.length} 个动作 · ${targetSets} 组 · 约 ${estimatedMinutes} 分钟<br>公司健身房</p>
           <section class="prep-card" aria-label="今日动作">
             ${workoutExercises.map(exercise => `
               <article class="prep-exercise">
@@ -2075,8 +2129,10 @@
     }
 
     function renderTrainingActive() {
+      const workoutExercises = sessionExercises();
       const exercise = workoutExercises[state.currentExerciseIndex];
-      const completed = workoutExercises.reduce((sum, item) => sum + state.completedSets[item.id], 0);
+      const completed = sessionCompletedSetCount(workoutExercises);
+      const targetSets = sessionTargetSetCount(workoutExercises);
       const elapsedMinutes = Math.max(0, Math.floor((Date.now() - (state.startedAt || Date.now())) / 60_000));
       const isResting = state.workoutStatus === 'resting';
       const currentCompleted = state.completedSets[exercise.id];
@@ -2093,7 +2149,7 @@
 
           <div class="exercise-chips" aria-label="切换动作">
             ${workoutExercises.map((item, index) => `
-              <button class="exercise-chip ${index === state.currentExerciseIndex ? 'active' : ''}" data-exercise-index="${index}">
+              <button class="exercise-chip ${index === state.currentExerciseIndex ? 'active' : ''}" data-exercise-index="${index}" aria-pressed="${index === state.currentExerciseIndex}">
                 ${index + 1}. ${item.name}
               </button>`).join('')}
           </div>
@@ -2104,7 +2160,7 @@
 
           <div class="set-line">
             <strong>${exercise.name}</strong>
-            <span data-testid="set-progress">${completed} / 7 组</span>
+            <span data-testid="set-progress">${completed} / ${targetSets} 组</span>
           </div>
 
           ${isResting ? `
@@ -2137,8 +2193,10 @@
     }
 
     function renderWorkoutSummary() {
+      const workoutExercises = sessionExercises();
       const logs = state.logs || [];
-      const completed = workoutExercises.reduce((sum, exercise) => sum + state.completedSets[exercise.id], 0);
+      const completed = sessionCompletedSetCount(workoutExercises);
+      const targetSets = sessionTargetSetCount(workoutExercises);
       const volume = logs.reduce((sum, log) => sum + log.weightKg * log.reps, 0);
       const durationMinutes = Math.max(1, Math.round(((state.finishedAt || Date.now()) - (state.startedAt || Date.now())) / 60_000));
       const feelingCounts = logs.reduce((counts, log) => ({ ...counts, [log.feeling]: (counts[log.feeling] || 0) + 1 }), {});
@@ -2151,7 +2209,7 @@
           <h1>今天的汗水<br>已经记下了</h1>
           <p class="summary-lead">胸部力量 A · ${feelingSummary}</p>
           <section class="summary-grid" aria-label="训练总结数据">
-            <div class="summary-stat"><span>完成组数</span><strong>${completed} / 7</strong></div>
+            <div class="summary-stat"><span>完成组数</span><strong>${completed} / ${targetSets}</strong></div>
             <div class="summary-stat"><span>训练时长</span><strong>${durationMinutes} 分钟</strong></div>
             <div class="summary-stat"><span>总容量</span><strong>${volume} kg</strong></div>
             <div class="summary-stat"><span>本周进度</span><strong>${state.weeklyCompleted} / 3</strong></div>
@@ -2448,6 +2506,7 @@
     }
 
     function showActiveMediaPreview() {
+      const workoutExercises = sessionExercises();
       const exercise = workoutExercises[state.currentExerciseIndex];
       openOverlay(`
         <section class="confirm-card media-preview" role="dialog" aria-modal="true" aria-labelledby="active-media-title">
@@ -2713,6 +2772,7 @@
       const actionTarget = event.target.closest('[data-action]');
       if (!actionTarget) return;
 
+      const workoutExercises = sessionExercises();
       const currentId = workoutExercises[state.currentExerciseIndex].id;
       switch (actionTarget.dataset.action) {
         case 'start-workout':
@@ -2722,8 +2782,18 @@
           openLibrary(actionTarget.dataset.libraryReturn || 'home');
           break;
         case 'use-exercise': {
-          const selectedIndex = workoutExercises.findIndex(exercise => exercise.id === state.selectedExerciseId);
-          if (selectedIndex >= 0) state.currentExerciseIndex = selectedIndex;
+          const selectedExercise = exercises.find(exercise => exercise.id === state.selectedExerciseId);
+          if (!selectedExercise) {
+            showToast('未找到这个动作');
+            break;
+          }
+          if (!state.sessionExerciseIds.includes(selectedExercise.id)) {
+            state.sessionExerciseIds.push(selectedExercise.id);
+            state.targetSets[selectedExercise.id] = selectedExercise.sets;
+            state.completedSets[selectedExercise.id] = 0;
+            state.weightKg[selectedExercise.id] = selectedExercise.weightKg;
+          }
+          state.currentExerciseIndex = state.sessionExerciseIds.indexOf(selectedExercise.id);
           saveState();
           navigate('training-prep');
           showToast('已用于本次训练');
