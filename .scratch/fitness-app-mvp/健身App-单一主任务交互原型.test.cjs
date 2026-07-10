@@ -576,6 +576,31 @@ test('accepted mobile routes produce complete screenshot evidence through the re
   const captured = [];
   await fs.promises.mkdir(evidenceDir, { recursive: true });
 
+  const assertNeutralBackground = async expectedTestId => {
+    const background = await page.evaluate(() => {
+      const probe = document.createElement('span');
+      probe.style.backgroundColor = 'var(--phone)';
+      document.body.append(probe);
+      const phone = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return {
+        phone,
+        body: getComputedStyle(document.body).backgroundColor,
+        appShell: getComputedStyle(document.querySelector('.app-shell')).backgroundColor,
+        screen: getComputedStyle(document.getElementById('screen')).backgroundColor,
+        trainingClass: document.querySelector('.app-shell').classList.contains('training-active'),
+      };
+    });
+    assert.equal(await page.getByTestId(expectedTestId).isVisible(), true);
+    assert.deepEqual(background, {
+      phone: 'rgb(245, 242, 236)',
+      body: 'rgb(245, 242, 236)',
+      appShell: 'rgb(245, 242, 236)',
+      screen: 'rgb(245, 242, 236)',
+      trainingClass: false,
+    });
+  };
+
   const waitForImages = async () => {
     await page.waitForTimeout(320);
     await page.waitForFunction(() => [...document.images].every(image => image.complete && image.naturalWidth > 0));
@@ -600,6 +625,7 @@ test('accepted mobile routes produce complete screenshot evidence through the re
   await capture('home-390.png', 390);
 
   await page.getByRole('button', { name: '计划', exact: true }).click();
+  await assertNeutralBackground('plan-screen');
   await capture('plan-390.png', 390);
 
   await page.getByRole('button', { name: '首页', exact: true }).click();
@@ -607,15 +633,28 @@ test('accepted mobile routes produce complete screenshot evidence through the re
   await page.getByTestId('start-workout').click();
   await capture('training-390.png', 390);
 
+  await page.getByTestId('complete-set').click();
+  assert.equal(await page.getByTestId('rest-panel').isVisible(), true);
+  const activeProgress = Number.parseInt(await page.getByTestId('set-progress').innerText(), 10);
+  assert.ok(activeProgress > 0, `active workout progress was ${activeProgress}`);
+  await page.getByTestId('skip-rest').click();
   await page.getByTestId('end-workout').click();
   await page.getByTestId('confirm-end-workout').click();
   assert.equal(await page.getByTestId('bottom-nav').count(), 0);
+  const completedGroups = Number.parseInt(await page.locator('.summary-stat').filter({ hasText: '完成组数' }).locator('strong').innerText(), 10);
+  assert.ok(completedGroups > 0, `summary completed groups was ${completedGroups}`);
   await capture('workout-summary-390.png', 390);
 
+  await page.goto(prototypeUrl);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
   await page.goto(`${prototypeUrl}#food`);
+  await assertNeutralBackground('food-screen');
   await capture('food-390.png', 390);
 
   await page.goto(`${prototypeUrl}#profile`);
+  await assertNeutralBackground('profile-screen');
+  assert.match(await page.locator('.profile-metric').first().locator('strong').innerText(), /^0 \/ 3$/);
   await capture('profile-390.png', 390);
 
   await page.setViewportSize({ width: 430, height: 844 });
