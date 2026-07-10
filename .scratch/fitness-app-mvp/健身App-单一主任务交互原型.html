@@ -1358,6 +1358,7 @@
     let state = loadState();
     let toastTimer;
     let restTimer;
+    let planEditorOpener;
 
     function saveState() {
       try {
@@ -1428,6 +1429,11 @@
         </div>`;
     }
 
+    function escapeHtml(value) {
+      const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+      return String(value).replace(/[&<>"']/g, character => entities[character]);
+    }
+
     function renderPlan() {
       const plans = state.plans || weekPlan;
       return `
@@ -1444,7 +1450,7 @@
             ${plans.map((plan, index) => `
               <button class="plan-row ${plan.title === '休息日' ? 'rest-day' : ''}" data-plan-index="${index}">
                 <span class="plan-row-date">${plan.date}<br>周${plan.day}</span>
-                <span class="plan-row-copy"><strong>${plan.title}</strong><span>${plan.title === '休息日' ? '主动恢复 · 不安排训练' : '约 45 分钟 · 本地计划'}</span></span>
+                <span class="plan-row-copy"><strong>${escapeHtml(plan.title)}</strong><span>${plan.title === '休息日' ? '主动恢复 · 不安排训练' : '约 45 分钟 · 本地计划'}</span></span>
                 <em>${plan.status}</em>
               </button>`).join('')}
           </section>
@@ -1462,7 +1468,7 @@
         <div class="screen-content plan-detail-screen" data-testid="plan-detail-screen">
           <button class="back-action" data-route="plan" aria-label="返回计划">← 计划</button>
           <p class="page-kicker">${plan.date} · 周${plan.day}</p>
-          <h1>${plan.title}</h1>
+          <h1>${escapeHtml(plan.title)}</h1>
           <section class="detail-card">
             <dl>
               <div><dt>状态</dt><dd>${plan.status}</dd></div>
@@ -1728,12 +1734,14 @@
 
     function showPlanEditor(index = null) {
       const existing = index === null ? null : (state.plans || weekPlan)[index];
+      planEditorOpener = document.activeElement;
+      document.getElementById('screen').inert = true;
       document.getElementById('overlay-root').innerHTML = `
         <div class="confirm-overlay" role="presentation">
           <section class="confirm-card plan-editor-card" role="dialog" aria-modal="true" aria-labelledby="plan-editor-title">
             <h2 id="plan-editor-title">${existing ? '编辑计划' : '新计划'}</h2>
             <p>修改会保存在当前浏览器，不会同步到云端。</p>
-            <label>计划名称<input data-testid="plan-name-input" value="${existing?.title || '力量训练'}"></label>
+            <label>计划名称<input data-testid="plan-name-input" value="${escapeHtml(existing?.title || '力量训练')}"></label>
             <label>训练日期<input data-testid="plan-date-input" type="date" value="${existing ? planDateForInput(existing.date) : '2026-07-14'}"></label>
             <div class="confirm-actions">
               <button data-action="cancel-plan-editor">取消</button>
@@ -1741,6 +1749,16 @@
             </div>
           </section>
         </div>`;
+      document.querySelector('[data-testid="plan-name-input"]').focus();
+    }
+
+    function closePlanEditor({ restoreFocus = true } = {}) {
+      document.getElementById('screen').inert = false;
+      document.getElementById('overlay-root').innerHTML = '';
+      const opener = planEditorOpener;
+      planEditorOpener = undefined;
+      if (restoreFocus && opener?.isConnected) opener.focus();
+      return opener;
     }
 
     function savePlan(index) {
@@ -1760,7 +1778,12 @@
       else plans.push(plan);
       state.plans = plans;
       saveState();
+      closePlanEditor({ restoreFocus: false });
       navigate('plan');
+      const focusTarget = Number.isInteger(index) && index >= 0
+        ? document.querySelector(`[data-plan-index="${index}"]`)
+        : document.querySelector('[data-action="show-plan-editor"]');
+      focusTarget?.focus();
       showToast('计划已保存');
     }
 
@@ -1925,7 +1948,23 @@
         const rawIndex = actionTarget.dataset.planEditIndex;
         savePlan(rawIndex === '' ? null : Number(rawIndex));
       } else if (actionTarget.dataset.action === 'cancel-plan-editor') {
-        document.getElementById('overlay-root').innerHTML = '';
+        closePlanEditor();
+      }
+    });
+
+    document.getElementById('overlay-root').addEventListener('keydown', event => {
+      const dialog = event.target.closest('.plan-editor-card');
+      if (!dialog || event.key !== 'Tab') return;
+
+      const focusable = [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled])')];
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     });
 

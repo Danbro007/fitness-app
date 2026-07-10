@@ -167,6 +167,47 @@ test('plan prioritizes the weekly schedule over monthly generation', async () =>
   assert.equal(await page.getByText('休息日').count() > 0, true);
 });
 
+test('plan titles remain literal text after saving and refreshing', async () => {
+  const unsafeTitle = '力量 "A" <b data-testid="injected-plan-title">偷换</b>';
+  await page.getByRole('button', { name: '计划' }).click();
+  await page.getByRole('button', { name: '新计划' }).click();
+  await page.getByTestId('plan-name-input').fill(unsafeTitle);
+  await page.getByRole('button', { name: '保存计划' }).click();
+  await page.reload();
+
+  const savedTitles = await page.locator('.plan-row-copy strong').allTextContents();
+  assert.equal(savedTitles.includes(unsafeTitle), true);
+  assert.equal(await page.getByTestId('injected-plan-title').count(), 0);
+
+  await page.locator('[data-plan-index]').last().click();
+  assert.equal(await page.getByRole('heading', { name: unsafeTitle, exact: true }).isVisible(), true);
+  await page.getByRole('button', { name: '编辑计划' }).click();
+  assert.equal(await page.getByTestId('plan-name-input').inputValue(), unsafeTitle);
+});
+
+test('plan editor traps focus, makes the background inert, and restores the opener', async () => {
+  await page.getByRole('button', { name: '计划' }).click();
+  const opener = page.getByRole('button', { name: '新计划' });
+  await opener.click();
+
+  const nameInput = page.getByTestId('plan-name-input');
+  const saveButton = page.getByRole('button', { name: '保存计划' });
+  assert.equal(await nameInput.evaluate(element => element === document.activeElement), true);
+  assert.equal(await page.locator('#screen').evaluate(element => element.inert), true);
+
+  await saveButton.focus();
+  await page.keyboard.press('Tab');
+  assert.equal(await nameInput.evaluate(element => element === document.activeElement), true);
+
+  await nameInput.focus();
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await saveButton.evaluate(element => element === document.activeElement), true);
+
+  await page.getByRole('button', { name: '取消' }).click();
+  assert.equal(await page.locator('#screen').evaluate(element => element.inert), false);
+  assert.equal(await opener.evaluate(element => element === document.activeElement), true);
+});
+
 test('action library is secondary, searchable, and row-clickable', async () => {
   await page.getByRole('button', { name: '首页' }).click();
   await page.getByTestId('open-library').click();
