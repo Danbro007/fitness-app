@@ -32,6 +32,7 @@ import com.shanqijie.fitnessapp.domain.HomePrimaryAction
 import com.shanqijie.fitnessapp.domain.WorkoutSummary
 import com.shanqijie.fitnessapp.ui.components.FitnessBottomNav
 import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
+import com.shanqijie.fitnessapp.ui.food.FoodScreen
 import com.shanqijie.fitnessapp.ui.home.HomeDayUi
 import com.shanqijie.fitnessapp.ui.home.HomeScreen
 import com.shanqijie.fitnessapp.ui.library.ExerciseDetailScreen
@@ -44,6 +45,12 @@ import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
 import com.shanqijie.fitnessapp.ui.plan.PlanDetailScreen
 import com.shanqijie.fitnessapp.ui.plan.PlanEditScreen
 import com.shanqijie.fitnessapp.ui.plan.PlanScreen
+import com.shanqijie.fitnessapp.ui.profile.ProfileEditScreen
+import com.shanqijie.fitnessapp.ui.profile.ProfileScreen
+import com.shanqijie.fitnessapp.ui.settings.AboutScreen
+import com.shanqijie.fitnessapp.ui.settings.BackupSettingsScreen
+import com.shanqijie.fitnessapp.ui.settings.SmartSettingsScreen
+import com.shanqijie.fitnessapp.ui.settings.VenueSettingsScreen
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import com.shanqijie.fitnessapp.ui.training.TrainingActiveScreen
 import com.shanqijie.fitnessapp.ui.training.TrainingActiveScreenUi
@@ -195,16 +202,73 @@ fun FitnessAppRootContent(
                     },
                     modifier = Modifier.padding(contentPadding),
                 )
-                PrimaryTab.Food -> RoutePlaceholder(
-                    title = "饮食",
-                    subtitle = "记录今日营养与餐食",
-                    modifier = Modifier.padding(contentPadding),
-                )
-                PrimaryTab.Profile -> RoutePlaceholder(
-                    title = "我的",
-                    subtitle = "档案、场地、智能与数据设置",
-                    modifier = Modifier.padding(contentPadding),
-                )
+                PrimaryTab.Food -> {
+                    val currentState = appState
+                    val fitnessRepository = repository
+                    if (currentState == null || fitnessRepository == null) {
+                        RoutePlaceholder(
+                            title = "饮食",
+                            subtitle = "正在读取本地饮食记录…",
+                            modifier = Modifier.padding(contentPadding),
+                        )
+                    } else {
+                        FoodScreen(
+                            summary = fitnessRepository.nutritionSummary(currentState),
+                            foodLogs = currentState.foodLogs,
+                            activeDraft = currentState.aiDrafts
+                                .firstOrNull { it.type == "food_estimate" && it.status == "draft" },
+                            onSaveManualMeal = { name, calories, protein, carbs, fat ->
+                                fitnessRepository.logFood(
+                                    name = name,
+                                    calories = calories,
+                                    proteinGrams = protein,
+                                    carbsGrams = carbs,
+                                    fatGrams = fat,
+                                )
+                            },
+                            onGeneratePhotoDraft = { input ->
+                                fitnessRepository.generateFoodEstimateDraft(
+                                    description = input.description,
+                                    imageUri = input.imageUri,
+                                    imageMimeType = input.imageMimeType,
+                                    imageBase64 = input.imageBase64,
+                                )
+                            },
+                            onConfirmPhotoDraft = { draftId ->
+                                fitnessRepository.confirmFoodEstimateDraft(draftId)
+                            },
+                            modifier = Modifier.padding(contentPadding),
+                        )
+                    }
+                }
+                PrimaryTab.Profile -> {
+                    val currentState = appState
+                    if (currentState == null) {
+                        RoutePlaceholder(
+                            title = "我的",
+                            subtitle = "正在读取本地档案…",
+                            modifier = Modifier.padding(contentPadding),
+                        )
+                    } else {
+                        ProfileScreen(
+                            profile = currentState.userProfile,
+                            completedWorkouts = currentState.workoutSessions.count { it.status == "completed" },
+                            completedSets = currentState.workoutSetLogs.count { it.completed },
+                            totalVolumeKg = currentState.workoutSetLogs
+                                .filter { it.completed }
+                                .sumOf { it.actualReps * it.actualWeightKg },
+                            providerConnected = currentState.aiProviders
+                                .firstOrNull { it.id == FitnessRepository.DEEPSEEK_PROVIDER_ID }
+                                ?.apiKeyStored == true,
+                            onOpenPreferences = { navigate(AppRoute.ProfileEdit) },
+                            onOpenVenue = { navigate(AppRoute.VenueSettings) },
+                            onOpenSmart = { navigate(AppRoute.SmartSettings) },
+                            onOpenBackup = { navigate(AppRoute.DataBackup) },
+                            onOpenAbout = { navigate(AppRoute.About) },
+                            modifier = Modifier.padding(contentPadding),
+                        )
+                    }
+                }
             }
             is AppRoute.Library -> {
                 val currentState = appState
@@ -395,11 +459,105 @@ fun FitnessAppRootContent(
                     )
                 }
             }
-            AppRoute.ProfileEdit -> RoutePlaceholder("编辑档案", "更新个人目标与训练偏好", Modifier.padding(contentPadding))
-            AppRoute.VenueSettings -> RoutePlaceholder("场地与器械", "管理本地训练条件", Modifier.padding(contentPadding))
-            AppRoute.SmartSettings -> RoutePlaceholder("智能设置", "AI 只生成草稿，确认后才保存", Modifier.padding(contentPadding))
-            AppRoute.DataBackup -> RoutePlaceholder("数据备份", "导出或恢复本地数据", Modifier.padding(contentPadding))
-            AppRoute.About -> RoutePlaceholder("关于", "i fitness 本地优先版", Modifier.padding(contentPadding))
+            AppRoute.ProfileEdit -> {
+                val currentState = appState
+                val fitnessRepository = repository
+                if (currentState == null || fitnessRepository == null) {
+                    RoutePlaceholder("训练偏好", "正在读取本地档案…", Modifier.padding(contentPadding))
+                } else {
+                    ProfileEditScreen(
+                        profile = currentState.userProfile,
+                        onSave = { name, birthYear, height, weight, goal, injuries, weeklyDays, minutes ->
+                            fitnessRepository.saveUserProfile(
+                                displayName = name,
+                                birthYear = birthYear,
+                                heightCm = height,
+                                weightKg = weight,
+                                goal = goal,
+                                injuries = injuries,
+                                weeklyTrainingDays = weeklyDays,
+                                preferredMinutes = minutes,
+                            )
+                            navState = navState.selectPrimary(PrimaryTab.Profile)
+                        },
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                }
+            }
+            AppRoute.VenueSettings -> {
+                val currentState = appState
+                val fitnessRepository = repository
+                val currentVenue = currentState?.venue
+                if (currentState == null || fitnessRepository == null) {
+                    RoutePlaceholder("场地与器械", "正在读取本地训练条件…", Modifier.padding(contentPadding))
+                } else {
+                    val venueId = currentVenue?.id
+                    val explicitEquipment = venueId != null && currentState.venueEquipment.any { it.venueId == venueId }
+                    val enabledEquipmentIds = if (explicitEquipment) {
+                        currentState.venueEquipment
+                            .filter { it.venueId == venueId && it.available }
+                            .mapTo(mutableSetOf()) { it.equipmentId }
+                    } else {
+                        currentState.equipmentForSelectedVenue.mapTo(mutableSetOf()) { it.id }
+                    }
+                    VenueSettingsScreen(
+                        currentVenue = currentVenue,
+                        venues = currentState.venues,
+                        equipment = currentState.equipment,
+                        enabledEquipmentIds = enabledEquipmentIds,
+                        onRenameVenue = { name ->
+                            fitnessRepository.renameVenue(
+                                id = currentVenue?.id ?: error("当前没有可编辑的场地"),
+                                name = name,
+                            )
+                        },
+                        onAddVenue = fitnessRepository::addVenue,
+                        onSetDefaultVenue = fitnessRepository::setDefaultVenue,
+                        onToggleEquipment = { equipmentId, available ->
+                            fitnessRepository.bindEquipmentToVenue(
+                                venueId = currentVenue?.id ?: error("当前没有可编辑的场地"),
+                                equipmentId = equipmentId,
+                                available = available,
+                            )
+                        },
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                }
+            }
+            AppRoute.SmartSettings -> {
+                val currentState = appState
+                val fitnessRepository = repository
+                if (currentState == null || fitnessRepository == null) {
+                    RoutePlaceholder("智能设置", "正在读取本机密钥状态…", Modifier.padding(contentPadding))
+                } else {
+                    SmartSettingsScreen(
+                        provider = currentState.aiProviders
+                            .firstOrNull { it.id == FitnessRepository.DEEPSEEK_PROVIDER_ID },
+                        onSaveApiKey = { apiKey ->
+                            fitnessRepository.saveAiApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID, apiKey)
+                        },
+                        onTestConnection = {
+                            fitnessRepository.testAiProvider(FitnessRepository.DEEPSEEK_PROVIDER_ID)
+                        },
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                }
+            }
+            AppRoute.DataBackup -> {
+                val fitnessRepository = repository
+                if (fitnessRepository == null) {
+                    RoutePlaceholder("数据备份", "正在准备本地数据…", Modifier.padding(contentPadding))
+                } else {
+                    BackupSettingsScreen(
+                        onExportBackup = fitnessRepository::exportBackupJson,
+                        onImportBackup = fitnessRepository::importBackupJson,
+                        onResetLocalData = fitnessRepository::resetLocalData,
+                        onResetComplete = { navState = navState.selectPrimary(PrimaryTab.Home) },
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                }
+            }
+            AppRoute.About -> AboutScreen(modifier = Modifier.padding(contentPadding))
         }
     }
 }
