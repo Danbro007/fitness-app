@@ -67,4 +67,4 @@ Primary references:
 - The launcher artwork must remain project-owned or properly licensed; verify its source record before public distribution.
 - AI-generated workout and nutrition output is assistive information, not medical diagnosis or treatment.
 - When a user invokes a configured AI provider, the submitted prompt and any selected food image may be transmitted to that provider under its terms and privacy policy.
-- Before making the repository or APK public, complete a privacy policy, a dependency-notice review, media licensing, and jurisdiction-specific legal review.
+- Before publishing an APK, complete a privacy policy, a dependency-notice review, media licensing, and jurisdiction-specific legal review.

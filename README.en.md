@@ -215,7 +215,7 @@ See [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) for attribution, licens
 
 ## Legal and Release Boundaries
 
-- The repository remains private and does not push third-party GIF binaries to GitHub.
+- This is a public source repository; third-party GIF binaries are not pushed to GitHub.
 - `i fitness` is a working product name; complete trademark clearance before commercialization or a public release.
 - Workout, nutrition, and AI suggestions are informational and are not medical diagnosis, treatment, or individualized nutrition prescriptions.
 - Before distributing an APK publicly, complete a privacy policy, media licensing, dependency-license inventory, and launcher-art provenance record.
@@ -240,4 +240,4 @@ The app provides a DeepSeek-style OpenAI-compatible configuration entry. When no
 
 ## License
 
-No license file has been added yet. Before making the repository public, add a `LICENSE` file and verify the licensing boundaries of third-party data and media assets.
+No license file has been added yet. Before publishing an APK or permitting third-party code reuse, add a `LICENSE` file and verify the licensing boundaries of third-party data and media assets.
