@@ -15,6 +15,26 @@ function browserLaunchOptions() {
   return options;
 }
 
+function rgbChannels(value) {
+  const channels = value.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+  assert.equal(channels?.length, 3, `Expected an rgb color, received: ${value}`);
+  return channels;
+}
+
+function relativeLuminance(value) {
+  const [red, green, blue] = rgbChannels(value).map(channel => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+  return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
+}
+
+function contrastRatio(foreground, background) {
+  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
+  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 before(async () => {
   browser = await chromium.launch(browserLaunchOptions());
   page = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -93,4 +113,48 @@ test('workout flow hides navigation, records a set, rests, and updates home', as
   assert.equal(await page.getByTestId('workout-summary').isVisible(), true);
   await page.getByTestId('summary-done').click();
   assert.match(await page.getByTestId('weekly-progress').innerText(), /1 \/ 3/);
+});
+
+test('neutral and status labels keep semantic colors with accessible contrast', async () => {
+  await page.getByTestId('home-primary-action').click();
+  const prep = await page.evaluate(() => {
+    const tokenColor = token => {
+      const probe = document.createElement('span');
+      probe.style.color = `var(${token})`;
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    return {
+      color: getComputedStyle(document.querySelector('.page-kicker')).color,
+      background: getComputedStyle(document.querySelector('.app-shell')).backgroundColor,
+      muted: tokenColor('--muted'),
+      brightGreen: tokenColor('--green'),
+      greenText: tokenColor('--green-text'),
+    };
+  });
+
+  await page.getByTestId('start-workout').click();
+  await page.getByTestId('complete-set').click();
+  const rest = await page.evaluate(() => ({
+    color: getComputedStyle(document.querySelector('.rest-panel > span')).color,
+    background: getComputedStyle(document.querySelector('.rest-panel')).backgroundColor,
+  }));
+
+  await page.getByTestId('skip-rest').click();
+  await page.getByTestId('end-workout').click();
+  await page.getByTestId('confirm-end-workout').click();
+  const summary = await page.evaluate(() => ({
+    color: getComputedStyle(document.querySelector('.workout-summary-screen .page-kicker')).color,
+    background: getComputedStyle(document.querySelector('.app-shell')).backgroundColor,
+  }));
+
+  assert.equal(prep.color, prep.muted);
+  assert.ok(contrastRatio(prep.color, prep.background) >= 4.5);
+  assert.notEqual(prep.greenText, prep.brightGreen);
+  assert.equal(rest.color, prep.greenText);
+  assert.ok(contrastRatio(rest.color, rest.background) >= 4.5);
+  assert.equal(summary.color, prep.greenText);
+  assert.ok(contrastRatio(summary.color, summary.background) >= 4.5);
 });
