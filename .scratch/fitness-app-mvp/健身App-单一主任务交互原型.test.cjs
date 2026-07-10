@@ -35,6 +35,14 @@ function contrastRatio(foreground, background) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+function pngDimensions(buffer) {
+  assert.equal(buffer.subarray(1, 4).toString(), 'PNG');
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20),
+  };
+}
+
 before(async () => {
   browser = await chromium.launch(browserLaunchOptions());
   page = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -43,6 +51,7 @@ before(async () => {
 beforeEach(async () => {
   await page.goto(prototypeUrl);
   await page.evaluate(() => localStorage.clear());
+  await page.reload();
   await page.goto(`${prototypeUrl}#home`);
 });
 
@@ -358,4 +367,272 @@ test('food sheet traps focus, makes the background inert, and restores its opene
   await lastAction.click();
   assert.equal(await page.locator('#screen').evaluate(element => element.inert), false);
   assert.equal(await opener.evaluate(element => element === document.activeElement), true);
+});
+
+test('mobile layouts have no horizontal overflow and controls meet touch targets at 390px and 430px', async () => {
+  const layouts = {};
+
+  for (const width of [390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(`${prototypeUrl}#home`);
+    layouts[width] = await page.evaluate(() => ({
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      undersized: [...document.querySelectorAll('button, a, input, [role="button"]')]
+        .filter(node => {
+          const rect = node.getBoundingClientRect();
+          return rect.width < 48 || rect.height < 48;
+        })
+        .map(node => {
+          const rect = node.getBoundingClientRect();
+          return { text: node.textContent.trim(), width: rect.width, height: rect.height };
+        }),
+    }));
+  }
+
+  assert.equal(layouts[390].overflow, 0);
+  assert.deepEqual(layouts[390].undersized, []);
+  assert.equal(layouts[430].overflow, 0);
+  assert.deepEqual(layouts[430].undersized, []);
+});
+
+test('hash route and active workout survive reload without console or resource errors', async () => {
+  const errors = [];
+  const resourceErrors = [];
+  const consoleHandler = message => {
+    if (message.type() === 'error') errors.push(message.text());
+  };
+  const pageErrorHandler = error => errors.push(error.message);
+  const requestFailedHandler = request => resourceErrors.push(`${request.url()} ${request.failure()?.errorText || 'failed'}`);
+  const responseHandler = response => {
+    if (response.status() >= 400) resourceErrors.push(`${response.status()} ${response.url()}`);
+  };
+
+  page.on('console', consoleHandler);
+  page.on('pageerror', pageErrorHandler);
+  page.on('requestfailed', requestFailedHandler);
+  page.on('response', responseHandler);
+
+  try {
+    await page.goto(`${prototypeUrl}#home`);
+    await page.getByTestId('home-primary-action').click();
+    await page.getByTestId('start-workout').click();
+    await page.reload();
+    assert.match(page.url(), /#training-active$/);
+    assert.equal(await page.getByTestId('complete-set').isVisible(), true);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(resourceErrors, []);
+  } finally {
+    page.off('console', consoleHandler);
+    page.off('pageerror', pageErrorHandler);
+    page.off('requestfailed', requestFailedHandler);
+    page.off('response', responseHandler);
+  }
+});
+
+test('neutral states and ordinary food values do not use success green', async () => {
+  await page.getByRole('button', { name: '饮食', exact: true }).click();
+  const foodPalette = await page.evaluate(() => {
+    const tokenColor = token => {
+      const probe = document.createElement('span');
+      probe.style.color = `var(${token})`;
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    return {
+      calorie: getComputedStyle(document.querySelector('[data-testid="calorie-total"]')).color,
+      green: tokenColor('--green'),
+      greenText: tokenColor('--green-text'),
+      muted: tokenColor('--muted'),
+    };
+  });
+  assert.notEqual(foodPalette.calorie, foodPalette.green);
+  assert.notEqual(foodPalette.calorie, foodPalette.greenText);
+
+  await page.getByTestId('add-meal').click();
+  const photoChoice = page.getByRole('button', { name: '拍照估算' });
+  const manualChoice = page.getByRole('button', { name: '手动记录' });
+  assert.equal(
+    await photoChoice.evaluate(element => getComputedStyle(element).backgroundColor),
+    await manualChoice.evaluate(element => getComputedStyle(element).backgroundColor),
+  );
+
+  await photoChoice.click();
+  const draftColor = await page.getByTestId('local-photo-draft').locator('span').first()
+    .evaluate(element => getComputedStyle(element).color);
+  assert.equal(draftColor, foodPalette.muted);
+
+  await page.getByRole('button', { name: '确认加入' }).click();
+  assert.equal(
+    await page.locator('.food-entry > em').evaluate(element => getComputedStyle(element).color),
+    foodPalette.muted,
+  );
+  await page.getByRole('button', { name: '我的', exact: true }).click();
+  await page.getByRole('button', { name: /智能设置/ }).click();
+  const smartStatus = page.getByTestId('smart-status');
+  assert.equal(await smartStatus.innerText(), '未配置');
+  assert.equal(await smartStatus.evaluate(element => getComputedStyle(element).color), foodPalette.muted);
+
+  await page.getByRole('button', { name: '启用演示连接' }).click();
+  assert.equal(await smartStatus.evaluate(element => getComputedStyle(element).color), foodPalette.greenText);
+});
+
+test('meaningful images, decorative icons, icon actions, and form errors expose accessible contracts', async () => {
+  const assertCurrentImagesHaveAlt = async () => {
+    const missing = await page.locator('img').evaluateAll(images => images
+      .filter(image => !image.alt.trim())
+      .map(image => image.getAttribute('src')));
+    assert.deepEqual(missing, []);
+  };
+
+  await assertCurrentImagesHaveAlt();
+  await page.getByTestId('home-primary-action').click();
+  await assertCurrentImagesHaveAlt();
+  await page.getByTestId('start-workout').click();
+  await assertCurrentImagesHaveAlt();
+  for (const label of ['减少重量', '增加重量', '减少次数', '增加次数']) {
+    assert.equal(await page.getByRole('button', { name: label }).count(), 1);
+  }
+
+  await page.getByTestId('end-workout').click();
+  await page.getByRole('button', { name: '继续训练' }).click();
+  await page.goto(`${prototypeUrl}#library`);
+  await assertCurrentImagesHaveAlt();
+
+  const visibleDecorativeIcons = await page.locator('.nav-icon, .exercise-row-chevron, .summary-mark, .placeholder-icon, .week-dots')
+    .evaluateAll(nodes => nodes.filter(node => node.getBoundingClientRect().width > 0 && node.getAttribute('aria-hidden') !== 'true').length);
+  assert.equal(visibleDecorativeIcons, 0);
+
+  await page.goto(`${prototypeUrl}#food`);
+  await page.getByTestId('add-meal').click();
+  await page.getByRole('button', { name: '手动记录' }).click();
+  assert.equal(await page.getByLabel('食物名称').getAttribute('aria-describedby'), 'meal-name-error');
+  assert.equal(await page.getByLabel('热量 kcal').getAttribute('aria-describedby'), 'meal-calories-error');
+});
+
+test('generic workout confirmation traps focus, inerts the background, and restores the opener', async () => {
+  await page.getByTestId('home-primary-action').click();
+  await page.getByTestId('start-workout').click();
+  const opener = page.getByTestId('end-workout');
+  await opener.click();
+
+  const firstAction = page.getByRole('button', { name: '继续训练' });
+  const lastAction = page.getByTestId('confirm-end-workout');
+  assert.equal(await firstAction.evaluate(element => element === document.activeElement), true);
+  assert.equal(await page.locator('#screen').evaluate(element => element.inert), true);
+
+  await lastAction.focus();
+  await page.keyboard.press('Tab');
+  assert.equal(await firstAction.evaluate(element => element === document.activeElement), true);
+  await firstAction.focus();
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await lastAction.evaluate(element => element === document.activeElement), true);
+
+  await firstAction.click();
+  assert.equal(await page.locator('#screen').evaluate(element => element.inert), false);
+  assert.equal(await opener.evaluate(element => element === document.activeElement), true);
+});
+
+test('workout summary route explicitly hides bottom navigation', async () => {
+  await page.getByTestId('home-primary-action').click();
+  await page.getByTestId('start-workout').click();
+  await page.getByTestId('end-workout').click();
+  await page.getByTestId('confirm-end-workout').click();
+
+  assert.match(page.url(), /#workout-summary$/);
+  assert.equal(await page.getByTestId('workout-summary').isVisible(), true);
+  assert.equal(await page.getByTestId('bottom-nav').count(), 0);
+});
+
+test('route navigation renders once and announces through a dedicated live region', async () => {
+  const result = await page.evaluate(async () => {
+    const screen = document.getElementById('screen');
+    let replacements = 0;
+    const observer = new MutationObserver(records => {
+      replacements += records.filter(record => record.type === 'childList' && record.target === screen).length;
+    });
+    observer.observe(screen, { childList: true });
+    document.querySelector('[data-route="plan"]').click();
+    await new Promise(resolve => setTimeout(resolve, 80));
+    observer.disconnect();
+    const announcer = document.getElementById('route-announcer');
+    return {
+      replacements,
+      screenLive: screen.getAttribute('aria-live'),
+      announcerLive: announcer?.getAttribute('aria-live'),
+      announcement: announcer?.textContent,
+    };
+  });
+
+  assert.equal(result.replacements, 1);
+  assert.equal(result.screenLive, null);
+  assert.equal(result.announcerLive, 'polite');
+  assert.match(result.announcement || '', /计划/);
+});
+
+test('accepted mobile routes produce complete screenshot evidence through the real workout flow', async () => {
+  const evidenceDir = '.scratch/run-evidence/interactive-layout-prototype';
+  const captured = [];
+  await fs.promises.mkdir(evidenceDir, { recursive: true });
+
+  const waitForImages = async () => {
+    await page.waitForTimeout(320);
+    await page.waitForFunction(() => [...document.images].every(image => image.complete && image.naturalWidth > 0));
+  };
+  const capture = async (name, expectedWidth) => {
+    await waitForImages();
+    const path = `${evidenceDir}/${name}`;
+    await page.screenshot({ path, fullPage: true });
+    const buffer = await fs.promises.readFile(path);
+    const dimensions = pngDimensions(buffer);
+    assert.equal(dimensions.width, expectedWidth);
+    assert.ok(dimensions.height >= 844, `${name} height was ${dimensions.height}`);
+    assert.ok(buffer.byteLength > 10_000, `${name} was unexpectedly small`);
+    captured.push(name);
+  };
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(prototypeUrl);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.goto(`${prototypeUrl}#home`);
+  await capture('home-390.png', 390);
+
+  await page.getByRole('button', { name: '计划', exact: true }).click();
+  await capture('plan-390.png', 390);
+
+  await page.getByRole('button', { name: '首页', exact: true }).click();
+  await page.getByTestId('home-primary-action').click();
+  await page.getByTestId('start-workout').click();
+  await capture('training-390.png', 390);
+
+  await page.getByTestId('end-workout').click();
+  await page.getByTestId('confirm-end-workout').click();
+  assert.equal(await page.getByTestId('bottom-nav').count(), 0);
+  await capture('workout-summary-390.png', 390);
+
+  await page.goto(`${prototypeUrl}#food`);
+  await capture('food-390.png', 390);
+
+  await page.goto(`${prototypeUrl}#profile`);
+  await capture('profile-390.png', 390);
+
+  await page.setViewportSize({ width: 430, height: 844 });
+  await page.goto(prototypeUrl);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.goto(`${prototypeUrl}#home`);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
+  await capture('home-430.png', 430);
+
+  assert.deepEqual(captured.sort(), [
+    'food-390.png',
+    'home-390.png',
+    'home-430.png',
+    'plan-390.png',
+    'profile-390.png',
+    'training-390.png',
+    'workout-summary-390.png',
+  ]);
 });
