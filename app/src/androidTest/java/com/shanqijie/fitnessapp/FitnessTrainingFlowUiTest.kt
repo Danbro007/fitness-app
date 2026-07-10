@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.pressBack
@@ -223,6 +224,11 @@ class FitnessTrainingFlowUiTest {
 
         composeRule.onNodeWithTag(FitnessTestTags.CompleteSet).performClick()
         composeRule.onNodeWithText("保存训练组失败").assertIsDisplayed()
+        val errorContainer = Color(0xFFFFDAD6)
+        val onErrorContainer = Color(0xFF690005)
+        assertTrue(contrastRatio(onErrorContainer, errorContainer) >= 4.5f)
+        assertTextContainsColor("保存训练组失败", errorContainer)
+        assertTextContainsColor("保存训练组失败", onErrorContainer)
         composeRule.onNodeWithTag(FitnessTestTags.CompleteSet).assertIsDisplayed().assertIsEnabled()
     }
 
@@ -355,5 +361,13 @@ class FitnessTrainingFlowUiTest {
             }
         }
         return false
+    }
+
+    private fun contrastRatio(foreground: Color, background: Color): Float {
+        val foregroundLuminance = foreground.luminance()
+        val backgroundLuminance = background.luminance()
+        val lighter = maxOf(foregroundLuminance, backgroundLuminance)
+        val darker = minOf(foregroundLuminance, backgroundLuminance)
+        return (lighter + 0.05f) / (darker + 0.05f)
     }
 }

@@ -246,8 +246,13 @@ fun TrainingActiveScreen(
                 recordError?.let { message ->
                     Text(
                         text = message,
-                        color = MaterialTheme.colorScheme.error,
+                        color = WorkoutOnErrorContainer,
                         style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(WorkoutErrorContainer)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                 }
                 FitnessPrimaryButton(
@@ -590,6 +595,8 @@ fun WorkoutSummaryScreen(
 }
 
 private val WorkoutFeelings = listOf("轻松", "合适", "吃力")
+private val WorkoutErrorContainer = Color(0xFFFFDAD6)
+private val WorkoutOnErrorContainer = Color(0xFF690005)
 
 private fun Double.asWeight(): String =
     if (this % 1.0 == 0.0) toInt().toString() else String.format(Locale.ROOT, "%.1f", this)

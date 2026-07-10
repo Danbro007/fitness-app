@@ -14,6 +14,7 @@ import com.shanqijie.fitnessapp.ui.model.toHomeUiState
 import com.shanqijie.fitnessapp.ui.navigation.AppRoute
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -66,6 +67,20 @@ class FitnessUiModelsTest {
     fun orangePrimaryUsesInkForAccessibleText() {
         assertEquals(FitnessColors.Ink, FitnessColors.OnOrange)
         assertTrue(contrastRatio(FitnessColors.Ink, FitnessColors.Orange) >= 4.5)
+    }
+
+    @Test
+    fun workoutErrorUsesReadableContainerOnDarkHero() {
+        val source = listOf(
+            File("src/main/java/com/shanqijie/fitnessapp/ui/training/TrainingScreens.kt"),
+            File("app/src/main/java/com/shanqijie/fitnessapp/ui/training/TrainingScreens.kt"),
+        ).first(File::isFile).readText()
+        val errorContainer = androidx.compose.ui.graphics.Color(0xFFFFDAD6)
+        val onErrorContainer = androidx.compose.ui.graphics.Color(0xFF690005)
+
+        assertTrue(contrastRatio(onErrorContainer, errorContainer) >= 4.5)
+        assertTrue(source.contains(".background(WorkoutErrorContainer)"))
+        assertTrue(source.contains("color = WorkoutOnErrorContainer"))
     }
 
     @Test
