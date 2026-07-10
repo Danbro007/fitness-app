@@ -22,11 +22,14 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shanqijie.fitnessapp.data.FitnessAppState
+import com.shanqijie.fitnessapp.data.FitnessDatabase
 import com.shanqijie.fitnessapp.data.FitnessRepository
+import com.shanqijie.fitnessapp.data.FitnessStore
 import com.shanqijie.fitnessapp.domain.ExerciseChineseNameTranslator
 import com.shanqijie.fitnessapp.domain.HomePrimaryAction
 import com.shanqijie.fitnessapp.domain.WorkoutSummary
@@ -62,6 +65,44 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+
+@Composable
+fun FitnessAppRoot(modifier: Modifier = Modifier) {
+    val applicationContext = LocalContext.current.applicationContext
+    val repository = remember(applicationContext) {
+        FitnessRepository(
+            context = applicationContext,
+            store = FitnessStore(FitnessDatabase.get(applicationContext)),
+        )
+    }
+    var bootstrapComplete by remember(repository) { mutableStateOf(false) }
+    var bootstrapError by remember(repository) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(repository) {
+        runCatching { repository.bootstrap() }
+            .onSuccess { bootstrapComplete = true }
+            .onFailure { error ->
+                bootstrapError = error.message ?: error::class.java.simpleName
+            }
+    }
+
+    when {
+        bootstrapError != null -> RoutePlaceholder(
+            title = "无法启动 i Fitness",
+            subtitle = bootstrapError.orEmpty(),
+            modifier = modifier,
+        )
+        !bootstrapComplete -> Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(FitnessColors.Phone),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(color = FitnessColors.Green)
+        }
+        else -> FitnessAppRoot(repository = repository, modifier = modifier)
+    }
+}
 
 @Composable
 fun FitnessAppRoot(

@@ -24,6 +24,31 @@ import org.junit.Test
 
 class FitnessUiModelsTest {
     @Test
+    fun mainActivityUsesOnlyNativeFitnessRoot() {
+        val source = listOf(
+            File("src/main/java/com/shanqijie/fitnessapp/MainActivity.kt"),
+            File("app/src/main/java/com/shanqijie/fitnessapp/MainActivity.kt"),
+        ).first(File::isFile).readText()
+
+        assertTrue(source.contains("FitnessTheme {\n                FitnessAppRoot()"))
+        assertFalse(source.contains("AppTab"))
+        assertFalse(source.contains("MainShell"))
+    }
+
+    @Test
+    fun productionRootOwnsRepositoryBootstrap() {
+        val source = listOf(
+            File("src/main/java/com/shanqijie/fitnessapp/ui/FitnessAppRoot.kt"),
+            File("app/src/main/java/com/shanqijie/fitnessapp/ui/FitnessAppRoot.kt"),
+        ).first(File::isFile).readText()
+
+        assertTrue(source.contains("val applicationContext = LocalContext.current.applicationContext"))
+        assertTrue(source.contains("FitnessDatabase.get(applicationContext)"))
+        assertTrue(source.contains("repository.bootstrap()"))
+        assertTrue(source.contains("FitnessAppRoot(repository = repository, modifier = modifier)"))
+    }
+
+    @Test
     fun homeStateExposesExactlyOneActionForStartResumeAndResult() {
         val cases = listOf(
             HomePrimaryAction.Start("plan-1") to ("开始训练" to AppRoute.Primary(PrimaryTab.Training)),
