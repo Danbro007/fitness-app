@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.FitnessApp" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#FBFBFC</item>
+        <item name="android:statusBarColor">#FBFBFC</item>
+    </style>
+</resources>
