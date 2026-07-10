@@ -446,6 +446,49 @@ class FitnessRepositoryInstrumentedTest {
     }
 
     @Test
+    fun legacySkipExerciseUsesPlanSessionAndLinkedSnapshot() = runBlocking {
+        seedExercises()
+        seedPlan(
+            planId = "plan-legacy-skip",
+            scheduledDate = "2026-07-10",
+            exercises = listOf(
+                PlannedExerciseSeed("0748", targetSets = 1, targetWeightKg = 70.0),
+                PlannedExerciseSeed("0289", targetSets = 1, targetWeightKg = 24.0),
+            ),
+        )
+        val sessionId = repository.sessionIdFor("plan-legacy-skip", "0748")
+
+        repository.completeSet(
+            sessionId = sessionId,
+            exerciseId = "0748",
+            setIndex = 1,
+            reps = 8,
+            weightKg = 70.0,
+            feeling = "合适",
+        )
+        repository.skipExercise(
+            sessionId = repository.sessionIdFor("plan-legacy-skip", "0289"),
+            plannedWorkoutId = "plan-legacy-skip",
+            venueId = "venue-1",
+            exerciseId = "0289",
+            setIndex = 1,
+            reason = "器械被占用",
+        )
+
+        val session = store.workoutSessions().single()
+        val sessionExercises = store.sessionExercises(session.id)
+        val skippedExercise = sessionExercises.single { it.exerciseId == "0289" }
+        val skippedLog = store.setLogs(session.id, "0289").single()
+        assertEquals(sessionId, session.id)
+        assertEquals("0289", session.currentExerciseId)
+        assertEquals(listOf("0748", "0289"), sessionExercises.map { it.exerciseId })
+        assertEquals("skipped", skippedExercise.status)
+        assertFalse(skippedLog.completed)
+        assertEquals(skippedExercise.id, skippedLog.sessionExerciseId)
+        assertEquals(2, store.setLogs(session.id).size)
+    }
+
+    @Test
     fun concurrentWorkoutStartsReturnOneActiveSession() = runBlocking {
         seedExercises()
         seedPlan(

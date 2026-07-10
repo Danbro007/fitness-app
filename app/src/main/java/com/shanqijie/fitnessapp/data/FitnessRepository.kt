@@ -652,29 +652,38 @@ class FitnessRepository(
         setIndex: Int,
         reason: String,
     ) = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
         val trimmedReason = reason.trim().ifEmpty { "跳过" }
-        require(setIndex > 0) { "组序号必须大于 0" }
-        ensureWorkoutSession(
-            sessionId = sessionId,
-            plannedWorkoutId = plannedWorkoutId,
-            venueId = venueId,
-            exerciseId = exerciseId,
-            now = now,
-        )
-        store.insertSetLog(
-            WorkoutSetLogEntity(
-                id = UUID.randomUUID().toString(),
-                sessionId = sessionId,
+        store.transaction {
+            val session = compatibilitySessionInTransaction(
+                requestedSessionId = sessionId,
+                plannedWorkoutId = plannedWorkoutId,
+                venueId = venueId,
                 exerciseId = exerciseId,
-                setIndex = setIndex,
-                actualReps = 0,
-                actualWeightKg = 0.0,
-                feeling = "跳过：$trimmedReason",
-                completed = false,
-                completedAt = now,
-            ),
-        )
+            )
+            val selected = selectCompatibilityExerciseInTransaction(session, exerciseId)
+            val sessionExercise = requireNotNull(
+                store.sessionExercises(selected.id).firstOrNull { it.exerciseId == exerciseId },
+            )
+            val nextSetIndex = (store.setLogs(selected.id, exerciseId).maxOfOrNull { it.setIndex } ?: 0) + 1
+            require(setIndex == nextSetIndex) { "组序号必须连续" }
+            require(nextSetIndex <= sessionExercise.targetSets) { "已达到目标组数" }
+            val now = timeProvider.currentTimeMillis()
+            store.insertSetLog(
+                WorkoutSetLogEntity(
+                    id = UUID.randomUUID().toString(),
+                    sessionId = selected.id,
+                    exerciseId = exerciseId,
+                    setIndex = nextSetIndex,
+                    actualReps = 0,
+                    actualWeightKg = 0.0,
+                    feeling = "跳过：$trimmedReason",
+                    completed = false,
+                    completedAt = now,
+                    sessionExerciseId = sessionExercise.id,
+                ),
+            )
+            store.updateSessionExerciseStatus(sessionExercise.id, status = "skipped")
+        }
         refreshSignal.update { it + 1 }
     }
 
@@ -1210,11 +1219,33 @@ class FitnessRepository(
                 .takeIf { it.startsWith(LEGACY_SESSION_PREFIX) }
                 ?.removePrefix(LEGACY_SESSION_PREFIX)
                 ?.takeIf { candidate -> store.plannedWorkouts().any { it.id == candidate } }
-        if (resolvedPlanId != null && store.plannedWorkouts().any { it.id == resolvedPlanId }) {
-            val session = startWorkoutInTransaction(
-                planId = resolvedPlanId,
-                preferredSessionId = requestedSessionId,
-            )
+        val plan = resolvedPlanId?.let { id -> store.plannedWorkouts().firstOrNull { it.id == id } }
+        if (plan != null) {
+            val session = store.workoutSessions()
+                .firstOrNull { it.plannedWorkoutId == plan.id && it.status == "in_progress" }
+                ?: if (store.plannedExercises(plan.id).isEmpty()) {
+                    require(plan.status in STARTABLE_WORKOUT_STATUSES) { "训练计划当前不可开始" }
+                    val now = timeProvider.currentTimeMillis()
+                    WorkoutSessionEntity(
+                        id = requestedSessionId,
+                        plannedWorkoutId = plan.id,
+                        venueId = plan.venueId,
+                        exerciseId = exerciseId,
+                        status = "in_progress",
+                        startedAt = now,
+                        endedAt = null,
+                        updatedAt = now,
+                        currentExerciseId = exerciseId,
+                    ).also { created ->
+                        store.upsertWorkoutSession(created)
+                        store.updatePlannedWorkoutStatus(plan.id, status = "in_progress", updatedAt = now)
+                    }
+                } else {
+                    startWorkoutInTransaction(
+                        planId = plan.id,
+                        preferredSessionId = requestedSessionId,
+                    )
+                }
             ensureSessionExerciseSnapshotInTransaction(session, exerciseId)
             return session
         }
@@ -1326,30 +1357,6 @@ class FitnessRepository(
 
     private fun parseLocalDate(value: String): LocalDate? =
         runCatching { LocalDate.parse(value) }.getOrNull()
-
-    private fun ensureWorkoutSession(
-        sessionId: String,
-        plannedWorkoutId: String?,
-        venueId: String,
-        exerciseId: String,
-        now: Long,
-    ) {
-        val existing = store.workoutSessions().firstOrNull { it.id == sessionId }
-        if (existing != null) return
-
-        store.upsertWorkoutSession(
-            WorkoutSessionEntity(
-                id = sessionId,
-                plannedWorkoutId = plannedWorkoutId,
-                venueId = venueId,
-                exerciseId = exerciseId,
-                status = "in_progress",
-                startedAt = now,
-                endedAt = null,
-                updatedAt = now,
-            ),
-        )
-    }
 
     private fun currentAppState(): FitnessAppState =
         store.allPlannedExercises().let { plannedExercises ->
