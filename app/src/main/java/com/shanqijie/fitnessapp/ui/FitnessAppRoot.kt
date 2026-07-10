@@ -12,8 +12,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -24,18 +27,25 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shanqijie.fitnessapp.data.FitnessAppState
 import com.shanqijie.fitnessapp.data.FitnessRepository
+import com.shanqijie.fitnessapp.domain.ExerciseChineseNameTranslator
 import com.shanqijie.fitnessapp.domain.HomePrimaryAction
+import com.shanqijie.fitnessapp.domain.WorkoutSummary
 import com.shanqijie.fitnessapp.ui.components.FitnessBottomNav
 import com.shanqijie.fitnessapp.ui.home.HomeDayUi
 import com.shanqijie.fitnessapp.ui.home.HomeScreen
-import com.shanqijie.fitnessapp.ui.model.HomeActionUi
 import com.shanqijie.fitnessapp.ui.model.HomeUiState
 import com.shanqijie.fitnessapp.ui.model.toHomeUiState
 import com.shanqijie.fitnessapp.ui.navigation.AppRoute
 import com.shanqijie.fitnessapp.ui.navigation.FitnessNavState
-import com.shanqijie.fitnessapp.ui.navigation.FitnessTestTags
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
+import com.shanqijie.fitnessapp.ui.training.TrainingActiveScreen
+import com.shanqijie.fitnessapp.ui.training.TrainingActiveScreenUi
+import com.shanqijie.fitnessapp.ui.training.TrainingExerciseScreenUi
+import com.shanqijie.fitnessapp.ui.training.TrainingPreparationScreen
+import com.shanqijie.fitnessapp.ui.training.TrainingPreparationScreenUi
+import com.shanqijie.fitnessapp.ui.training.WorkoutSummaryScreen
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -60,12 +70,19 @@ fun FitnessAppRoot(
     }
 
     val snapshot = repository.homeSnapshot(state)
+    val initialRoute = state.unfinishedSessions
+        .maxByOrNull { it.updatedAt }
+        ?.let { AppRoute.TrainingActive(it.id) }
+        ?: AppRoute.Primary(PrimaryTab.Home)
     FitnessAppRootContent(
         homeUiState = snapshot.toHomeUiState(),
         weekDays = state.toFourDayStrip(),
         heroAssetPath = state.heroAssetPath(snapshot.action),
         heroTitle = state.homeHeroTitle(snapshot.action),
         venueName = state.venue?.name ?: "本地训练",
+        repository = repository,
+        appState = state,
+        initialRoute = initialRoute,
         modifier = modifier,
     )
 }
@@ -78,12 +95,19 @@ fun FitnessAppRootContent(
     heroAssetPath: String? = null,
     heroTitle: String = homeUiState.nextWorkout?.name ?: "安排下一次训练",
     venueName: String = "本地训练",
+    repository: FitnessRepository? = null,
+    appState: FitnessAppState? = null,
+    initialRoute: AppRoute = AppRoute.Primary(PrimaryTab.Home),
 ) {
     var navState by rememberSaveable(stateSaver = FitnessNavStateSaver) {
-        mutableStateOf(FitnessNavState())
+        mutableStateOf(FitnessNavState(initialRoute))
     }
+    var completedSummary by remember { mutableStateOf<WorkoutSummary?>(null) }
+    val coroutineScope = rememberCoroutineScope()
     val navigate: (AppRoute) -> Unit = { route -> navState = navState.navigateTo(route) }
-    BackHandler(enabled = navState.route !is AppRoute.Primary) {
+    BackHandler(
+        enabled = navState.route !is AppRoute.Primary && navState.route !is AppRoute.TrainingActive,
+    ) {
         navState = navState.navigateTo(navState.backRoute())
     }
 
@@ -115,12 +139,17 @@ fun FitnessAppRootContent(
                     subtitle = "查看和编辑本周训练安排",
                     modifier = Modifier.padding(contentPadding),
                 )
-                PrimaryTab.Training -> RoutePlaceholder(
-                    title = "训练准备",
-                    subtitle = homeUiState.nextWorkout?.name ?: "先在计划中安排一次训练",
-                    modifier = Modifier
-                        .padding(contentPadding)
-                        .testTag(FitnessTestTags.TrainingPrep),
+                PrimaryTab.Training -> TrainingPreparationScreen(
+                    state = appState?.toTrainingPreparation(homeUiState.nextWorkout?.id),
+                    onStartWorkout = { planId ->
+                        repository?.let { fitnessRepository ->
+                            coroutineScope.launch {
+                                val session = fitnessRepository.startWorkout(planId)
+                                navigate(AppRoute.TrainingActive(session.id))
+                            }
+                        }
+                    },
+                    modifier = Modifier.padding(contentPadding),
                 )
                 PrimaryTab.Food -> RoutePlaceholder(
                     title = "饮食",
@@ -153,20 +182,86 @@ fun FitnessAppRootContent(
                 subtitle = route.planId,
                 modifier = Modifier.padding(contentPadding),
             )
-            is AppRoute.TrainingActive -> RoutePlaceholder(
-                title = "训练进行中",
-                subtitle = "已恢复本地训练进度",
-                modifier = Modifier
-                    .padding(contentPadding)
-                    .testTag(FitnessTestTags.TrainingActive),
-            )
-            is AppRoute.WorkoutSummary -> RoutePlaceholder(
-                title = "训练总结",
-                subtitle = "查看本次训练数据",
-                modifier = Modifier
-                    .padding(contentPadding)
-                    .testTag(FitnessTestTags.WorkoutSummary),
-            )
+            is AppRoute.TrainingActive -> {
+                val activeState = appState?.toTrainingActive(route.sessionId)
+                if (activeState == null || repository == null) {
+                    RoutePlaceholder(
+                        title = "正在恢复训练",
+                        subtitle = "读取这台设备上的训练进度…",
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                } else {
+                    val completeRest: () -> Unit = {
+                        coroutineScope.launch {
+                            repository.skipRest(activeState.sessionId)
+                            val currentIndex = activeState.exercises.indexOfFirst {
+                                it.exerciseId == activeState.currentExerciseId
+                            }
+                            val current = activeState.currentExercise
+                            if (current.completedSets >= current.targetSets) {
+                                activeState.exercises
+                                    .drop(currentIndex + 1)
+                                    .firstOrNull { it.completedSets < it.targetSets }
+                                    ?.let { repository.selectWorkoutExercise(activeState.sessionId, it.exerciseId) }
+                            }
+                        }
+                    }
+                    TrainingActiveScreen(
+                        state = activeState,
+                        onSelectExercise = { exerciseId ->
+                            coroutineScope.launch {
+                                repository.selectWorkoutExercise(activeState.sessionId, exerciseId)
+                            }
+                        },
+                        onRecordSet = { reps, weightKg, feeling ->
+                            coroutineScope.launch {
+                                repository.recordWorkoutSet(
+                                    sessionId = activeState.sessionId,
+                                    exerciseId = activeState.currentExerciseId,
+                                    reps = reps,
+                                    weightKg = weightKg,
+                                    feeling = feeling,
+                                )
+                            }
+                        },
+                        onRestFinished = completeRest,
+                        onSkipRest = completeRest,
+                        onFinishWorkout = {
+                            coroutineScope.launch {
+                                completedSummary = repository.finishWorkout(activeState.sessionId)
+                                navigate(AppRoute.WorkoutSummary(activeState.sessionId))
+                            }
+                        },
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                }
+            }
+            is AppRoute.WorkoutSummary -> {
+                LaunchedEffect(route.sessionId, repository) {
+                    if (repository != null && completedSummary?.sessionId != route.sessionId) {
+                        completedSummary = repository.workoutSummary(route.sessionId)
+                    }
+                }
+                val summary = completedSummary?.takeIf { it.sessionId == route.sessionId }
+                if (summary == null) {
+                    RoutePlaceholder(
+                        title = "正在整理训练总结",
+                        subtitle = "汇总已保存的训练数据…",
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                } else {
+                    WorkoutSummaryScreen(
+                        summary = summary,
+                        weeklyCompleted = homeUiState.completedThisWeek,
+                        weeklyTarget = homeUiState.targetThisWeek,
+                        onDone = {
+                            completedSummary = null
+                            navState = navState.selectPrimary(PrimaryTab.Home)
+                        },
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                }
+            }
             AppRoute.ProfileEdit -> RoutePlaceholder("编辑档案", "更新个人目标与训练偏好", Modifier.padding(contentPadding))
             AppRoute.VenueSettings -> RoutePlaceholder("场地与器械", "管理本地训练条件", Modifier.padding(contentPadding))
             AppRoute.SmartSettings -> RoutePlaceholder("智能设置", "AI 只生成草稿，确认后才保存", Modifier.padding(contentPadding))
@@ -330,3 +425,75 @@ private fun String?.toWorkoutLabel(): String = when {
 
 private fun Long.toLocalDate(): LocalDate =
     Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
+
+private fun FitnessAppState.toTrainingPreparation(planId: String?): TrainingPreparationScreenUi? {
+    val plan = plannedWorkouts.firstOrNull { it.id == planId } ?: return null
+    val exercisesForPlan = plannedExerciseViews
+        .filter { it.plannedExercise.plannedWorkoutId == plan.id }
+        .sortedBy { it.plannedExercise.orderIndex }
+        .map { view ->
+            TrainingExerciseScreenUi(
+                sessionExerciseId = view.plannedExercise.id,
+                exerciseId = view.plannedExercise.exerciseId,
+                name = ExerciseChineseNameTranslator.translate(view.media.name),
+                detail = listOf(view.media.bodyPart, view.media.equipment)
+                    .filter(String::isNotBlank)
+                    .joinToString(" · ") { ExerciseChineseNameTranslator.translate(it) },
+                assetPath = view.media.localPath,
+                targetSets = view.plannedExercise.targetSets,
+                targetReps = view.plannedExercise.targetReps,
+                targetWeightKg = view.plannedExercise.targetWeightKg,
+                completedSets = 0,
+            )
+        }
+    if (exercisesForPlan.isEmpty()) return null
+    return TrainingPreparationScreenUi(
+        planId = plan.id,
+        planName = plan.name,
+        estimatedMinutes = exercisesForPlan.sumOf { it.targetSets } * 3,
+        exercises = exercisesForPlan,
+    )
+}
+
+private fun FitnessAppState.toTrainingActive(sessionId: String): TrainingActiveScreenUi? {
+    val session = workoutSessions.firstOrNull { it.id == sessionId && it.status == "in_progress" } ?: return null
+    val sessionExercises = workoutSessionExercises
+        .filter { it.sessionId == sessionId }
+        .sortedBy { it.orderIndex }
+    if (sessionExercises.isEmpty()) return null
+
+    val exerciseUi = sessionExercises.map { sessionExercise ->
+        val media = exercises.firstOrNull { it.exerciseId == sessionExercise.exerciseId }
+            ?: plannedExerciseViews.firstOrNull { it.media.exerciseId == sessionExercise.exerciseId }?.media
+        TrainingExerciseScreenUi(
+            sessionExerciseId = sessionExercise.id,
+            exerciseId = sessionExercise.exerciseId,
+            name = ExerciseChineseNameTranslator.translate(media?.name.orEmpty()),
+            detail = listOfNotNull(media?.bodyPart, media?.equipment)
+                .filter(String::isNotBlank)
+                .joinToString(" · ") { ExerciseChineseNameTranslator.translate(it) },
+            assetPath = media?.localPath ?: exercises.firstOrNull()?.localPath.orEmpty(),
+            targetSets = sessionExercise.targetSets,
+            targetReps = sessionExercise.targetReps,
+            targetWeightKg = sessionExercise.targetWeightKg,
+            completedSets = workoutSetLogs.count { log ->
+                log.sessionId == sessionId &&
+                    log.exerciseId == sessionExercise.exerciseId &&
+                    log.completed
+            },
+        )
+    }
+    val currentExerciseId = session.currentExerciseId
+        ?.takeIf { current -> exerciseUi.any { it.exerciseId == current } }
+        ?: exerciseUi.first().exerciseId
+    val planName = session.plannedWorkoutId
+        ?.let { id -> plannedWorkouts.firstOrNull { it.id == id }?.name }
+        ?: "自由训练"
+    return TrainingActiveScreenUi(
+        sessionId = session.id,
+        planName = planName,
+        currentExerciseId = currentExerciseId,
+        restEndsAt = session.restEndsAt,
+        exercises = exerciseUi,
+    )
+}
