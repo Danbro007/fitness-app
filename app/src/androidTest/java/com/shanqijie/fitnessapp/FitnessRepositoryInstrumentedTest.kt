@@ -87,6 +87,34 @@ class FitnessRepositoryInstrumentedTest {
     }
 
     @Test
+    fun bootstrapOffersCompleteEquipmentCatalogAndPreservesVenueChoices() = runBlocking {
+        repository.bootstrap()
+        val initial = repository.appState().first()
+
+        assertTrue(initial.equipment.size >= 25)
+        assertEquals(
+            setOf("史密斯机", "哑铃", "杠铃", "跑步机"),
+            initial.equipmentForSelectedVenue.mapTo(mutableSetOf()) { it.name },
+        )
+
+        repository.bindEquipmentToVenue(
+            venueId = initial.venue!!.id,
+            equipmentId = "equipment-smith-machine",
+            available = false,
+        )
+        repository.bindEquipmentToVenue(
+            venueId = initial.venue.id,
+            equipmentId = "equipment-cable",
+            available = true,
+        )
+        repository.bootstrap()
+
+        val restored = repository.appState().first()
+        assertFalse(restored.equipmentForSelectedVenue.any { it.id == "equipment-smith-machine" })
+        assertTrue(restored.equipmentForSelectedVenue.any { it.id == "equipment-cable" })
+    }
+
+    @Test
     fun weeklyPlanDraftUsesSavedBodyCompositionAsAiContext() = runBlocking {
         repository.bootstrap()
         repository.saveUserProfile(

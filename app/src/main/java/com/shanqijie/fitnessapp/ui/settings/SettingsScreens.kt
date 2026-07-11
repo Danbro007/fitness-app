@@ -149,37 +149,60 @@ fun VenueSettingsScreen(
         }
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Text("可用器械", style = MaterialTheme.typography.headlineSmall)
-            equipment.forEach { item ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = FitnessDimensions.MinimumTouchTarget)
-                        .clickable(enabled = currentVenue != null && !busy) {
-                            runSettingAction(coroutineScope, { busy = it }, { message = it }) {
-                                onToggleEquipment(item.id, item.id !in enabledEquipmentIds)
+            equipment.groupBy { it.category }
+                .toSortedMap(compareBy(::equipmentCategoryOrder))
+                .forEach { (category, items) ->
+                    Text(equipmentCategoryLabel(category), color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
+                    items.forEach { item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = FitnessDimensions.MinimumTouchTarget)
+                                .clickable(enabled = currentVenue != null && !busy) {
+                                    runSettingAction(coroutineScope, { busy = it }, { message = it }) {
+                                        onToggleEquipment(item.id, item.id !in enabledEquipmentIds)
+                                    }
+                                },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = item.id in enabledEquipmentIds,
+                                onCheckedChange = { enabled ->
+                                    if (currentVenue != null && !busy) {
+                                        runSettingAction(coroutineScope, { busy = it }, { message = it }) {
+                                            onToggleEquipment(item.id, enabled)
+                                        }
+                                    }
+                                },
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.name, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                                Text(ExerciseChineseNameTranslator.translate(item.category), style = MaterialTheme.typography.bodyMedium)
                             }
-                        },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(
-                        checked = item.id in enabledEquipmentIds,
-                        onCheckedChange = { enabled ->
-                            if (currentVenue != null && !busy) {
-                                runSettingAction(coroutineScope, { busy = it }, { message = it }) {
-                                    onToggleEquipment(item.id, enabled)
-                                }
-                            }
-                        },
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(item.name, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
-                        Text(ExerciseChineseNameTranslator.translate(item.category), style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
-            }
         }
         message?.let { SettingsMessage(it) }
     }
+}
+
+private fun equipmentCategoryOrder(category: String): Int = when (category) {
+    "machine" -> 0
+    "free-weight" -> 1
+    "accessory" -> 2
+    "cardio" -> 3
+    "body-weight" -> 4
+    else -> 5
+}
+
+private fun equipmentCategoryLabel(category: String): String = when (category) {
+    "machine" -> "固定器械"
+    "free-weight" -> "自由重量"
+    "accessory" -> "辅助器材"
+    "cardio" -> "有氧器械"
+    "body-weight" -> "自重训练"
+    else -> "其他"
 }
 
 @Composable

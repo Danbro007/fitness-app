@@ -1649,10 +1649,32 @@ class FitnessRepository(
     private fun seedDefaultEquipment(now: Long) {
         val existingNames = store.allEquipment().map { it.name }.toSet()
         val seeds = listOf(
-            EquipmentSeed("equipment-smith-machine", "史密斯机", "machine"),
-            EquipmentSeed("equipment-dumbbell", "哑铃", "free-weight"),
-            EquipmentSeed("equipment-barbell", "杠铃", "free-weight"),
-            EquipmentSeed("equipment-treadmill", "跑步机", "cardio"),
+            EquipmentSeed("equipment-smith-machine", "史密斯机", "machine", true),
+            EquipmentSeed("equipment-cable", "龙门架 / 拉力器", "machine"),
+            EquipmentSeed("equipment-leverage-machine", "固定轨迹器械", "machine"),
+            EquipmentSeed("equipment-assisted", "辅助引体机", "machine"),
+            EquipmentSeed("equipment-sled-machine", "腿举 / 雪橇机", "machine"),
+            EquipmentSeed("equipment-dumbbell", "哑铃", "free-weight", true),
+            EquipmentSeed("equipment-barbell", "杠铃", "free-weight", true),
+            EquipmentSeed("equipment-kettlebell", "壶铃", "free-weight"),
+            EquipmentSeed("equipment-ez-barbell", "曲杆杠铃", "free-weight"),
+            EquipmentSeed("equipment-trap-bar", "六角杠", "free-weight"),
+            EquipmentSeed("equipment-olympic-barbell", "奥林匹克杠铃", "free-weight"),
+            EquipmentSeed("equipment-band", "短弹力带", "accessory"),
+            EquipmentSeed("equipment-resistance-band", "长弹力带", "accessory"),
+            EquipmentSeed("equipment-stability-ball", "稳定球", "accessory"),
+            EquipmentSeed("equipment-medicine-ball", "药球", "accessory"),
+            EquipmentSeed("equipment-rope", "战绳", "accessory"),
+            EquipmentSeed("equipment-roller", "泡沫轴", "accessory"),
+            EquipmentSeed("equipment-bosu-ball", "波速球", "accessory"),
+            EquipmentSeed("equipment-wheel-roller", "健腹轮", "accessory"),
+            EquipmentSeed("equipment-treadmill", "跑步机", "cardio", true),
+            EquipmentSeed("equipment-stationary-bike", "固定单车", "cardio"),
+            EquipmentSeed("equipment-elliptical", "椭圆机", "cardio"),
+            EquipmentSeed("equipment-stepmill", "登阶机", "cardio"),
+            EquipmentSeed("equipment-skierg", "滑雪测功仪", "cardio"),
+            EquipmentSeed("equipment-upper-body-ergometer", "上肢测功仪", "cardio"),
+            EquipmentSeed("equipment-body-weight", "自重训练", "body-weight"),
         )
         seeds.filterNot { it.name in existingNames }
             .forEach { seed ->
@@ -1666,12 +1688,15 @@ class FitnessRepository(
                     ),
                 )
             }
-        seeds.forEach { seed ->
+        val existingBindings = store.venueEquipment()
+            .filter { it.venueId == DEFAULT_VENUE_ID }
+            .mapTo(mutableSetOf()) { it.equipmentId }
+        seeds.filterNot { it.id in existingBindings }.forEach { seed ->
             store.upsertVenueEquipment(
                 VenueEquipmentEntity(
                     venueId = DEFAULT_VENUE_ID,
                     equipmentId = seed.id,
-                    available = true,
+                    available = seed.defaultAvailable,
                     updatedAt = now,
                 ),
             )
@@ -1784,6 +1809,7 @@ private data class EquipmentSeed(
     val id: String,
     val name: String,
     val category: String,
+    val defaultAvailable: Boolean = false,
 )
 
 private data class FoodEstimate(
