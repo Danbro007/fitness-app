@@ -42,6 +42,7 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
+import com.shanqijie.fitnessapp.BuildConfig
 import com.shanqijie.fitnessapp.ui.navigation.FitnessTestTags
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
@@ -194,6 +195,17 @@ fun FitnessGifImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
 ) {
+    if (!BuildConfig.EXERCISE_MEDIA_ENABLED && assetPath.startsWith("exercise-media/gifs/")) {
+        FitnessSurfaceCard(modifier = modifier) {
+            Text(
+                text = "动作示范媒体需取得授权后启用",
+                style = MaterialTheme.typography.bodyMedium,
+                color = FitnessColors.Muted,
+            )
+        }
+        return
+    }
+
     val context = LocalContext.current
     val imageLoader = fitnessGifImageLoader(context)
     val model = remember(assetPath) {

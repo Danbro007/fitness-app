@@ -1,7 +1,7 @@
 ---
 name: i fitness Third-Party Notices
 description: Attribution, license boundaries, and distribution requirements for third-party data, media, and libraries used by i fitness.
-version: 1.0.0
+version: 1.1.0
 last_updated: 2026-07-11
 maintained_by: shanqijie
 ---
@@ -67,4 +67,5 @@ Primary references:
 - The launcher artwork must remain project-owned or properly licensed; verify its source record before public distribution.
 - AI-generated workout and nutrition output is assistive information, not medical diagnosis or treatment.
 - When a user invokes a configured AI provider, the submitted prompt and any selected food image may be transmitted to that provider under its terms and privacy policy.
-- Before publishing an APK, complete a privacy policy, a dependency-notice review, media licensing, and jurisdiction-specific legal review.
+- The current privacy policy and direct-dependency inventory are in [PRIVACY_POLICY.md](./PRIVACY_POLICY.md) and [DEPENDENCY_NOTICES.md](./DEPENDENCY_NOTICES.md).
+- Do not publish an APK with Gym Visual media or under the `i fitness` label until the release gates in [MEDIA_RIGHTS.md](./MEDIA_RIGHTS.md) and [TRADEMARK_RISK.md](./TRADEMARK_RISK.md) are closed.

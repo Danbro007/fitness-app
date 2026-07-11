@@ -12,26 +12,14 @@ maintained_by: shanqijie
 
 # i fitness
 
-一个本地优先的 Android 健身助手，用来管理训练场地、器械、训练计划、动作 GIF、训练记录、饮食估算和 AI 建议。应用默认不需要账号、不依赖云同步，核心数据保存在本机 SQLite 中。
+一个本地优先的 Android 健身助手，用来管理训练场地、器械、训练计划、动作元数据、训练记录、饮食估算和 AI 建议。应用默认不需要账号、不依赖云同步，核心数据保存在本机 SQLite 中。
 
 ## 项目状态
 
 - 原生 Compose MVP 已完成，主导航固定为 `首页 / 计划 / 训练 / 饮食 / 我的`。
 - 主流程已跑通：制定计划、选择动作、训练执行、组间休息、训练总结、饮食记录、AI 设置和本地备份。
-- 动作清单包含 1324 条元数据；第三方 GIF 不会提交到 Git，使用前需另行取得媒体授权。
+- 动作清单包含 1324 条元数据；正式构建默认排除第三方 GIF，只有提供授权凭证时才能显式启用。
 - 已在 Pixel 8 Pro 模拟器完成真实数据验收：29/29 JVM 测试、61/61 设备测试通过，无崩溃或 ANR。
-
-## 界面预览
-
-| 首页 | 训练中 | 训练总结 |
-| :---: | :---: | :---: |
-| ![首页](./.scratch/run-evidence/android-layout-migration/home.png) | ![训练中](./.scratch/run-evidence/android-layout-migration/training-active.png) | ![训练总结](./.scratch/run-evidence/android-layout-migration/workout-summary.png) |
-
-| 计划 | 饮食 | 我的 |
-| :---: | :---: | :---: |
-| ![计划](./.scratch/run-evidence/android-layout-migration/plan.png) | ![饮食](./.scratch/run-evidence/android-layout-migration/food.png) | ![我的](./.scratch/run-evidence/android-layout-migration/profile.png) |
-
-截图中的动作示范媒体：© Gym visual — https://gymvisual.com/
 
 ## 功能
 
@@ -51,7 +39,7 @@ maintained_by: shanqijie
 ### 训练执行
 
 - 记录组数、次数、重量和训练感受。
-- 支持动作 GIF 查看、休息计时、动作替换和跳过动作。
+- 支持在已取得媒体授权的构建中查看动作 GIF，并提供休息计时、动作替换和跳过动作。
 - 支持根据历史训练生成下一次训练调整建议。
 - 训练中与训练总结使用沉浸式页面，不显示全局底部导航。
 
@@ -235,9 +223,8 @@ scripts/download-exercise-gifs.py
 
 - 这是个人使用场景优先的 MVP，不包含账号、云同步和社交功能。
 - AI 建议仅作为辅助，不应替代专业医疗、营养或训练建议。
-- 下载离线 GIF 后会增加本地 APK 体积；不下载时动作库仍可显示文字信息，但 GIF 预览不可用。
-- 对外公开发布前仍需补充隐私政策和许可证文件。
+- 未提供媒体授权凭证时，正式构建不会打包或展示第三方 GIF；动作库仍可显示文字信息。
 
 ## 许可证
 
-当前公开源码仓库尚未添加许可证文件；在发布 APK 或允许第三方复用代码前，应先补充 `LICENSE`，并确认第三方数据和媒体资源的授权边界。
+本项目代码以 [MIT License](./LICENSE) 发布；第三方数据、媒体和依赖的边界见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) 与 [DEPENDENCY_NOTICES.md](./DEPENDENCY_NOTICES.md)。隐私说明见 [PRIVACY_POLICY.md](./PRIVACY_POLICY.md)。

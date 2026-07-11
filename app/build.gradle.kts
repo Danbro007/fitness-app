@@ -5,6 +5,26 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+val includeLicensedExerciseMedia = providers
+    .gradleProperty("includeLicensedExerciseMedia")
+    .map(String::toBoolean)
+    .getOrElse(false)
+val exerciseMediaLicenseReference = providers
+    .gradleProperty("exerciseMediaLicenseReference")
+    .orNull
+
+if (includeLicensedExerciseMedia && exerciseMediaLicenseReference.isNullOrBlank()) {
+    error("includeLicensedExerciseMedia requires -PexerciseMediaLicenseReference=<rights-holder record>")
+}
+
+val compliantAssetsDir = layout.buildDirectory.dir("generated/compliant-assets")
+val prepareCompliantAssets by tasks.registering(Copy::class) {
+    from("src/main/assets/exercise-media/manifest.json") {
+        into("exercise-media")
+    }
+    into(compliantAssetsDir)
+}
+
 android {
     namespace = "com.shanqijie.fitnessapp"
     compileSdk = 36
@@ -15,6 +35,11 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField(
+            "boolean",
+            "EXERCISE_MEDIA_ENABLED",
+            includeLicensedExerciseMedia.toString(),
+        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -45,10 +70,28 @@ android {
         buildConfig = true
     }
 
+    sourceSets {
+        getByName("main") {
+            assets.setSrcDirs(
+                if (includeLicensedExerciseMedia) {
+                    listOf("src/main/assets")
+                } else {
+                    listOf(compliantAssetsDir)
+                },
+            )
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+if (!includeLicensedExerciseMedia) {
+    tasks.named("preBuild").configure {
+        dependsOn(prepareCompliantAssets)
     }
 }
 

@@ -12,26 +12,14 @@ maintained_by: shanqijie
 
 # i fitness
 
-A local-first Android fitness assistant for managing venues, equipment, workout plans, exercise GIFs, workout logs, food estimates, and AI-assisted suggestions. The app does not require an account or cloud sync by default, and core data is stored locally in SQLite.
+A local-first Android fitness assistant for managing venues, equipment, workout plans, exercise metadata, workout logs, food estimates, and AI-assisted suggestions. The app does not require an account or cloud sync by default, and core data is stored locally in SQLite.
 
 ## Project Status
 
 - The native Compose MVP is complete, with exactly five primary destinations: `Home / Plan / Training / Food / Profile`.
 - The core journey is implemented end to end: planning, exercise selection, active training, rest timing, workout summary, food logging, AI settings, and local backup.
-- The manifest contains 1,324 exercise metadata records. Third-party GIF binaries are not committed and require a separate media license before use.
+- The manifest contains 1,324 exercise metadata records. Production builds exclude third-party GIFs by default; they can be enabled only with a documented media-rights record.
 - Verified with real local data on a Pixel 8 Pro emulator: 29/29 JVM tests and 61/61 device tests pass, with no crash or ANR.
-
-## Screenshots
-
-| Home | Active workout | Workout summary |
-| :---: | :---: | :---: |
-| ![Home](./.scratch/run-evidence/android-layout-migration/home.png) | ![Active workout](./.scratch/run-evidence/android-layout-migration/training-active.png) | ![Workout summary](./.scratch/run-evidence/android-layout-migration/workout-summary.png) |
-
-| Plan | Food | Profile |
-| :---: | :---: | :---: |
-| ![Plan](./.scratch/run-evidence/android-layout-migration/plan.png) | ![Food](./.scratch/run-evidence/android-layout-migration/food.png) | ![Profile](./.scratch/run-evidence/android-layout-migration/profile.png) |
-
-Exercise demonstration media shown in screenshots: © Gym visual — https://gymvisual.com/
 
 ## Features
 
@@ -51,7 +39,7 @@ Exercise demonstration media shown in screenshots: © Gym visual — https://gym
 ### Workout Session
 
 - Log sets, reps, weight, and training feedback.
-- View exercise GIFs, use rest timers, replace exercises, and skip exercises.
+- View exercise GIFs in builds with licensed media enabled, use rest timers, replace exercises, and skip exercises.
 - Generate next-session adjustment suggestions from training history.
 - Active-workout and workout-summary screens are immersive and hide global bottom navigation.
 
@@ -235,9 +223,8 @@ The app provides a DeepSeek-style OpenAI-compatible configuration entry. When no
 
 - This is a personal-use-first MVP and does not include accounts, cloud sync, or social features.
 - AI suggestions are assistive and should not replace professional medical, nutrition, or training advice.
-- Downloaded offline GIFs increase local APK size; without downloading them, text metadata still works but GIF previews are unavailable.
-- Before a public release, add a privacy policy and a license file.
+- Without a media-rights record, production builds neither package nor display third-party GIFs; the exercise library still shows text metadata.
 
 ## License
 
-No license file has been added yet. Before publishing an APK or permitting third-party code reuse, add a `LICENSE` file and verify the licensing boundaries of third-party data and media assets.
+Project code is available under the [MIT License](./LICENSE). Third-party data, media, and dependency boundaries are documented in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) and [DEPENDENCY_NOTICES.md](./DEPENDENCY_NOTICES.md). See [PRIVACY_POLICY.md](./PRIVACY_POLICY.md) for privacy information.
