@@ -794,6 +794,15 @@ class FitnessStore(private val database: FitnessDatabase) {
                 put("weekly_training_days", entity.weeklyTrainingDays)
                 put("preferred_minutes", entity.preferredMinutes)
                 put("updated_at", entity.updatedAt)
+                put("measured_at", entity.bodyMeasurement.measuredAt)
+                put("body_type", entity.bodyMeasurement.bodyType)
+                put("body_fat_percentage", entity.bodyMeasurement.bodyFatPercentage)
+                put("body_fat_mass_kg", entity.bodyMeasurement.bodyFatMassKg)
+                put("skeletal_muscle_kg", entity.bodyMeasurement.skeletalMuscleKg)
+                put("body_water_kg", entity.bodyMeasurement.bodyWaterKg)
+                put("basal_metabolism_kcal", entity.bodyMeasurement.basalMetabolismKcal)
+                put("waist_hip_ratio", entity.bodyMeasurement.waistHipRatio)
+                put("body_age", entity.bodyMeasurement.bodyAge)
             },
             android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
         )
@@ -803,7 +812,9 @@ class FitnessStore(private val database: FitnessDatabase) {
         val cursor = database.readableDatabase.rawQuery(
             """
             SELECT id, display_name, birth_year, height_cm, weight_kg, goal, injuries,
-                   weekly_training_days, preferred_minutes, updated_at
+                   weekly_training_days, preferred_minutes, updated_at, measured_at, body_type,
+                   body_fat_percentage, body_fat_mass_kg, skeletal_muscle_kg, body_water_kg,
+                   basal_metabolism_kcal, waist_hip_ratio, body_age
             FROM user_profile
             ORDER BY updated_at DESC
             LIMIT 1
@@ -1235,6 +1246,17 @@ class FitnessStore(private val database: FitnessDatabase) {
             weeklyTrainingDays = getInt(getColumnIndexOrThrow("weekly_training_days")),
             preferredMinutes = getInt(getColumnIndexOrThrow("preferred_minutes")),
             updatedAt = getLong(getColumnIndexOrThrow("updated_at")),
+            bodyMeasurement = BodyMeasurement(
+                measuredAt = getString(getColumnIndexOrThrow("measured_at")),
+                bodyType = getString(getColumnIndexOrThrow("body_type")),
+                bodyFatPercentage = getDoubleOrNull("body_fat_percentage"),
+                bodyFatMassKg = getDoubleOrNull("body_fat_mass_kg"),
+                skeletalMuscleKg = getDoubleOrNull("skeletal_muscle_kg"),
+                bodyWaterKg = getDoubleOrNull("body_water_kg"),
+                basalMetabolismKcal = getIntOrNull("basal_metabolism_kcal"),
+                waistHipRatio = getDoubleOrNull("waist_hip_ratio"),
+                bodyAge = getIntOrNull("body_age"),
+            ),
         )
 
     private fun Cursor.toFoodLog(): FoodLogEntity =
@@ -1254,6 +1276,16 @@ class FitnessStore(private val database: FitnessDatabase) {
             confirmed = getInt(getColumnIndexOrThrow("confirmed")) == 1,
             createdAt = getLong(getColumnIndexOrThrow("created_at")),
         )
+
+    private fun Cursor.getDoubleOrNull(column: String): Double? {
+        val index = getColumnIndexOrThrow(column)
+        return if (isNull(index)) null else getDouble(index)
+    }
+
+    private fun Cursor.getIntOrNull(column: String): Int? {
+        val index = getColumnIndexOrThrow(column)
+        return if (isNull(index)) null else getInt(index)
+    }
 
     private fun Cursor.toAiDraft(): AiDraftEntity =
         AiDraftEntity(

@@ -56,7 +56,15 @@ class FitnessPlanLibraryUiTest {
         context.deleteDatabase(databaseName)
         database = FitnessDatabase(context, databaseName)
         repository = FitnessRepository(context, FitnessStore(database))
-        runBlocking { repository.bootstrap() }
+        runBlocking {
+            repository.bootstrap()
+            repository.setOnboardingCompleted(true)
+            repository.createWorkoutFromTemplate(
+                name = "测试训练",
+                scheduledDate = LocalDate.now().toString(),
+                venueId = FitnessRepository.DEFAULT_VENUE_ID,
+            )
+        }
     }
 
     @After
@@ -104,7 +112,7 @@ class FitnessPlanLibraryUiTest {
         val beforeDraftState = currentState()
         composeRule.onNodeWithTag(GenerateMonthlyDraftTag).performScrollTo().performClick()
         waitForTag(MonthlyDraftTag)
-        composeRule.onNodeWithText("确认后复制为 4 周").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("确认后才创建未来 4 周").performScrollTo().assertIsDisplayed()
         val draftState = currentState()
         assertEquals(beforeDraftState.plannedWorkouts.size, draftState.plannedWorkouts.size)
         assertTrue(draftState.aiDrafts.any { it.type == "weekly_plan" && it.status == "draft" })
@@ -155,7 +163,13 @@ class FitnessPlanLibraryUiTest {
         composeRule.onNodeWithTag(LibrarySearchTag).performTextReplacement("高位下拉")
         waitForTag(LibraryResult2330Tag)
         composeRule.onNodeWithTag(LibraryResult2330Tag).assertHeightIsAtLeast(48.dp)
-        composeRule.onNodeWithContentDescription("绳索高位下拉全程").assertIsDisplayed()
+        if (BuildConfig.EXERCISE_MEDIA_ENABLED) {
+            composeRule.onNodeWithContentDescription("绳索高位下拉全程").assertIsDisplayed()
+        } else {
+            composeRule.onAllNodesWithText("动作示范媒体需取得授权后启用")
+                .onFirst()
+                .assertIsDisplayed()
+        }
         composeRule.onNodeWithTag(LibraryResult2330Tag).performClick()
 
         waitForTag(ExerciseDetailTag)

@@ -67,6 +67,7 @@ class FitnessUiModelsTest {
             assertEquals(1, state.actions.size)
             assertEquals(expected.first, state.actions.single().label)
             assertEquals(expected.second, state.actions.single().route)
+            assertEquals(action is HomePrimaryAction.Result, state.completedToday)
         }
     }
 

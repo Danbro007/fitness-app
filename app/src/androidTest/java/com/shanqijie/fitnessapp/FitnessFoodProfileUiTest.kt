@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.pressBack
 import com.shanqijie.fitnessapp.data.AiCredentialStore
+import com.shanqijie.fitnessapp.data.BodyMeasurement
 import com.shanqijie.fitnessapp.data.FitnessAppState
 import com.shanqijie.fitnessapp.data.FitnessDatabase
 import com.shanqijie.fitnessapp.data.FitnessRepository
@@ -69,6 +70,35 @@ class FitnessFoodProfileUiTest {
     }
 
     @Test
+    fun newUserMustFinishLocalSetupBeforeSeeingPrimaryNavigation() {
+        composeRule.setContent {
+            FitnessTheme { FitnessAppRoot(repository = repository) }
+        }
+        waitForTag(ProfileEditTag)
+        composeRule.onNodeWithText("先完成训练设置").assertIsDisplayed()
+        composeRule.onAllNodesWithTag(FitnessTestTags.HomePrimaryAction).assertCountEquals(0)
+
+        runBlocking {
+            repository.saveUserProfile(
+                displayName = "山崎",
+                birthYear = 1994,
+                heightCm = 176.0,
+                weightKg = 75.0,
+                goal = "增肌减脂",
+                injuries = "",
+                weeklyTrainingDays = 3,
+                preferredMinutes = 45,
+            )
+            repository.setOnboardingCompleted(true)
+        }
+
+        waitForTag(FitnessTestTags.HomePrimaryAction)
+        assertTrue(currentState().onboardingCompleted)
+        assertEquals("山崎", currentState().userProfile?.displayName)
+        composeRule.onNodeWithTag(FitnessTestTags.HomePrimaryAction).assertTextContains("创建本周计划")
+    }
+
+    @Test
     fun manualMealValidationPreservesValuesAndTotalsSurviveRecreation() {
         showRealRoot()
         openPrimary(PrimaryTab.Food, FoodScreenTag)
@@ -117,6 +147,67 @@ class FitnessFoodProfileUiTest {
         assertFoodTotals()
         composeRule.onNodeWithText("酸奶").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("鸡胸饭").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun foodShowsProfileBasedReferenceAndRemainingAmounts() {
+        runBlocking {
+            repository.saveUserProfile(
+                displayName = "山崎",
+                birthYear = 1994,
+                heightCm = 176.0,
+                weightKg = 75.0,
+                goal = "增肌",
+                injuries = "",
+                weeklyTrainingDays = 3,
+                preferredMinutes = 45,
+            )
+            repository.logFood("早餐", 500, 30.0, 60.0, 15.0)
+            repository.setOnboardingCompleted(true)
+        }
+        composeRule.setContent {
+            FitnessTheme { FitnessAppRoot(repository = repository) }
+        }
+        waitForTag(FitnessTestTags.HomePrimaryAction)
+        openPrimary(PrimaryTab.Food, FoodScreenTag)
+
+        composeRule.onNodeWithTag(NutritionReferenceTag).assertIsDisplayed()
+        composeRule.onNodeWithText("今日参考摄入").assertIsDisplayed()
+        composeRule.onNodeWithText("热量 500 / 2475 kcal").assertIsDisplayed()
+        composeRule.onNodeWithText("还可参考 1975 kcal").assertIsDisplayed()
+    }
+
+    @Test
+    fun profileShowsSavedBodyMeasurementAndLetsTheUserUpdateIt() {
+        runBlocking {
+            repository.saveUserProfile(
+                displayName = "山崎",
+                birthYear = 1987,
+                heightCm = 173.0,
+                weightKg = 76.5,
+                goal = "减脂",
+                injuries = "",
+                weeklyTrainingDays = 3,
+                preferredMinutes = 45,
+                bodyMeasurement = BodyMeasurement(
+                    measuredAt = "2026-06-14",
+                    bodyType = "偏胖型",
+                    bodyFatPercentage = 24.8,
+                    skeletalMuscleKg = 32.5,
+                    basalMetabolismKcal = 1613,
+                ),
+            )
+        }
+        showRealRoot()
+        openPrimary(PrimaryTab.Profile, ProfileScreenTag)
+        composeRule.onNodeWithTag(BodyMeasurementSummaryTag).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("体型：偏胖型").assertIsDisplayed()
+
+        composeRule.onNodeWithTag(ProfilePreferencesRowTag).performScrollTo().performClick()
+        waitForTag(ProfileEditTag)
+        composeRule.onNodeWithTag(BodyFatPercentageTag).performScrollTo().assertTextContains("24.8")
+        composeRule.onNodeWithTag(SkeletalMuscleTag).assertTextContains("32.5")
+        composeRule.onNodeWithTag(BasalMetabolismTag).assertTextContains("1613")
     }
 
     @Test
@@ -221,13 +312,14 @@ class FitnessFoodProfileUiTest {
                     .firstOrNull { it.id == FitnessRepository.DEEPSEEK_PROVIDER_ID }
                     ?.apiKeyStored == false
         }
-        waitForTag(FitnessTestTags.HomePrimaryAction)
-        composeRule.onNodeWithTag(FitnessTestTags.HomePrimaryAction).assertTextContains("开始训练")
+        waitForTag(ProfileEditTag)
+        composeRule.onNodeWithText("先完成训练设置").assertIsDisplayed()
         assertNull(credentialStore.loadApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID))
-        assertTrue(currentState().plannedWorkouts.isNotEmpty())
+        assertTrue(currentState().plannedWorkouts.isEmpty())
     }
 
     private fun showRealRoot() {
+        runBlocking { repository.setOnboardingCompleted(true) }
         composeRule.setContent {
             FitnessTheme { FitnessAppRoot(repository = repository) }
         }
@@ -320,12 +412,17 @@ class FitnessFoodProfileUiTest {
         const val FoodProteinTotalTag = "food-total-protein"
         const val FoodCarbsTotalTag = "food-total-carbs"
         const val FoodFatTotalTag = "food-total-fat"
+        const val NutritionReferenceTag = "nutrition-reference"
         const val ProfileScreenTag = "profile-screen"
         const val ProfilePreferencesRowTag = "profile-row-preferences"
         const val ProfileSmartRowTag = "profile-row-smart"
         const val ProfileBackupRowTag = "profile-row-backup"
         const val ProfileEditTag = "profile-edit"
         const val ProfileNameTag = "profile-name"
+        const val BodyMeasurementSummaryTag = "profile-body-measurement-summary"
+        const val BodyFatPercentageTag = "profile-body-fat-percentage"
+        const val SkeletalMuscleTag = "profile-skeletal-muscle"
+        const val BasalMetabolismTag = "profile-basal-metabolism"
         const val SmartScreenTag = "smart-settings"
         const val SmartConnectionStatusTag = "smart-connection-status"
         const val SmartApiKeyTag = "smart-api-key"

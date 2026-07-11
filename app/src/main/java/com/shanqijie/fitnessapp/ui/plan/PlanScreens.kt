@@ -1,5 +1,6 @@
 package com.shanqijie.fitnessapp.ui.plan
 
+import android.app.DatePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,18 +11,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -36,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,12 +79,14 @@ fun PlanScreen(
     var editorDate by rememberSaveable { mutableStateOf(LocalDate.now().plusDays(1).toString()) }
     var operationError by rememberSaveable { mutableStateOf<String?>(null) }
     var operationInProgress by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val exerciseCountByPlan = plannedExerciseViews.groupingBy { it.plannedExercise.plannedWorkoutId }.eachCount()
 
     Column(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .background(FitnessColors.Phone)
             .testTag(PlanTags.Screen)
             .verticalScroll(rememberScrollState())
@@ -87,8 +94,8 @@ fun PlanScreen(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         FitnessPageHeader(
-            title = "计划",
-            kicker = "先看本周，再安排下一步",
+            title = "本周训练",
+            kicker = "先安排这一周；周期建议单独确认",
             action = {
                 Button(
                     onClick = {
@@ -104,7 +111,7 @@ fun PlanScreen(
                     ),
                 ) {
                     Icon(Icons.Rounded.Add, contentDescription = null)
-                    Text("新计划")
+                    Text("添加训练日")
                 }
             },
         )
@@ -168,8 +175,8 @@ fun PlanScreen(
                     .padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Text("创建训练计划", style = MaterialTheme.typography.headlineSmall)
-                Text("确认后才会保存到这台设备。", style = MaterialTheme.typography.bodyMedium)
+                Text("添加一场训练", style = MaterialTheme.typography.headlineSmall)
+                Text("只添加到指定日期；确认后才会保存到这台设备。", style = MaterialTheme.typography.bodyMedium)
                 OutlinedTextField(
                     value = editorName,
                     onValueChange = { editorName = it },
@@ -182,11 +189,20 @@ fun PlanScreen(
                 OutlinedTextField(
                     value = editorDate,
                     onValueChange = { editorDate = it },
-                    label = { Text("训练日期（YYYY-MM-DD）") },
+                    label = { Text("训练日期（可直接输入 YYYY-MM-DD）") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(PlanTags.DateInput),
+                    trailingIcon = {
+                        IconButton(
+                            onClick = {
+                                context.showPlanDatePicker(editorDate) { selected -> editorDate = selected }
+                            },
+                        ) {
+                            Icon(Icons.Rounded.CalendarMonth, contentDescription = "选择训练日期")
+                        }
+                    },
                 )
                 operationError?.let { ErrorText(it) }
                 FitnessPrimaryButton(
@@ -232,7 +248,7 @@ private fun WeeklySchedule(
             .testTag(PlanTags.WeeklySchedule),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("本周日程", style = MaterialTheme.typography.headlineSmall)
+        Text("这周的安排", style = MaterialTheme.typography.headlineSmall)
         (0L..6L).forEach { offset ->
             val date = weekStart.plusDays(offset)
             val plan = plans.firstOrNull { it.scheduledDate == date.toString() }
@@ -302,9 +318,9 @@ private fun MonthlyDraftSection(
             .fillMaxWidth()
             .testTag(PlanTags.MonthlyGenerator),
     ) {
-        Text("四周计划草稿", style = MaterialTheme.typography.headlineSmall)
+        Text("周期建议（可选）", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "先生成一份周计划草稿。确认后复制为 4 周，确认前不会新增正式计划。",
+            "需要连续安排时再生成。它只是建议草稿；确认后才会创建未来 4 周的训练日。",
             style = MaterialTheme.typography.bodyLarge,
         )
         if (draft == null) {
@@ -316,7 +332,7 @@ private fun MonthlyDraftSection(
                     .heightIn(min = FitnessDimensions.MinimumTouchTarget)
                     .testTag(PlanTags.GenerateMonthlyDraft),
             ) {
-                Text(if (operationInProgress) "生成中…" else "生成四周草稿")
+                Text(if (operationInProgress) "生成中…" else "生成四周建议")
             }
         } else {
             Column(
@@ -329,7 +345,7 @@ private fun MonthlyDraftSection(
             ) {
                 Text(draft.title, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
                 Text(draft.content, style = MaterialTheme.typography.bodyMedium)
-                Text("确认后复制为 4 周", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                Text("确认后才创建未来 4 周", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
                 FitnessPrimaryButton(
                     text = if (operationInProgress) "确认中…" else "确认并创建 4 周",
                     onClick = { onConfirm(draft.id) },
@@ -394,6 +410,7 @@ fun PlanEditScreen(
     var saving by rememberSaveable(plan.id) { mutableStateOf(false) }
     var errorMessage by rememberSaveable(plan.id) { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -415,8 +432,15 @@ fun PlanEditScreen(
         OutlinedTextField(
             value = date,
             onValueChange = { date = it },
-            label = { Text("训练日期") },
+            label = { Text("训练日期（可直接输入 YYYY-MM-DD）") },
             modifier = Modifier.fillMaxWidth(),
+            trailingIcon = {
+                IconButton(
+                    onClick = { context.showPlanDatePicker(date) { selected -> date = selected } },
+                ) {
+                    Icon(Icons.Rounded.CalendarMonth, contentDescription = "选择训练日期")
+                }
+            },
         )
         Text("动作清单", style = MaterialTheme.typography.headlineSmall)
         exercises.sortedBy { it.plannedExercise.orderIndex }.forEach { view ->
@@ -537,3 +561,17 @@ private fun String.toStatusLabel(): String = when (this) {
 
 private fun Double.toWeight(): String =
     if (this % 1.0 == 0.0) toInt().toString() else String.format(Locale.ROOT, "%.1f", this)
+
+private fun android.content.Context.showPlanDatePicker(
+    current: String,
+    onSelected: (String) -> Unit,
+) {
+    val date = runCatching { LocalDate.parse(current) }.getOrElse { LocalDate.now() }
+    DatePickerDialog(
+        this,
+        { _, year, month, dayOfMonth -> onSelected(LocalDate.of(year, month + 1, dayOfMonth).toString()) },
+        date.year,
+        date.monthValue - 1,
+        date.dayOfMonth,
+    ).show()
+}

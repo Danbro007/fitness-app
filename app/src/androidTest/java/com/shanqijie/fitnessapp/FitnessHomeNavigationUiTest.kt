@@ -165,10 +165,32 @@ class FitnessHomeNavigationUiTest {
         composeRule.onNodeWithTag(FitnessTestTags.OpenLibrary).performClick()
         composeRule.onNodeWithText("动作库").assertIsDisplayed()
         composeRule.onNodeWithTag(FitnessTestTags.BottomNav).assertDoesNotExist()
+        composeRule.onNodeWithTag(FitnessTestTags.Back).assertIsDisplayed()
 
-        Espresso.pressBack()
+        composeRule.onNodeWithTag(FitnessTestTags.Back).performClick()
         composeRule.onNodeWithTag(FitnessTestTags.BottomNav).assertIsDisplayed()
         composeRule.onNodeWithTag(FitnessTestTags.HomePrimaryAction).assertIsDisplayed()
+    }
+
+    @Test
+    fun completedTodayUsesACompletionFocusedHeroInsteadOfTheOldWorkoutTask() {
+        composeRule.setContent {
+            FitnessTheme {
+                HomeScreen(
+                    state = startHome().copy(
+                        actions = listOf(HomeActionUi("查看训练总结", AppRoute.WorkoutSummary("done"))),
+                        completedToday = true,
+                    ),
+                    weekDays = sampleDays(),
+                    heroTitle = "今天已完成",
+                    onNavigate = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("今日已完成").assertIsDisplayed()
+        composeRule.onNodeWithTag(FitnessTestTags.HomePrimaryAction).assertTextEquals("查看训练总结")
+        composeRule.onAllNodesWithText("TODAY WORKOUT", substring = false).assertCountEquals(0)
     }
 
     @Test
@@ -194,7 +216,10 @@ class FitnessHomeNavigationUiTest {
         context.deleteDatabase(dbName)
         val database = FitnessDatabase(context, dbName)
         val repository = FitnessRepository(context, FitnessStore(database))
-        runBlocking { repository.bootstrap() }
+        runBlocking {
+            repository.bootstrap()
+            repository.setOnboardingCompleted(true)
+        }
 
         try {
             composeRule.setContent {

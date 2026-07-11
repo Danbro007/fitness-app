@@ -16,6 +16,7 @@ data class HomeUiState(
     val completedThisWeek: Int,
     val targetThisWeek: Int,
     val nextWorkout: PlannedWorkoutEntity?,
+    val completedToday: Boolean = false,
 ) {
     init {
         require(actions.size == 1) { "首页必须且只能展示一个主要训练操作" }
@@ -31,6 +32,7 @@ fun HomeSnapshot.toHomeUiState(): HomeUiState =
         completedThisWeek = completedThisWeek,
         targetThisWeek = targetThisWeek,
         nextWorkout = nextWorkout,
+        completedToday = action is HomePrimaryAction.Result,
     )
 
 private fun HomePrimaryAction.toUiAction(): HomeActionUi = when (this) {

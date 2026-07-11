@@ -10,6 +10,7 @@ import com.shanqijie.fitnessapp.domain.ExerciseManifestParser
 import com.shanqijie.fitnessapp.domain.HomePrimaryAction
 import com.shanqijie.fitnessapp.domain.HomeSnapshot
 import com.shanqijie.fitnessapp.domain.NutritionSummary
+import com.shanqijie.fitnessapp.domain.NutritionReference
 import com.shanqijie.fitnessapp.domain.WorkoutSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -60,7 +61,6 @@ class FitnessRepository(
         val now = timeProvider.currentTimeMillis()
         seedDefaultVenue(now)
         seedDefaultEquipment(now)
-        seedDefaultPlans(now)
         seedDefaultAiProviders(now)
 
         val smithBench = store.exerciseById(SMITH_BENCH_PRESS_ID)
@@ -207,6 +207,7 @@ class FitnessRepository(
         injuries: String,
         weeklyTrainingDays: Int,
         preferredMinutes: Int,
+        bodyMeasurement: BodyMeasurement = BodyMeasurement(),
     ) = withContext(Dispatchers.IO) {
         val trimmedName = displayName.trim().ifEmpty { "我" }
         require(birthYear in 1940..LocalDate.now().year) { "出生年份不合理" }
@@ -214,6 +215,7 @@ class FitnessRepository(
         require(weightKg in 25.0..250.0) { "体重不合理" }
         require(weeklyTrainingDays in 1..7) { "每周训练天数需要在 1 到 7 之间" }
         require(preferredMinutes in 15..180) { "单次训练时长需要在 15 到 180 分钟之间" }
+        validateBodyMeasurement(bodyMeasurement)
         store.upsertUserProfile(
             UserProfileEntity(
                 id = LOCAL_PROFILE_ID,
@@ -226,6 +228,7 @@ class FitnessRepository(
                 weeklyTrainingDays = weeklyTrainingDays,
                 preferredMinutes = preferredMinutes,
                 updatedAt = System.currentTimeMillis(),
+                bodyMeasurement = bodyMeasurement.normalized(),
             ),
         )
         refreshSignal.update { it + 1 }
@@ -270,7 +273,7 @@ class FitnessRepository(
                         orderIndex = index + 1,
                         targetSets = if (index == 0) 4 else 3,
                         targetReps = if (index == 0) "8-12" else "10-12",
-                        targetWeightKg = if (index == 0) 70.0 else 24.0,
+                        targetWeightKg = 0.0,
                         note = if (index == 0) "主项" else "辅助",
                     ),
                 )
@@ -307,7 +310,7 @@ class FitnessRepository(
                             orderIndex = index + 1,
                             targetSets = if (index == 0) 4 else 3,
                             targetReps = if (index == 0) "8-12" else "10-12",
-                            targetWeightKg = if (index == 0) 70.0 else 24.0,
+                        targetWeightKg = 0.0,
                             note = if (index == 0) "主项" else "辅助",
                         ),
                     )
@@ -561,7 +564,6 @@ class FitnessRepository(
         val now = timeProvider.currentTimeMillis()
         seedDefaultVenue(now)
         seedDefaultEquipment(now)
-        seedDefaultPlans(now)
         seedDefaultAiProviders(now)
         refreshSignal.update { it + 1 }
     }
@@ -612,8 +614,75 @@ class FitnessRepository(
             protein = logs.sumOf { it.proteinGrams },
             carbs = logs.sumOf { it.carbsGrams },
             fat = logs.sumOf { it.fatGrams },
+            reference = state.userProfile?.let(::nutritionReferenceFor),
         )
     }
+
+    private fun nutritionReferenceFor(profile: UserProfileEntity): NutritionReference {
+        val weight = profile.weightKg.coerceIn(35.0, 250.0)
+        val (caloriesPerKg, proteinPerKg, carbsPerKg) = when (profile.goal) {
+            "减脂" -> Triple(28.0, 1.6, 2.5)
+            "增肌" -> Triple(33.0, 1.8, 4.0)
+            else -> Triple(30.0, 1.6, 3.0)
+        }
+        return NutritionReference(
+            calories = (weight * caloriesPerKg).toInt(),
+            protein = weight * proteinPerKg,
+            carbs = weight * carbsPerKg,
+            fat = weight * 0.8,
+        )
+    }
+
+    private fun validateBodyMeasurement(measurement: BodyMeasurement) {
+        measurement.measuredAt.takeIf(String::isNotBlank)?.let(LocalDate::parse)
+        require(measurement.bodyType.trim().length <= 20) { "体型描述不能超过 20 个字符" }
+        measurement.bodyFatPercentage?.let { require(it in 0.0..75.0) { "体脂率需要在 0 到 75% 之间" } }
+        measurement.bodyFatMassKg?.let { require(it in 0.0..150.0) { "体脂肪需要在 0 到 150 kg 之间" } }
+        measurement.skeletalMuscleKg?.let { require(it in 0.0..100.0) { "骨骼肌需要在 0 到 100 kg 之间" } }
+        measurement.bodyWaterKg?.let { require(it in 0.0..150.0) { "身体水分需要在 0 到 150 kg 之间" } }
+        measurement.basalMetabolismKcal?.let { require(it in 500..5000) { "基础代谢需要在 500 到 5000 kcal 之间" } }
+        measurement.waistHipRatio?.let { require(it in 0.3..2.0) { "腰臀比需要在 0.3 到 2.0 之间" } }
+        measurement.bodyAge?.let { require(it in 1..120) { "身体年龄需要在 1 到 120 岁之间" } }
+    }
+
+    private fun BodyMeasurement.normalized(): BodyMeasurement = copy(
+        measuredAt = measuredAt.trim(),
+        bodyType = bodyType.trim(),
+    )
+
+    private fun buildPlanPrompt(
+        profile: UserProfileEntity?,
+        days: Int,
+        minutes: Int,
+        venueName: String,
+        equipment: String,
+    ): String = buildString {
+        appendLine("目标：${profile?.goal ?: "保持体能"}")
+        appendLine("每周训练：$days 天")
+        appendLine("单次时长：$minutes 分钟")
+        appendLine(profile?.bodyMeasurement?.toPlanContext() ?: "体测数据：未填写")
+        appendLine("伤病与注意事项：${profile?.injuries?.ifBlank { "无" } ?: "未填写"}")
+        appendLine("场地：$venueName")
+        append("可用器械：$equipment")
+    }
+
+    private fun BodyMeasurement.toPlanContext(): String {
+        val values = buildList {
+            measuredAt.takeIf(String::isNotBlank)?.let { add("体测日期 $it") }
+            bodyType.takeIf(String::isNotBlank)?.let { add("体型 $it") }
+            bodyFatPercentage?.let { add("体脂率 ${it.toMetricText()}%") }
+            bodyFatMassKg?.let { add("体脂肪 ${it.toMetricText()} kg") }
+            skeletalMuscleKg?.let { add("骨骼肌 ${it.toMetricText()} kg") }
+            bodyWaterKg?.let { add("身体水分 ${it.toMetricText()} kg") }
+            basalMetabolismKcal?.let { add("基础代谢 $it kcal") }
+            waistHipRatio?.let { add("腰臀比 ${it.toMetricText()}") }
+            bodyAge?.let { add("身体年龄 $it 岁") }
+        }
+        return if (values.isEmpty()) "体测数据：未填写" else "体测数据：${values.joinToString("；")}"
+    }
+
+    private fun Double.toMetricText(): String =
+        if (this % 1.0 == 0.0) toInt().toString() else String.format(java.util.Locale.ROOT, "%.1f", this)
 
     suspend fun completeSet(
         sessionId: String,
@@ -928,8 +997,8 @@ class FitnessRepository(
             runCatching {
                 AiChatClient(provider.toConfig()).complete(
                     apiKey = apiKey,
-                    systemPrompt = "你是健身计划助手。请基于用户目标、场地和器械生成一周训练草稿，结果必须提醒用户确认后再保存。",
-                    userPrompt = "目标：${profile?.goal ?: "增肌减脂"}\n每周训练：$days 天\n单次时长：$minutes 分钟\n场地：${venue?.name ?: "默认场地"}\n可用器械：$equipment",
+                    systemPrompt = "你是健身计划助手。请基于用户目标、体测数据、场地和器械生成一周训练草稿。不要作医学诊断；如有伤病须优先保守安排。结果必须提醒用户确认后再保存。",
+                    userPrompt = buildPlanPrompt(profile, days, minutes, venue?.name ?: "默认场地", equipment),
                     temperature = 0.2,
                 )
             }.getOrNull()
@@ -941,7 +1010,7 @@ class FitnessRepository(
             type = "weekly_plan",
             title = "周计划草稿：$days 天",
             content = aiContent?.takeIf { it.isNotBlank() }
-                ?: "按 ${profile?.goal ?: "增肌减脂"} 目标，建议每周 $days 天、每次 $minutes 分钟。\n场地：${venue?.name ?: "默认场地"}\n可用器械：$equipment\n确认后会新建一节本地训练计划。",
+                ?: "按 ${profile?.goal ?: "增肌减脂"} 目标，建议每周 $days 天、每次 $minutes 分钟。\n${profile?.bodyMeasurement?.toPlanContext() ?: "未填写体测数据"}\n场地：${venue?.name ?: "默认场地"}\n可用器械：$equipment\n确认后会新建一节本地训练计划。",
             status = "draft",
             createdAt = now,
             updatedAt = now,
@@ -999,7 +1068,7 @@ class FitnessRepository(
                                 orderIndex = index + 1,
                                 targetSets = if (index == 0) 4 else 3,
                                 targetReps = if (index == 0) "8-12" else "10-12",
-                                targetWeightKg = if (index == 0) 70.0 else 24.0,
+                            targetWeightKg = 0.0,
                                 note = if (index == 0) "主项" else "辅助",
                             ),
                         )
@@ -1066,7 +1135,7 @@ class FitnessRepository(
     suspend fun exportBackupJson(): String = withContext(Dispatchers.IO) {
         FitnessBackupCodec.encode(
             FitnessBackupPayload(
-                version = 2,
+                version = 3,
                 exportedAt = timeProvider.currentTimeMillis(),
                 userProfile = store.userProfile(),
                 venues = store.trainingVenues(),
@@ -1110,7 +1179,7 @@ class FitnessRepository(
     }
 
     private fun validateBackupPayload(payload: FitnessBackupPayload) {
-        require(payload.version in 1..2) { "不支持的备份版本" }
+        require(payload.version in 1..3) { "不支持的备份版本" }
         requireUnique("场地 ID", payload.venues.map { it.id })
         requireUnique("器械 ID", payload.equipment.map { it.id })
         requireUnique("计划 ID", payload.plannedWorkouts.map { it.id })
@@ -1359,9 +1428,11 @@ class FitnessRepository(
 
     private fun finishWorkoutInTransaction(sessionId: String): WorkoutSummary {
         val session = requireNotNull(store.workoutSession(sessionId)) { "训练记录不存在" }
-        if (session.status != "completed") {
+        if (session.status !in setOf("completed", "partial")) {
             require(session.status == "in_progress") { "训练当前不可结束" }
             val now = timeProvider.currentTimeMillis()
+            val summary = workoutSummaryFromStored(sessionId)
+            val finalStatus = if (summary.isFullyCompleted) "completed" else "partial"
             store.updateWorkoutRuntime(
                 id = sessionId,
                 currentExerciseId = session.currentExerciseId,
@@ -1371,12 +1442,16 @@ class FitnessRepository(
             )
             store.updateWorkoutSessionStatus(
                 id = sessionId,
-                status = "completed",
+                status = finalStatus,
                 endedAt = now,
                 updatedAt = now,
             )
             session.plannedWorkoutId?.let { planId ->
-                store.updatePlannedWorkoutStatus(planId, status = "completed", updatedAt = now)
+                store.updatePlannedWorkoutStatus(
+                    planId,
+                    status = if (summary.isFullyCompleted) "completed" else "planned",
+                    updatedAt = now,
+                )
             }
         }
         return workoutSummaryFromStored(sessionId)
@@ -1500,45 +1575,6 @@ class FitnessRepository(
                     updatedAt = now,
                 ),
             )
-        }
-    }
-
-    private fun seedDefaultPlans(now: Long) {
-        if (store.plannedWorkouts().isEmpty()) {
-            val today = localDateAt(now)
-            listOf(
-                PlannedWorkoutEntity(
-                    id = DEFAULT_WORKOUT_ID,
-                    name = "胸部力量 A",
-                    scheduledDate = today.toString(),
-                    venueId = DEFAULT_VENUE_ID,
-                    status = "planned",
-                    createdAt = now,
-                    updatedAt = now,
-                ),
-                PlannedWorkoutEntity(
-                    id = "planned-lower-strength-a",
-                    name = "下肢力量 A",
-                    scheduledDate = today.plusDays(2).toString(),
-                    venueId = DEFAULT_VENUE_ID,
-                    status = "planned",
-                    createdAt = now,
-                    updatedAt = now,
-                ),
-                PlannedWorkoutEntity(
-                    id = "planned-pull-strength-a",
-                    name = "背部拉力 A",
-                    scheduledDate = today.plusDays(4).toString(),
-                    venueId = DEFAULT_VENUE_ID,
-                    status = "planned",
-                    createdAt = now,
-                    updatedAt = now,
-                ),
-            ).forEach(store::upsertPlannedWorkout)
-        }
-
-        if (store.allPlannedExercises().isEmpty()) {
-            defaultPlannedExercises().forEach(store::upsertPlannedExercise)
         }
     }
 
@@ -1672,69 +1708,6 @@ private fun AiProviderEntity.toConfig(): AiProviderConfig =
         model = model,
     )
 
-private fun defaultPlannedExercises(): List<PlannedExerciseEntity> =
-    listOf(
-        PlannedExerciseEntity(
-            id = "planned-chest-strength-a-0748",
-            plannedWorkoutId = FitnessRepository.DEFAULT_WORKOUT_ID,
-            exerciseId = FitnessRepository.SMITH_BENCH_PRESS_ID,
-            orderIndex = 1,
-            targetSets = 4,
-            targetReps = "8-12",
-            targetWeightKg = 70.0,
-            note = "主项",
-        ),
-        PlannedExerciseEntity(
-            id = "planned-chest-strength-a-0289",
-            plannedWorkoutId = FitnessRepository.DEFAULT_WORKOUT_ID,
-            exerciseId = "0289",
-            orderIndex = 2,
-            targetSets = 3,
-            targetReps = "8-10",
-            targetWeightKg = 24.0,
-            note = "辅助推",
-        ),
-        PlannedExerciseEntity(
-            id = "planned-lower-strength-a-0770",
-            plannedWorkoutId = "planned-lower-strength-a",
-            exerciseId = "0770",
-            orderIndex = 1,
-            targetSets = 4,
-            targetReps = "8-10",
-            targetWeightKg = 80.0,
-            note = "主项",
-        ),
-        PlannedExerciseEntity(
-            id = "planned-lower-strength-a-0739",
-            plannedWorkoutId = "planned-lower-strength-a",
-            exerciseId = "0739",
-            orderIndex = 2,
-            targetSets = 3,
-            targetReps = "10-12",
-            targetWeightKg = 100.0,
-            note = "腿举",
-        ),
-        PlannedExerciseEntity(
-            id = "planned-pull-strength-a-2330",
-            plannedWorkoutId = "planned-pull-strength-a",
-            exerciseId = "2330",
-            orderIndex = 1,
-            targetSets = 4,
-            targetReps = "8-12",
-            targetWeightKg = 45.0,
-            note = "背阔",
-        ),
-        PlannedExerciseEntity(
-            id = "planned-pull-strength-a-0027",
-            plannedWorkoutId = "planned-pull-strength-a",
-            exerciseId = "0027",
-            orderIndex = 2,
-            targetSets = 3,
-            targetReps = "8-10",
-            targetWeightKg = 50.0,
-            note = "划船",
-        ),
-    )
 
 private fun estimateFood(description: String): FoodEstimate {
     val normalized = description.lowercase()

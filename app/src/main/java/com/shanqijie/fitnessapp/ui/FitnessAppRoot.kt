@@ -8,9 +8,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +50,7 @@ import com.shanqijie.fitnessapp.ui.model.HomeUiState
 import com.shanqijie.fitnessapp.ui.model.toHomeUiState
 import com.shanqijie.fitnessapp.ui.navigation.AppRoute
 import com.shanqijie.fitnessapp.ui.navigation.FitnessNavState
+import com.shanqijie.fitnessapp.ui.navigation.FitnessTestTags
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
 import com.shanqijie.fitnessapp.ui.plan.PlanDetailScreen
 import com.shanqijie.fitnessapp.ui.plan.PlanEditScreen
@@ -123,6 +130,29 @@ fun FitnessAppRoot(
         return
     }
 
+    if (!state.onboardingCompleted) {
+        ProfileEditScreen(
+            profile = state.userProfile,
+            isInitialSetup = true,
+            onSave = { name, birthYear, height, weight, goal, injuries, weeklyDays, minutes, bodyMeasurement ->
+                repository.saveUserProfile(
+                    displayName = name,
+                    birthYear = birthYear,
+                    heightCm = height,
+                    weightKg = weight,
+                    goal = goal,
+                    injuries = injuries,
+                    weeklyTrainingDays = weeklyDays,
+                    preferredMinutes = minutes,
+                    bodyMeasurement = bodyMeasurement,
+                )
+                repository.setOnboardingCompleted(true)
+            },
+            modifier = modifier,
+        )
+        return
+    }
+
     val snapshot = repository.homeSnapshot(state)
     val initialRoute = state.unfinishedSessions
         .sortedByDescending { it.updatedAt }
@@ -144,6 +174,7 @@ fun FitnessAppRoot(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun FitnessAppRootContent(
     homeUiState: HomeUiState,
     modifier: Modifier = Modifier,
@@ -164,15 +195,17 @@ fun FitnessAppRootContent(
     val activeRouteState = (navState.route as? AppRoute.TrainingActive)
         ?.let { route -> appState?.toTrainingActive(route.sessionId) }
     val activeRouteRecoverable = activeRouteState != null && repository != null
-    BackHandler(
-        enabled = navState.route !is AppRoute.Primary &&
-            (navState.route !is AppRoute.TrainingActive || !activeRouteRecoverable),
-    ) {
+    val returnFromSecondary: () -> Unit = {
         navState = if (navState.route is AppRoute.TrainingActive && !activeRouteRecoverable) {
             navState.selectPrimary(PrimaryTab.Home)
         } else {
             navState.navigateTo(navState.backRoute())
         }
+    }
+    BackHandler(
+        enabled = navState.route !is AppRoute.Primary,
+    ) {
+        returnFromSecondary()
     }
 
     Scaffold(
@@ -183,6 +216,21 @@ fun FitnessAppRootContent(
                 FitnessBottomNav(
                     selectedTab = navState.selectedPrimaryTab,
                     onTabSelected = { tab -> navState = navState.selectPrimary(tab) },
+                )
+            }
+        },
+        topBar = {
+            if (navState.route !is AppRoute.Primary) {
+                TopAppBar(
+                    title = { Text("返回") },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = returnFromSecondary,
+                            modifier = Modifier.testTag(FitnessTestTags.Back),
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
+                        }
+                    },
                 )
             }
         },
@@ -508,7 +556,7 @@ fun FitnessAppRootContent(
                 } else {
                     ProfileEditScreen(
                         profile = currentState.userProfile,
-                        onSave = { name, birthYear, height, weight, goal, injuries, weeklyDays, minutes ->
+                        onSave = { name, birthYear, height, weight, goal, injuries, weeklyDays, minutes, bodyMeasurement ->
                             fitnessRepository.saveUserProfile(
                                 displayName = name,
                                 birthYear = birthYear,
@@ -518,6 +566,7 @@ fun FitnessAppRootContent(
                                 injuries = injuries,
                                 weeklyTrainingDays = weeklyDays,
                                 preferredMinutes = minutes,
+                                bodyMeasurement = bodyMeasurement,
                             )
                             navState = navState.selectPrimary(PrimaryTab.Profile)
                         },
@@ -726,11 +775,7 @@ private fun FitnessAppState.homeHeroTitle(action: HomePrimaryAction): String = w
         ?.plannedWorkoutId
         ?.let { planId -> plannedWorkouts.firstOrNull { it.id == planId }?.name }
         ?: "继续自由训练"
-    is HomePrimaryAction.Result -> workoutSessions
-        .firstOrNull { it.id == action.sessionId }
-        ?.plannedWorkoutId
-        ?.let { planId -> plannedWorkouts.firstOrNull { it.id == planId }?.name }
-        ?: "本次自由训练"
+    is HomePrimaryAction.Result -> "今天已完成"
     HomePrimaryAction.CreatePlan -> "安排下一次训练"
 }
 

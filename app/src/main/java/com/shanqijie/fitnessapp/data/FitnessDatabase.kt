@@ -151,7 +151,16 @@ class FitnessDatabase(
                 injuries TEXT NOT NULL,
                 weekly_training_days INTEGER NOT NULL,
                 preferred_minutes INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
+                updated_at INTEGER NOT NULL,
+                measured_at TEXT NOT NULL DEFAULT '',
+                body_type TEXT NOT NULL DEFAULT '',
+                body_fat_percentage REAL,
+                body_fat_mass_kg REAL,
+                skeletal_muscle_kg REAL,
+                body_water_kg REAL,
+                basal_metabolism_kcal INTEGER,
+                waist_hip_ratio REAL,
+                body_age INTEGER
             )
             """.trimIndent(),
         )
@@ -244,6 +253,17 @@ class FitnessDatabase(
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 8) {
+            addColumnIfMissing(db, "user_profile", "measured_at", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "user_profile", "body_type", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(db, "user_profile", "body_fat_percentage", "REAL")
+            addColumnIfMissing(db, "user_profile", "body_fat_mass_kg", "REAL")
+            addColumnIfMissing(db, "user_profile", "skeletal_muscle_kg", "REAL")
+            addColumnIfMissing(db, "user_profile", "body_water_kg", "REAL")
+            addColumnIfMissing(db, "user_profile", "basal_metabolism_kcal", "INTEGER")
+            addColumnIfMissing(db, "user_profile", "waist_hip_ratio", "REAL")
+            addColumnIfMissing(db, "user_profile", "body_age", "INTEGER")
+        }
         if (oldVersion < 7) {
             addColumnIfMissing(db, "workout_session", "current_exercise_id", "TEXT")
             addColumnIfMissing(db, "workout_session", "rest_ends_at", "INTEGER")
@@ -320,7 +340,7 @@ class FitnessDatabase(
 
     companion object {
         private const val DATABASE_NAME = "fitness.db"
-        private const val DATABASE_VERSION = 7
+        private const val DATABASE_VERSION = 8
 
         @Volatile
         private var instance: FitnessDatabase? = null

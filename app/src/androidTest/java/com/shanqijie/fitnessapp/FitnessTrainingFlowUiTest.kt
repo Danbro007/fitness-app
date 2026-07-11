@@ -68,7 +68,15 @@ class FitnessTrainingFlowUiTest {
         database = FitnessDatabase(context, databaseName)
         store = FitnessStore(database)
         repository = FitnessRepository(context, store)
-        runBlocking { repository.bootstrap() }
+        runBlocking {
+            repository.bootstrap()
+            repository.createWorkoutFromTemplate(
+                name = "测试训练",
+                scheduledDate = java.time.LocalDate.now().toString(),
+                venueId = FitnessRepository.DEFAULT_VENUE_ID,
+            )
+            repository.setOnboardingCompleted(true)
+        }
     }
 
     @After
@@ -80,7 +88,7 @@ class FitnessTrainingFlowUiTest {
     }
 
     @Test
-    fun workoutFlowPersistsAcrossActivityRecreationAndUpdatesHome() {
+    fun partialWorkoutPersistsAcrossActivityRecreationWithoutUpdatingWeeklyCompletion() {
         showRealRoot()
         composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Training)).performClick()
         composeRule.onNodeWithTag(FitnessTestTags.TrainingPrep).assertIsDisplayed()
@@ -97,7 +105,7 @@ class FitnessTrainingFlowUiTest {
         val activeSession = restingState.unfinishedSessions.single()
         val recordedLog = restingState.workoutSetLogs.single { it.sessionId == activeSession.id }
         assertNotNull(activeSession.restEndsAt)
-        assertEquals(72.5, recordedLog.actualWeightKg, 0.01)
+        assertEquals(2.5, recordedLog.actualWeightKg, 0.01)
         assertEquals("吃力", recordedLog.feeling)
 
         composeRule.activityRule.scenario.recreate()
@@ -120,8 +128,9 @@ class FitnessTrainingFlowUiTest {
         composeRule.onNodeWithTag(FitnessTestTags.ConfirmFinish).assertIsDisplayed().performClick()
 
         waitForTag(FitnessTestTags.WorkoutSummary)
+        composeRule.onNodeWithText("训练已部分完成").assertIsDisplayed()
         composeRule.onNodeWithText("1 组").assertIsDisplayed()
-        composeRule.onNodeWithText("580 kg").assertIsDisplayed()
+        composeRule.onNodeWithText("20 kg").assertIsDisplayed()
         composeRule.onNodeWithTag(FitnessTestTags.SummaryDone).performClick()
 
         waitForTag(FitnessTestTags.WeeklyProgress)
@@ -131,8 +140,8 @@ class FitnessTrainingFlowUiTest {
         composeRule.onNodeWithText(
             "${completedSnapshot.completedThisWeek} / ${completedSnapshot.targetThisWeek} 次",
         ).assertIsDisplayed()
-        assertEquals(1, completedSnapshot.completedThisWeek)
-        assertEquals("completed", completedState.workoutSessions.single().status)
+        assertEquals(0, completedSnapshot.completedThisWeek)
+        assertEquals("partial", completedState.workoutSessions.single().status)
     }
 
     @Test

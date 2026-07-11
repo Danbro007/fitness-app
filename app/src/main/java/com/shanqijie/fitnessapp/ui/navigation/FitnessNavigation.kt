@@ -99,6 +99,7 @@ object FitnessTestTags {
     const val ConfirmFinish = "confirm-finish"
     const val WorkoutSummary = "workout-summary"
     const val SummaryDone = "summary-done"
+    const val Back = "secondary-back"
 
     fun primaryTab(tab: PrimaryTab): String = "primary-tab-${tab.name.lowercase()}"
 }

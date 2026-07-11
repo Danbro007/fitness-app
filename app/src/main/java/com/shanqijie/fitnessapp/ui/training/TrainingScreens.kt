@@ -539,9 +539,16 @@ fun WorkoutSummaryScreen(
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
         )
-        Text("训练完成", style = MaterialTheme.typography.headlineLarge)
         Text(
-            "记录已保存在这台设备上。本周已完成 $weeklyCompleted / $weeklyTarget 次。",
+            text = if (summary.isFullyCompleted) "训练完成" else "训练已部分完成",
+            style = MaterialTheme.typography.headlineLarge,
+        )
+        Text(
+            text = if (summary.isFullyCompleted) {
+                "记录已保存在这台设备上。本周已完成 $weeklyCompleted / $weeklyTarget 次。"
+            } else {
+                "已保存 ${summary.completedSets}/${summary.targetSets} 组。这次不会计入本周完成次数。"
+            },
             style = MaterialTheme.typography.bodyLarge,
         )
 

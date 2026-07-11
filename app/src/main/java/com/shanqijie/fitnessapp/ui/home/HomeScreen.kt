@@ -162,7 +162,11 @@ private fun HomeWorkoutHero(
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Text(
-                text = if (state.nextWorkout == null) "TODAY" else "TODAY WORKOUT",
+            text = when {
+                state.completedToday -> "今日已完成"
+                state.nextWorkout == null -> "下一步"
+                else -> "今日训练"
+            },
                 color = Color(0xFFB8BDC6),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,

@@ -9,6 +9,7 @@ data class WorkoutSummary(
     val totalVolumeKg: Double,
     val durationSeconds: Long,
     val feelingCounts: Map<String, Int>,
+    val isFullyCompleted: Boolean = completedSets >= targetSets,
 )
 
 data class HomeSnapshot(
@@ -26,6 +27,19 @@ sealed interface HomePrimaryAction {
 }
 
 data class NutritionSummary(
+    val calories: Int,
+    val protein: Double,
+    val carbs: Double,
+    val fat: Double,
+    val reference: NutritionReference? = null,
+)
+
+/**
+ * A lightweight daily reference derived from the locally saved profile. It is deliberately
+ * presented as a reference rather than a prescribed diet, so it never masquerades as medical
+ * or nutritionist advice.
+ */
+data class NutritionReference(
     val calories: Int,
     val protein: Double,
     val carbs: Double,

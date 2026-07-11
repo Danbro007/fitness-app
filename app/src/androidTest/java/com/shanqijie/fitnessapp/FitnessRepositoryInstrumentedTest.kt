@@ -3,6 +3,7 @@ package com.shanqijie.fitnessapp
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.shanqijie.fitnessapp.data.AiCredentialStore
+import com.shanqijie.fitnessapp.data.BodyMeasurement
 import com.shanqijie.fitnessapp.data.EquipmentEntity
 import com.shanqijie.fitnessapp.data.FitnessBackupCodec
 import com.shanqijie.fitnessapp.data.FitnessDatabase
@@ -83,7 +84,40 @@ class FitnessRepositoryInstrumentedTest {
     }
 
     @Test
-    fun startRecordRestResumeAndFinishShareOneSession() = runBlocking {
+    fun weeklyPlanDraftUsesSavedBodyCompositionAsAiContext() = runBlocking {
+        repository.bootstrap()
+        repository.saveUserProfile(
+            displayName = "山崎",
+            birthYear = 1987,
+            heightCm = 173.0,
+            weightKg = 76.5,
+            goal = "减脂",
+            injuries = "无",
+            weeklyTrainingDays = 3,
+            preferredMinutes = 45,
+            bodyMeasurement = BodyMeasurement(
+                measuredAt = "2026-06-14",
+                bodyType = "偏胖型",
+                bodyFatPercentage = 24.8,
+                bodyFatMassKg = 19.0,
+                skeletalMuscleKg = 32.5,
+                bodyWaterKg = 42.1,
+                basalMetabolismKcal = 1613,
+                waistHipRatio = 0.90,
+                bodyAge = 39,
+            ),
+        )
+
+        val draft = repository.generateWeeklyPlanDraft()
+
+        assertTrue(draft.content.contains("体脂率 24.8%"))
+        assertTrue(draft.content.contains("骨骼肌 32.5 kg"))
+        assertTrue(draft.content.contains("基础代谢 1613 kcal"))
+        assertTrue(draft.content.contains("体型 偏胖型"))
+    }
+
+    @Test
+    fun partialFinishPersistsProgressWithoutCompletingPlanOrWeek() = runBlocking {
         seedExercises()
         seedPlan(
             planId = "plan-flow",
@@ -174,14 +208,45 @@ class FitnessRepositoryInstrumentedTest {
         assertEquals(1, store.setLogs(session.id).size)
         assertEquals(session.id, store.setLogs(session.id).single().sessionId)
         assertNotNull(store.setLogs(session.id).single().sessionExerciseId)
-        assertEquals("completed", store.plannedWorkouts().single { it.id == "plan-flow" }.status)
+        assertEquals("planned", store.plannedWorkouts().single { it.id == "plan-flow" }.status)
         assertEquals(1, summary.completedSets)
         assertEquals(5, summary.targetSets)
+        assertFalse(summary.isFullyCompleted)
         assertEquals(560.0, summary.totalVolumeKg, 0.01)
         assertEquals(300L, summary.durationSeconds)
         assertEquals(mapOf("合适" to 1), summary.feelingCounts)
-        assertEquals(1, home.completedThisWeek)
+        assertEquals(0, home.completedThisWeek)
         assertEquals(1, home.targetThisWeek)
+        assertEquals(HomePrimaryAction.Start("plan-flow"), home.action)
+        assertEquals("partial", store.workoutSession(session.id)?.status)
+    }
+
+    @Test
+    fun fullFinishCompletesPlanAndCountsTowardWeek() = runBlocking {
+        seedExercises()
+        seedPlan(
+            planId = "plan-complete",
+            scheduledDate = "2026-07-10",
+            exercises = listOf(PlannedExerciseSeed("0748", targetSets = 1, targetWeightKg = 70.0)),
+        )
+
+        val session = repository.startWorkout("plan-complete")
+        repository.recordWorkoutSet(
+            sessionId = session.id,
+            exerciseId = "0748",
+            reps = 8,
+            weightKg = 70.0,
+            feeling = "合适",
+        )
+
+        val summary = repository.finishWorkout(session.id)
+        val state = repository.appState().first()
+        val home = repository.homeSnapshot(state, today = LocalDate.of(2026, 7, 10))
+
+        assertTrue(summary.isFullyCompleted)
+        assertEquals("completed", store.workoutSession(session.id)?.status)
+        assertEquals("completed", store.plannedWorkouts().single { it.id == "plan-complete" }.status)
+        assertEquals(1, home.completedThisWeek)
         assertEquals(HomePrimaryAction.Result(session.id), home.action)
     }
 
@@ -333,6 +398,13 @@ class FitnessRepositoryInstrumentedTest {
         assertEquals(66.0, nutrition.protein, 0.01)
         assertEquals(96.0, nutrition.carbs, 0.01)
         assertEquals(34.0, nutrition.fat, 0.01)
+        requireNotNull(nutrition.reference).also { reference ->
+            assertEquals(2_508, reference.calories)
+            assertEquals(136.8, reference.protein, 0.01)
+            assertEquals(304.0, reference.carbs, 0.01)
+            assertEquals(60.8, reference.fat, 0.01)
+        }
+        Unit
     }
 
     @Test
@@ -349,7 +421,13 @@ class FitnessRepositoryInstrumentedTest {
             preferredMinutes = 50,
         )
         repository.saveAiApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID, "sk-reset-test")
-        repository.startWorkout(FitnessRepository.DEFAULT_WORKOUT_ID)
+        seedExercises()
+        seedPlan(
+            planId = "plan-reset",
+            scheduledDate = "2026-07-10",
+            exercises = listOf(PlannedExerciseSeed("0748", targetSets = 1, targetWeightKg = 70.0)),
+        )
+        repository.startWorkout("plan-reset")
         assertNotNull(credentialStore.loadApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID))
         assertEquals(1, store.workoutSessions().size)
 
@@ -365,7 +443,7 @@ class FitnessRepositoryInstrumentedTest {
         assertTrue(state.unfinishedSessions.isEmpty())
         assertTrue(state.venues.isNotEmpty())
         assertTrue(state.equipment.isNotEmpty())
-        assertTrue(state.plannedWorkouts.isNotEmpty())
+        assertTrue(state.plannedWorkouts.isEmpty())
         assertEquals(listOf(FitnessRepository.DEEPSEEK_PROVIDER_ID), state.aiProviders.map { it.id })
         assertFalse(state.aiProviders.single().apiKeyStored)
     }
@@ -424,7 +502,7 @@ class FitnessRepositoryInstrumentedTest {
     }
 
     @Test
-    fun backupV1StillImportsAndV2RoundTripsRuntime() = runBlocking {
+    fun backupV1StillImportsAndV3RoundTripsRuntime() = runBlocking {
         val v1 =
             """
             {
@@ -491,7 +569,7 @@ class FitnessRepositoryInstrumentedTest {
 
         val exported = repository.exportBackupJson()
         val payload = FitnessBackupCodec.decode(exported)
-        assertEquals(2, payload.version)
+        assertEquals(3, payload.version)
         assertEquals(2, payload.sessionExercises.size)
         assertEquals("0289", payload.workoutSessions.single().currentExerciseId)
         assertEquals(timeProvider.currentTimeMillis() + 75_000L, payload.workoutSessions.single().restEndsAt)
@@ -840,9 +918,9 @@ class FitnessRepositoryInstrumentedTest {
         val finishedSession = store.workoutSessions().single()
         val plan = store.plannedWorkouts().single()
 
-        assertEquals("completed", finishedSession.status)
+        assertEquals("partial", finishedSession.status)
         assertNotNull(finishedSession.endedAt)
-        assertEquals("completed", plan.status)
+        assertEquals("planned", plan.status)
     }
 
     @Test

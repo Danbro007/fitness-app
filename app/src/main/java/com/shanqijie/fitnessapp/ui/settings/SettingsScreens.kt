@@ -185,7 +185,7 @@ fun SmartSettingsScreen(
     val coroutineScope = rememberCoroutineScope()
 
     SettingsColumn(modifier.testTag(SettingsTags.SmartScreen)) {
-        FitnessPageHeader(title = "智能设置", kicker = provider?.displayName ?: "DeepSeek")
+        FitnessPageHeader(title = "智能设置", kicker = "用于生成可确认的训练和饮食建议")
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Text("连接状态", style = MaterialTheme.typography.headlineSmall)
             Text(
@@ -195,13 +195,13 @@ fun SmartSettingsScreen(
                 modifier = Modifier.testTag(SettingsTags.SmartConnectionStatus),
             )
             Text(
-                "只有密钥真实写入 Android Keystore 后才显示已连接。AI 结果仍需确认后落库。",
+                "密钥只加密保存在这台设备。智能建议在你确认前，不会写入训练或饮食记录。",
                 style = MaterialTheme.typography.bodyMedium,
             )
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it; message = null },
-                label = { Text(if (provider?.apiKeyStored == true) "粘贴新密钥覆盖" else "DeepSeek 接口密钥") },
+                label = { Text(if (provider?.apiKeyStored == true) "粘贴新密钥以更新" else "粘贴 AI 服务密钥") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier
@@ -209,7 +209,7 @@ fun SmartSettingsScreen(
                     .testTag(SettingsTags.SmartApiKey),
             )
             FitnessPrimaryButton(
-                text = if (busy) "保存中…" else "保存密钥",
+                text = if (busy) "保存中…" else "安全保存密钥",
                 enabled = !busy,
                 testTag = SettingsTags.SaveSmartKey,
                 onClick = {
@@ -220,7 +220,7 @@ fun SmartSettingsScreen(
                             try {
                                 onSaveApiKey(apiKey)
                                 apiKey = ""
-                                message = "密钥已加密保存"
+                                message = "密钥已安全保存在本机"
                             } catch (cancellation: CancellationException) {
                                 throw cancellation
                             } catch (error: Exception) {
@@ -255,7 +255,7 @@ fun SmartSettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = FitnessDimensions.MinimumTouchTarget),
-            ) { Text("测试连接") }
+            ) { Text("检查连接") }
         }
         message?.let { SettingsMessage(it) }
     }

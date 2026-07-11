@@ -9,10 +9,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -115,6 +118,7 @@ fun FoodScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .background(FitnessColors.Phone)
             .testTag(FoodTags.Screen)
             .verticalScroll(rememberScrollState())
@@ -123,7 +127,7 @@ fun FoodScreen(
     ) {
         FitnessPageHeader(
             title = "饮食",
-            kicker = "今日已确认的本地记录",
+            kicker = "今日已确认的本地记录与参考摄入",
             action = {
                 Button(
                     onClick = {
@@ -183,6 +187,8 @@ fun FoodScreen(
                 )
             }
         }
+
+        NutritionReferenceCard(summary)
 
         activeDraft?.let { draft ->
             FitnessSurfaceCard(
@@ -331,6 +337,7 @@ fun FoodScreen(
                                     }
                                 },
                             )
+                            Spacer(modifier = Modifier.height(96.dp))
                         }
                     }
                     "photo" -> {
@@ -397,6 +404,45 @@ fun FoodScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NutritionReferenceCard(summary: NutritionSummary) {
+    val reference = summary.reference
+    FitnessSurfaceCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(FoodTags.NutritionReference),
+    ) {
+        Text("今日参考摄入", style = MaterialTheme.typography.headlineSmall)
+        if (reference == null) {
+            Text("完成训练档案后，会在这里显示基于你的本地档案计算的参考值。", style = MaterialTheme.typography.bodyMedium)
+            return@FitnessSurfaceCard
+        }
+        Text("按档案估算，仅作日常记录参考；如有医疗或特殊饮食需求，请以专业人士建议为准。", style = MaterialTheme.typography.bodyMedium)
+        NutritionReferenceRow("热量", summary.calories.toDouble(), reference.calories.toDouble(), "kcal")
+        NutritionReferenceRow("蛋白质", summary.protein, reference.protein, "g")
+        NutritionReferenceRow("碳水", summary.carbs, reference.carbs, "g")
+        NutritionReferenceRow("脂肪", summary.fat, reference.fat, "g")
+    }
+}
+
+@Composable
+private fun NutritionReferenceRow(
+    label: String,
+    consumed: Double,
+    reference: Double,
+    unit: String,
+) {
+    val remaining = (reference - consumed).coerceAtLeast(0.0)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("$label ${consumed.toMacro()} / ${reference.toMacro()} $unit", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+        Text("还可参考 ${remaining.toMacro()} $unit", style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -503,6 +549,7 @@ object FoodTags {
     const val TotalProtein = "food-total-protein"
     const val TotalCarbs = "food-total-carbs"
     const val TotalFat = "food-total-fat"
+    const val NutritionReference = "nutrition-reference"
 
     fun log(id: String): String = "food-log-$id"
 }

@@ -110,6 +110,19 @@ data class AiProviderEntity(
 )
 
 @Serializable
+data class BodyMeasurement(
+    val measuredAt: String = "",
+    val bodyType: String = "",
+    val bodyFatPercentage: Double? = null,
+    val bodyFatMassKg: Double? = null,
+    val skeletalMuscleKg: Double? = null,
+    val bodyWaterKg: Double? = null,
+    val basalMetabolismKcal: Int? = null,
+    val waistHipRatio: Double? = null,
+    val bodyAge: Int? = null,
+)
+
+@Serializable
 data class UserProfileEntity(
     val id: String,
     val displayName: String,
@@ -121,6 +134,7 @@ data class UserProfileEntity(
     val weeklyTrainingDays: Int,
     val preferredMinutes: Int,
     val updatedAt: Long,
+    val bodyMeasurement: BodyMeasurement = BodyMeasurement(),
 )
 
 @Serializable

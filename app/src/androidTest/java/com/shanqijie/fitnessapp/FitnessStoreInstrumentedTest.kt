@@ -3,6 +3,7 @@ package com.shanqijie.fitnessapp
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.shanqijie.fitnessapp.data.AiProviderEntity
+import com.shanqijie.fitnessapp.data.BodyMeasurement
 import com.shanqijie.fitnessapp.data.AiDraftEntity
 import com.shanqijie.fitnessapp.data.ExerciseMediaEntity
 import com.shanqijie.fitnessapp.data.EquipmentEntity
@@ -341,6 +342,17 @@ class FitnessStoreInstrumentedTest {
                 weeklyTrainingDays = 4,
                 preferredMinutes = 50,
                 updatedAt = 1000L,
+                bodyMeasurement = BodyMeasurement(
+                    measuredAt = "2026-06-14",
+                    bodyType = "偏胖型",
+                    bodyFatPercentage = 24.8,
+                    bodyFatMassKg = 19.0,
+                    skeletalMuscleKg = 32.5,
+                    bodyWaterKg = 42.1,
+                    basalMetabolismKcal = 1613,
+                    waistHipRatio = 0.90,
+                    bodyAge = 39,
+                ),
             ),
         )
         store.insertFoodLog(
@@ -374,6 +386,12 @@ class FitnessStoreInstrumentedTest {
 
         assertEquals("山崎", store.userProfile()?.displayName)
         assertEquals(76.5, store.userProfile()?.weightKg ?: 0.0, 0.01)
+        requireNotNull(store.userProfile()?.bodyMeasurement).also { measurement ->
+            assertEquals("偏胖型", measurement.bodyType)
+            assertEquals(24.8, measurement.bodyFatPercentage ?: 0.0, 0.01)
+            assertEquals(1613, measurement.basalMetabolismKcal)
+            assertEquals(39, measurement.bodyAge)
+        }
         assertEquals(listOf("鸡胸饭"), store.foodLogs().map { it.name })
         assertEquals(620, store.foodLogs().single().calories)
         assertEquals("confirmed", store.aiDrafts().single().status)
