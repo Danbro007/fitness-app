@@ -3,6 +3,9 @@ package com.shanqijie.fitnessapp
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.shanqijie.fitnessapp.data.AiCredentialStore
+import com.shanqijie.fitnessapp.ai.AiGateway
+import com.shanqijie.fitnessapp.ai.AiGatewayFactory
+import com.shanqijie.fitnessapp.ai.AiTestResult
 import com.shanqijie.fitnessapp.data.BodyMeasurement
 import com.shanqijie.fitnessapp.data.EquipmentEntity
 import com.shanqijie.fitnessapp.data.FitnessBackupCodec
@@ -52,7 +55,7 @@ class FitnessRepositoryInstrumentedTest {
         db = FitnessDatabase(context, DB_NAME)
         store = FitnessStore(db)
         credentialStore = AiCredentialStore(context, CREDENTIAL_PREFERENCES)
-        credentialStore.deleteApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID)
+        credentialStore.deleteApiKey(FitnessRepository.OPENAI_PROVIDER_ID)
         timeProvider = FakeTimeProvider(Instant.parse("2026-07-10T01:00:00Z").toEpochMilli())
         repository = FitnessRepository(
             context = context,
@@ -64,7 +67,7 @@ class FitnessRepositoryInstrumentedTest {
 
     @After
     fun tearDown() {
-        credentialStore.deleteApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID)
+        credentialStore.deleteApiKey(FitnessRepository.OPENAI_PROVIDER_ID)
         context.getSharedPreferences(CREDENTIAL_PREFERENCES, Context.MODE_PRIVATE)
             .edit()
             .clear()
@@ -110,10 +113,148 @@ class FitnessRepositoryInstrumentedTest {
 
         val draft = repository.generateWeeklyPlanDraft()
 
-        assertTrue(draft.content.contains("体脂率 24.8%"))
-        assertTrue(draft.content.contains("骨骼肌 32.5 kg"))
-        assertTrue(draft.content.contains("基础代谢 1613 kcal"))
-        assertTrue(draft.content.contains("体型 偏胖型"))
+        assertTrue(draft.content.contains("体脂率：24.8%"))
+        assertTrue(draft.content.contains("骨骼肌：32.5 kg"))
+        assertTrue(draft.content.contains("基础代谢：1613 kcal"))
+        assertFalse(draft.content.contains("身体年龄"))
+        assertFalse(draft.content.contains("体型"))
+    }
+
+    @Test
+    fun aiIntegrationCreatesPlanAndPhotoDraftsWithoutConfirmingProductData() = runBlocking {
+        val gateway = RecordingAiGateway()
+        val integratedRepository = FitnessRepository(
+            context = context,
+            store = store,
+            credentialStore = credentialStore,
+            timeProvider = timeProvider,
+            aiGatewayFactory = AiGatewayFactory { gateway },
+        )
+        integratedRepository.bootstrap()
+        integratedRepository.saveUserProfile(
+            displayName = "山崎",
+            birthYear = 1987,
+            heightCm = 173.0,
+            weightKg = 76.5,
+            goal = "减脂",
+            injuries = "无",
+            weeklyTrainingDays = 3,
+            preferredMinutes = 45,
+            bodyMeasurement = BodyMeasurement(),
+        )
+        credentialStore.saveApiKey("qwen", "sk-integration-test")
+        integratedRepository.selectAiProvider(
+            providerId = "qwen",
+            endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            model = "qwen3.7-plus",
+        )
+
+        assertTrue(integratedRepository.testAiProvider("qwen").success)
+        val planDraft = integratedRepository.generateWeeklyPlanDraft()
+        val photoDraft = integratedRepository.generateFoodEstimateDraft(
+            description = "牛排米饭照片",
+            imageUri = "content://test/food.jpg",
+            imageMimeType = "image/jpeg",
+            imageBase64 = "Zm9vZC1waG90bw==",
+        )
+        val beforeConfirmation = integratedRepository.appState().first()
+
+        assertEquals("一周三练，力量优先", planDraft.content)
+        assertTrue(photoDraft.content.contains("AI 建议：识别为牛排米饭"))
+        assertTrue(gateway.lastVisionRequest?.contains("data:image/jpeg;base64,Zm9vZC1waG90bw==") == true)
+        assertTrue(beforeConfirmation.foodLogs.isEmpty())
+        assertEquals("draft", photoDraft.status)
+
+        val confirmed = integratedRepository.confirmFoodEstimateDraft(photoDraft.id)
+        val afterConfirmation = integratedRepository.appState().first()
+
+        assertEquals("vision_ai", confirmed.source)
+        assertEquals("qwen", confirmed.providerId)
+        assertEquals(1, afterConfirmation.foodLogs.size)
+        assertEquals("confirmed", afterConfirmation.aiDrafts.single { it.id == photoDraft.id }.status)
+    }
+
+    private class RecordingAiGateway : AiGateway {
+        var lastVisionRequest: String? = null
+
+        override fun testConnection(apiKey: String): AiTestResult =
+            AiTestResult(success = true, message = "连接成功")
+
+        override fun complete(
+            apiKey: String,
+            systemPrompt: String,
+            userPrompt: String,
+            temperature: Double,
+        ): String = "一周三练，力量优先"
+
+        override fun completeVision(
+            apiKey: String,
+            systemPrompt: String,
+            userPrompt: String,
+            imageMimeType: String,
+            imageBase64: String,
+            temperature: Double,
+        ): String {
+            lastVisionRequest = "data:$imageMimeType;base64,$imageBase64"
+            return "识别为牛排米饭"
+        }
+    }
+
+    @Test
+    fun planPromptContainsAllFifteenProfileFieldsButNoAvatarOrBodyAge() {
+        val profile = com.shanqijie.fitnessapp.data.UserProfileEntity(
+            id = "profile-prompt",
+            displayName = "山崎",
+            birthYear = 1994,
+            heightCm = 176.0,
+            weightKg = 75.0,
+            goal = "增肌",
+            injuries = "右肩注意",
+            weeklyTrainingDays = 4,
+            preferredMinutes = 50,
+            updatedAt = 1L,
+            avatarPath = "avatars/private.jpg",
+            bodyMeasurement = BodyMeasurement(
+                bodyFatPercentage = 18.0,
+                bodyFatMassKg = 13.5,
+                bmi = 24.2,
+                skeletalMuscleKg = 32.0,
+                bodyWaterKg = 42.0,
+                basalMetabolismKcal = 1680,
+                waistHipRatio = 0.88,
+                bodyAge = 39,
+            ),
+        )
+        val prompt = repository.buildPlanPromptForTesting(profile)
+        listOf("昵称：", "出生年：", "身高：", "体重：", "训练目标：", "每周训练：", "单次时长：", "伤病与注意事项：", "体脂率：", "体脂肪：", "BMI：", "骨骼肌：", "身体水分：", "基础代谢：", "腰臀比：").forEach {
+            assertTrue("缺少 $it", prompt.contains(it))
+        }
+        assertFalse(prompt.contains("avatar"))
+        assertFalse(prompt.contains("private.jpg"))
+        assertFalse(prompt.contains("身体年龄"))
+    }
+
+    @Test
+    fun backupRoundTripRestoresPrivateAvatarWithoutAffectingOtherProfileData() = runBlocking {
+        seedProfile()
+        val avatarDir = java.io.File(context.filesDir, "avatars").apply { mkdirs() }
+        val avatar = java.io.File(avatarDir, "backup-source.jpg")
+        val bitmap = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888)
+        avatar.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) }
+        bitmap.recycle()
+        val profile = requireNotNull(store.userProfile())
+        store.upsertUserProfile(profile.copy(avatarPath = "avatars/backup-source.jpg"))
+
+        val exported = repository.exportBackupJson()
+        assertFalse(exported.contains("bodyAge"))
+        assertFalse(exported.contains("sk-"))
+        repository.resetLocalData()
+        repository.importBackupJson(exported)
+
+        val restored = requireNotNull(store.userProfile())
+        assertEquals("测试用户", restored.displayName)
+        assertTrue(restored.avatarPath.isNotBlank())
+        assertTrue(java.io.File(context.filesDir, restored.avatarPath).isFile)
     }
 
     @Test
@@ -289,6 +430,7 @@ class FitnessRepositoryInstrumentedTest {
     @Test
     fun fourWeekDraftConfirmationCreatesAllPlansOnceAndRejectsInvalidDrafts() = runBlocking {
         seedExercises()
+        seedProfile()
         val draft = repository.generateWeeklyPlanDraft()
         store.upsertAiDraft(draft.copy(id = "wrong-type-draft", type = "food_estimate"))
 
@@ -320,6 +462,7 @@ class FitnessRepositoryInstrumentedTest {
     @Test
     fun fourWeekDraftConfirmationRollsBackPlansAndDraftWhenAWriteFails() = runBlocking {
         seedExercises()
+        seedProfile()
         val draft = repository.generateWeeklyPlanDraft()
         db.writableDatabase.execSQL(
             """
@@ -420,7 +563,7 @@ class FitnessRepositoryInstrumentedTest {
             weeklyTrainingDays = 4,
             preferredMinutes = 50,
         )
-        repository.saveAiApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID, "sk-reset-test")
+        repository.saveAiApiKey(FitnessRepository.OPENAI_PROVIDER_ID, "sk-reset-test")
         seedExercises()
         seedPlan(
             planId = "plan-reset",
@@ -428,13 +571,13 @@ class FitnessRepositoryInstrumentedTest {
             exercises = listOf(PlannedExerciseSeed("0748", targetSets = 1, targetWeightKg = 70.0)),
         )
         repository.startWorkout("plan-reset")
-        assertNotNull(credentialStore.loadApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID))
+        assertNotNull(credentialStore.loadApiKey(FitnessRepository.OPENAI_PROVIDER_ID))
         assertEquals(1, store.workoutSessions().size)
 
         repository.resetLocalData()
         val state = repository.appState().first()
 
-        assertNull(credentialStore.loadApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID))
+        assertNull(credentialStore.loadApiKey(FitnessRepository.OPENAI_PROVIDER_ID))
         assertNull(state.userProfile)
         assertTrue(state.foodLogs.isEmpty())
         assertTrue(state.workoutSessions.isEmpty())
@@ -444,8 +587,8 @@ class FitnessRepositoryInstrumentedTest {
         assertTrue(state.venues.isNotEmpty())
         assertTrue(state.equipment.isNotEmpty())
         assertTrue(state.plannedWorkouts.isEmpty())
-        assertEquals(listOf(FitnessRepository.DEEPSEEK_PROVIDER_ID), state.aiProviders.map { it.id })
-        assertFalse(state.aiProviders.single().apiKeyStored)
+        assertEquals(listOf("openai", "gemini", "qwen"), state.aiProviders.map { it.id })
+        assertTrue(state.aiProviders.none { it.apiKeyStored })
     }
 
     @Test
@@ -454,11 +597,11 @@ class FitnessRepositoryInstrumentedTest {
 
         repository.importBackupJson(rawBackup)
 
-        assertTrue(store.aiProvider(FitnessRepository.DEEPSEEK_PROVIDER_ID)?.apiKeyStored == true)
-        assertNull(credentialStore.loadApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID))
+        assertTrue(store.aiProvider(FitnessRepository.OPENAI_PROVIDER_ID)?.apiKeyStored == true)
+        assertNull(credentialStore.loadApiKey(FitnessRepository.OPENAI_PROVIDER_ID))
         assertFalse(
             repository.appState().first().aiProviders
-                .single { it.id == FitnessRepository.DEEPSEEK_PROVIDER_ID }
+                .single { it.id == FitnessRepository.OPENAI_PROVIDER_ID }
                 .apiKeyStored,
         )
     }
@@ -569,7 +712,7 @@ class FitnessRepositoryInstrumentedTest {
 
         val exported = repository.exportBackupJson()
         val payload = FitnessBackupCodec.decode(exported)
-        assertEquals(3, payload.version)
+        assertEquals(4, payload.version)
         assertEquals(2, payload.sessionExercises.size)
         assertEquals("0289", payload.workoutSessions.single().currentExerciseId)
         assertEquals(timeProvider.currentTimeMillis() + 75_000L, payload.workoutSessions.single().restEndsAt)
@@ -1118,7 +1261,7 @@ class FitnessRepositoryInstrumentedTest {
         assertEquals(listOf("0289", "0748"), searched.map { it.exerciseId }.sorted())
         assertEquals("下次加重", adjustment.title)
         assertEquals("content://meal/1", foodLog.imageUri)
-        assertEquals("deepseek-v4-flash", foodLog.model)
+        assertEquals("gpt-5-mini", foodLog.model)
         assertTrue(state.onboardingCompleted)
         assertEquals(listOf("史密斯机"), state.equipmentForSelectedVenue.map { it.name })
         assertEquals("下次加重", state.trainingAdjustments.single().title)
@@ -1132,6 +1275,19 @@ class FitnessRepositoryInstrumentedTest {
                 exercise("0289", "dumbbell bench press", "dumbbell"),
                 exercise("2330", "cable row", "cable"),
             ),
+        )
+    }
+
+    private suspend fun seedProfile() {
+        repository.saveUserProfile(
+            displayName = "测试用户",
+            birthYear = 1994,
+            heightCm = 176.0,
+            weightKg = 75.0,
+            goal = "保持体能",
+            injuries = "",
+            weeklyTrainingDays = 3,
+            preferredMinutes = 35,
         )
     }
 
@@ -1197,7 +1353,7 @@ class FitnessRepositoryInstrumentedTest {
           "foodLogs": [],
           "aiDrafts": [],
           "aiProviders": [{
-            "id": "${FitnessRepository.DEEPSEEK_PROVIDER_ID}",
+            "id": "${FitnessRepository.OPENAI_PROVIDER_ID}",
             "displayName": "DeepSeek",
             "baseUrl": "https://api.deepseek.com",
             "model": "deepseek-v4-flash",

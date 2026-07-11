@@ -742,6 +742,10 @@ class FitnessStore(private val database: FitnessDatabase) {
         )
     }
 
+    fun deleteAiProvider(id: String) {
+        database.writableDatabase.delete("ai_provider", "id = ?", arrayOf(id))
+    }
+
     fun aiProvider(id: String): AiProviderEntity? {
         val cursor = database.readableDatabase.rawQuery(
             """
@@ -802,7 +806,8 @@ class FitnessStore(private val database: FitnessDatabase) {
                 put("body_water_kg", entity.bodyMeasurement.bodyWaterKg)
                 put("basal_metabolism_kcal", entity.bodyMeasurement.basalMetabolismKcal)
                 put("waist_hip_ratio", entity.bodyMeasurement.waistHipRatio)
-                put("body_age", entity.bodyMeasurement.bodyAge)
+                put("bmi", entity.bodyMeasurement.bmi)
+                put("avatar_path", entity.avatarPath)
             },
             android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
         )
@@ -814,7 +819,7 @@ class FitnessStore(private val database: FitnessDatabase) {
             SELECT id, display_name, birth_year, height_cm, weight_kg, goal, injuries,
                    weekly_training_days, preferred_minutes, updated_at, measured_at, body_type,
                    body_fat_percentage, body_fat_mass_kg, skeletal_muscle_kg, body_water_kg,
-                   basal_metabolism_kcal, waist_hip_ratio, body_age
+                   basal_metabolism_kcal, waist_hip_ratio, body_age, bmi, avatar_path
             FROM user_profile
             ORDER BY updated_at DESC
             LIMIT 1
@@ -1255,8 +1260,10 @@ class FitnessStore(private val database: FitnessDatabase) {
                 bodyWaterKg = getDoubleOrNull("body_water_kg"),
                 basalMetabolismKcal = getIntOrNull("basal_metabolism_kcal"),
                 waistHipRatio = getDoubleOrNull("waist_hip_ratio"),
+                bmi = getDoubleOrNull("bmi"),
                 bodyAge = getIntOrNull("body_age"),
             ),
+            avatarPath = getString(getColumnIndexOrThrow("avatar_path")),
         )
 
     private fun Cursor.toFoodLog(): FoodLogEntity =

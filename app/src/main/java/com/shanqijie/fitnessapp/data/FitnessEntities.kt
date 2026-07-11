@@ -1,6 +1,7 @@
 package com.shanqijie.fitnessapp.data
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 @Serializable
 data class TrainingVenueEntity(
@@ -119,6 +120,9 @@ data class BodyMeasurement(
     val bodyWaterKg: Double? = null,
     val basalMetabolismKcal: Int? = null,
     val waistHipRatio: Double? = null,
+    val bmi: Double? = null,
+    @Deprecated("Legacy database compatibility only")
+    @Transient
     val bodyAge: Int? = null,
 )
 
@@ -135,6 +139,7 @@ data class UserProfileEntity(
     val preferredMinutes: Int,
     val updatedAt: Long,
     val bodyMeasurement: BodyMeasurement = BodyMeasurement(),
+    val avatarPath: String = "",
 )
 
 @Serializable

@@ -1,9 +1,14 @@
 package com.shanqijie.fitnessapp.ui.profile
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,14 +17,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.FitnessCenter
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,7 +49,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.shanqijie.fitnessapp.data.UserProfileEntity
@@ -45,6 +67,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.util.Locale
+import java.io.File
+import coil.compose.AsyncImage
 
 @Composable
 fun ProfileScreen(
@@ -63,81 +87,85 @@ fun ProfileScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .background(FitnessColors.Phone)
             .testTag(ProfileTags.Screen)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 20.dp),
+            .padding(horizontal = 18.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        FitnessPageHeader(title = "我的", kicker = "本地训练档案")
+        FitnessPageHeader(
+            title = "我的",
+            kicker = "训练档案与本机设置",
+            action = {
+                Surface(onClick = onOpenPreferences, shape = CircleShape, color = FitnessColors.Surface, shadowElevation = 8.dp, modifier = Modifier.size(52.dp)) {
+                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Edit, contentDescription = "编辑训练档案") }
+                }
+            },
+        )
 
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = profile?.displayName ?: "还没有训练档案",
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-                text = profile?.let {
-                    "${it.goal} · ${it.heightCm.toCompact()} cm · ${it.weightKg.toCompact()} kg · BMI ${it.bmi().toCompact()}"
-                } ?: "在训练偏好中设置目标、身体数据和每周节奏。",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            profile?.let {
+            val context = LocalContext.current
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (profile?.avatarPath?.isNotBlank() == true) {
+                    AsyncImage(
+                        model = File(context.filesDir, profile.avatarPath),
+                        contentDescription = "我的头像",
+                        modifier = Modifier.size(82.dp).clip(CircleShape).clickable(onClick = onOpenPreferences),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.size(82.dp).clip(CircleShape).background(FitnessColors.Orange).clickable(onClick = onOpenPreferences),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(profile?.displayName?.trim()?.take(2)?.ifBlank { "我" } ?: "我", style = MaterialTheme.typography.headlineSmall) }
+                }
                 Text(
-                    "每周 ${it.weeklyTrainingDays} 天 · 单次 ${it.preferredMinutes} 分钟",
+                    text = profile?.displayName ?: "还没有训练档案",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    profile?.let { "${it.goal} · 每周 ${it.weeklyTrainingDays} 练 · 单次 ${it.preferredMinutes} 分钟" }
+                        ?: "在训练偏好中完善本地档案",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-            }
-        }
-
-        profile?.bodyMeasurement?.takeIf { it.hasValues() }?.let { measurement ->
-            FitnessSurfaceCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag(ProfileTags.BodyMeasurementSummary),
-            ) {
-                Text("最近体测", style = MaterialTheme.typography.headlineSmall)
-                measurement.measuredAt.takeIf(String::isNotBlank)?.let { Text("体测日期：$it", style = MaterialTheme.typography.bodyMedium) }
-                measurement.bodyType.takeIf(String::isNotBlank)?.let { Text("体型：$it", color = FitnessColors.Ink, fontWeight = FontWeight.Bold) }
-                Text(measurement.summaryText(), style = MaterialTheme.typography.bodyMedium)
+                Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    ProfileStat("训练", "$completedWorkouts 次")
+                    ProfileStat("总组数", completedSets.toString())
+                    ProfileStat("容量", "${totalVolumeKg.toCompact()} kg")
+                }
             }
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("训练数据", style = MaterialTheme.typography.headlineSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FitnessMetricCard(
-                    value = completedWorkouts.toString(),
-                    label = "完成训练",
-                    modifier = Modifier.weight(1f),
-                )
-                FitnessMetricCard(
-                    value = completedSets.toString(),
-                    label = "完成组数",
-                    modifier = Modifier.weight(1f),
-                )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("偏好与设备", style = MaterialTheme.typography.headlineSmall)
+                Text("本机保存", style = MaterialTheme.typography.bodyMedium)
             }
-            FitnessMetricCard(
-                value = "${totalVolumeKg.toCompact()} kg",
-                label = "累计训练容量",
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("设置", style = MaterialTheme.typography.headlineSmall)
-            ProfileRow("训练偏好", profile?.goal ?: "完善训练档案", ProfileTags.PreferencesRow, onOpenPreferences)
-            ProfileRow("场地与器械", "管理排课条件", ProfileTags.VenueRow, onOpenVenue)
+            ProfileRow("训练偏好", profile?.goal ?: "完善训练档案", Icons.Rounded.FitnessCenter, ProfileTags.PreferencesRow, onOpenPreferences)
+            ProfileRow("场地与器械", "管理排课条件", Icons.Rounded.LocationOn, ProfileTags.VenueRow, onOpenVenue)
             ProfileRow(
-                "智能设置",
-                if (providerConnected) "已连接" else "未连接",
+                "连接 AI 服务",
+                if (providerConnected) "已连接" else "未连接 · 核心功能仍可离线使用",
+                Icons.Rounded.AutoAwesome,
                 ProfileTags.SmartRow,
                 onOpenSmart,
             )
-            ProfileRow("数据备份", "导出、恢复与重置", ProfileTags.BackupRow, onOpenBackup)
-            ProfileRow("关于", "i fitness 本地优先版", ProfileTags.AboutRow, onOpenAbout)
+            ProfileRow("本地数据备份", "导出或恢复训练记录", Icons.Rounded.Storage, ProfileTags.BackupRow, onOpenBackup)
+            ProfileRow("关于", "i fitness 本地优先版", Icons.Rounded.Info, ProfileTags.AboutRow, onOpenAbout)
         }
+        profile?.bodyMeasurement?.takeIf { it.hasValues() }?.let { measurement ->
+            FitnessSurfaceCard(modifier = Modifier.fillMaxWidth().testTag(ProfileTags.BodyMeasurementSummary)) {
+                Text("最近体测", style = MaterialTheme.typography.headlineSmall)
+                Text(measurement.summaryText(), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileStat(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
+        Text(value, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -145,6 +173,7 @@ fun ProfileScreen(
 private fun ProfileRow(
     title: String,
     subtitle: String,
+    icon: ImageVector,
     testTag: String,
     onClick: () -> Unit,
 ) {
@@ -156,6 +185,7 @@ private fun ProfileRow(
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(FitnessDimensions.ContainerRadius),
         colors = CardDefaults.cardColors(containerColor = FitnessColors.Surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
     ) {
         Row(
             modifier = Modifier
@@ -164,6 +194,9 @@ private fun ProfileRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Surface(shape = RoundedCornerShape(18.dp), color = FitnessColors.Phone, modifier = Modifier.size(50.dp)) {
+                Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = null, tint = FitnessColors.Ink) }
+            }
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -190,6 +223,7 @@ fun ProfileEditScreen(
         preferredMinutes: Int,
         bodyMeasurement: BodyMeasurement,
     ) -> Unit,
+    onSaveAvatar: suspend (Uri) -> Unit = {},
     isInitialSetup: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -216,25 +250,48 @@ fun ProfileEditScreen(
     var bodyWaterKg by rememberSaveable(profile?.updatedAt) { mutableStateOf(savedMeasurement.bodyWaterKg.toInput()) }
     var basalMetabolismKcal by rememberSaveable(profile?.updatedAt) { mutableStateOf(savedMeasurement.basalMetabolismKcal?.toString().orEmpty()) }
     var waistHipRatio by rememberSaveable(profile?.updatedAt) { mutableStateOf(savedMeasurement.waistHipRatio.toInput()) }
-    var bodyAge by rememberSaveable(profile?.updatedAt) { mutableStateOf(savedMeasurement.bodyAge?.toString().orEmpty()) }
+    var bmi by rememberSaveable(profile?.updatedAt) { mutableStateOf(savedMeasurement.bmi.toInput()) }
     var saving by rememberSaveable { mutableStateOf(false) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
+    val avatarPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            saving = true
+            coroutineScope.launch {
+                try {
+                    onSaveAvatar(uri)
+                } catch (error: Exception) {
+                    errorMessage = error.message ?: "保存头像失败"
+                } finally {
+                    saving = false
+                }
+            }
+        }
+    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .background(FitnessColors.Phone)
             .testTag(ProfileTags.Edit)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 20.dp),
+            .padding(horizontal = 18.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        FitnessPageHeader(
-            title = if (isInitialSetup) "先完成训练设置" else "训练偏好",
-            kicker = if (isInitialSetup) "只保存在这台设备，用于生成可调整的首周计划" else "只在此页编辑",
-        )
+        if (isInitialSetup) {
+            FitnessPageHeader(title = "先完成训练设置", kicker = "只保存在这台设备，用于生成可调整的首周计划")
+        } else {
+            FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+                Text("这些信息会约束本地计划", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                Text("训练目标、经验、伤病、可用时间和体测数据会影响建议；AI 输出仍需确认后才能写入。", style = MaterialTheme.typography.bodyMedium)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("基础资料", style = MaterialTheme.typography.headlineSmall)
+                Text("必填", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            }
+        }
         ProfileField(name, { name = it }, "昵称", ProfileTags.Name)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ProfileField(birthYear, { birthYear = it }, "出生年", ProfileTags.BirthYear, Modifier.weight(1f))
@@ -262,9 +319,7 @@ fun ProfileEditScreen(
         ProfileField(injuries, { injuries = it }, "伤病 / 注意事项", ProfileTags.Injuries)
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("体测数据（可选）", style = MaterialTheme.typography.headlineSmall)
-            Text("可按体测报告填写。BMI 会按身高和体重自动计算；其余数据只保存在本机，并作为 AI 训练建议的参考。", style = MaterialTheme.typography.bodyMedium)
-            ProfileField(measuredAt, { measuredAt = it }, "体测日期（YYYY-MM-DD）", ProfileTags.MeasuredAt)
-            ProfileField(bodyType, { bodyType = it }, "体型（如：偏胖型）", ProfileTags.BodyType)
+            Text("可按体测报告填写。数据只保存在本机，并作为 AI 训练建议的参考。", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ProfileField(bodyFatPercentage, { bodyFatPercentage = it }, "体脂率 %", ProfileTags.BodyFatPercentage, Modifier.weight(1f))
                 ProfileField(bodyFatMassKg, { bodyFatMassKg = it }, "体脂肪 kg", ProfileTags.BodyFatMass, Modifier.weight(1f))
@@ -277,12 +332,17 @@ fun ProfileEditScreen(
                 ProfileField(basalMetabolismKcal, { basalMetabolismKcal = it }, "基础代谢 kcal", ProfileTags.BasalMetabolism, Modifier.weight(1f))
                 ProfileField(waistHipRatio, { waistHipRatio = it }, "腰臀比", ProfileTags.WaistHipRatio, Modifier.weight(1f))
             }
-            ProfileField(bodyAge, { bodyAge = it }, "身体年龄", ProfileTags.BodyAge)
+            ProfileField(bmi, { bmi = it }, "BMI", ProfileTags.Bmi)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ProfileField(weeklyDays, { weeklyDays = it }, "每周天数", ProfileTags.WeeklyDays, Modifier.weight(1f))
             ProfileField(minutes, { minutes = it }, "单次分钟", ProfileTags.Minutes, Modifier.weight(1f))
         }
+        OutlinedButton(
+            onClick = { avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            enabled = !saving && profile != null,
+            modifier = Modifier.fillMaxWidth().heightIn(min = FitnessDimensions.MinimumTouchTarget),
+        ) { Text(if (profile?.avatarPath.isNullOrBlank()) "上传头像" else "更换头像") }
         errorMessage?.let { ProfileError(it) }
         FitnessPrimaryButton(
             text = if (saving) "保存中…" else if (isInitialSetup) "保存并开始制定计划" else "保存训练偏好",
@@ -300,7 +360,7 @@ fun ProfileEditScreen(
                 val parsedBodyWaterKg = bodyWaterKg.toDoubleOrNull()
                 val parsedBasalMetabolismKcal = basalMetabolismKcal.toIntOrNull()
                 val parsedWaistHipRatio = waistHipRatio.toDoubleOrNull()
-                val parsedBodyAge = bodyAge.toIntOrNull()
+                val parsedBmi = bmi.toDoubleOrNull()
                 errorMessage = when {
                     parsedBirthYear == null || parsedBirthYear !in 1940..LocalDate.now().year -> "请输入合理的出生年份"
                     parsedHeight == null || parsedHeight !in 80.0..240.0 -> "请输入 80 到 240 cm 之间的身高"
@@ -314,7 +374,7 @@ fun ProfileEditScreen(
                     bodyWaterKg.isNotBlank() && parsedBodyWaterKg == null -> "身体水分请输入数字"
                     basalMetabolismKcal.isNotBlank() && parsedBasalMetabolismKcal == null -> "基础代谢请输入整数"
                     waistHipRatio.isNotBlank() && parsedWaistHipRatio == null -> "腰臀比请输入数字"
-                    bodyAge.isNotBlank() && parsedBodyAge == null -> "身体年龄请输入整数"
+                    bmi.isNotBlank() && (parsedBmi == null || parsedBmi !in 10.0..80.0) -> "BMI 需要在 10 到 80 之间"
                     else -> null
                 }
                 if (errorMessage == null && !saving) {
@@ -339,7 +399,7 @@ fun ProfileEditScreen(
                                     bodyWaterKg = parsedBodyWaterKg,
                                     basalMetabolismKcal = parsedBasalMetabolismKcal,
                                     waistHipRatio = parsedWaistHipRatio,
-                                    bodyAge = parsedBodyAge,
+                                    bmi = parsedBmi,
                                 ),
                             )
                         } catch (cancellation: CancellationException) {
@@ -364,13 +424,24 @@ private fun ProfileField(
     testTag: String,
     modifier: Modifier = Modifier.fillMaxWidth(),
 ) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(label) },
-        singleLine = true,
-        modifier = modifier.testTag(testTag),
-    )
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
+        TextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            shape = RoundedCornerShape(22.dp),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = FitnessColors.Surface,
+                unfocusedContainerColor = FitnessColors.Surface,
+                disabledContainerColor = FitnessColors.Surface,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                disabledIndicatorColor = Color.Transparent,
+            ),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).shadow(5.dp, RoundedCornerShape(22.dp)).testTag(testTag),
+        )
+    }
 }
 
 @Composable
@@ -409,7 +480,7 @@ object ProfileTags {
     const val BodyWater = "profile-body-water"
     const val BasalMetabolism = "profile-basal-metabolism"
     const val WaistHipRatio = "profile-waist-hip-ratio"
-    const val BodyAge = "profile-body-age"
+    const val Bmi = "profile-bmi"
     const val BodyMeasurementSummary = "profile-body-measurement-summary"
     const val Save = "save-profile"
 }
@@ -421,7 +492,7 @@ private fun Double?.toInput(): String = this?.toCompact().orEmpty()
 
 private fun BodyMeasurement.hasValues(): Boolean =
     measuredAt.isNotBlank() || bodyType.isNotBlank() || bodyFatPercentage != null || bodyFatMassKg != null ||
-        skeletalMuscleKg != null || bodyWaterKg != null || basalMetabolismKcal != null || waistHipRatio != null || bodyAge != null
+        skeletalMuscleKg != null || bodyWaterKg != null || basalMetabolismKcal != null || waistHipRatio != null || bmi != null
 
 private fun BodyMeasurement.summaryText(): String = buildList {
     bodyFatPercentage?.let { add("体脂率 ${it.toCompact()}%") }
@@ -430,7 +501,7 @@ private fun BodyMeasurement.summaryText(): String = buildList {
     bodyWaterKg?.let { add("身体水分 ${it.toCompact()} kg") }
     basalMetabolismKcal?.let { add("基础代谢 $it kcal") }
     waistHipRatio?.let { add("腰臀比 ${it.toCompact()}") }
-    bodyAge?.let { add("身体年龄 $it 岁") }
+    bmi?.let { add("BMI ${it.toCompact()}") }
 }.joinToString(" · ")
 
 private fun UserProfileEntity.bmi(): Double = weightKg / ((heightCm / 100.0) * (heightCm / 100.0))

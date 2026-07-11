@@ -1,36 +1,37 @@
-# Android layout migration design QA
+# Futuristic Neumorphism Design QA
 
-## Review setup
+- Visual source of truth: `.scratch/futuristic-neumorphism-prototype/i-fitness-未来主义新拟态交互原型.html`
+- Requirements source: `docs/superpowers/specs/2026-07-11-futuristic-neumorphism-ui-development-requirements.md`
+- Comparison viewport: 390 × 844 CSS-equivalent pixels (Pixel 8 Pro emulator at 1170 × 2532, density 480, screenshots normalized to 390 × 844)
+- Implementation captures: `.scratch/futuristic-neumorphism-android/qa/`
+- Reference captures: `output/playwright/futuristic-*-390*.png`
 
-- Source visual: `.scratch/run-evidence/redesign-interactive-mobile-430.png`
-- Implementation visual: `.scratch/run-evidence/android-layout-migration/home-pre-workout.png`
-- Side-by-side comparison: `.scratch/run-evidence/android-layout-migration/design-qa-comparison.png`
-- Implementation viewport: Pixel 8 Pro AVD, 1344 × 2992, light theme
-- Matched state: seeded local plan, workout not started, `0 / 2`, primary action `开始训练`
+## Final comparison
 
-## Visual comparison
+| State | Reference | Implementation | Result |
+| --- | --- | --- | --- |
+| Home | `futuristic-home-390.png` | `home.png` | Passed |
+| Plan / week | `futuristic-plan-week-390.png` | `plan-week.png` | Passed |
+| Plan / month | `futuristic-plan-month-390.png` | `plan-month.png` | Passed |
+| Plan / year | `futuristic-plan-year-390.png` | `plan-year.png` plus fresh emulator recapture | Passed |
+| Food | prototype Food state | `food.png` | Passed |
+| Profile | prototype Profile state | `profile.png` | Passed |
+| Training active / rest / summary | `futuristic-training-active-390.png`, `futuristic-training-rest-390.png`, `futuristic-summary-390.png` | native screens exercised by connected UI tests | Passed |
+| Profile edit / AI settings | `futuristic-profile-edit-390.png`, `futuristic-smart-390.png`, provider references | native screens exercised by connected UI tests | Passed |
 
-- Preserved the source hierarchy: venue context, oversized daily title, dark workout hero, weekly rhythm, secondary quick actions, and persistent bottom navigation.
-- Preserved the warm neutral background, near-black hero, rounded white surfaces, green status color, large Chinese display type, and local exercise artwork.
-- The native implementation uses one clear orange primary action inside the hero. This follows the approved Android product direction and keeps the workout action visually distinct from green status feedback.
-- The native implementation intentionally replaces the reference prototype's `今天 / 日历 / 场地 / 动作 / AI` navigation with the approved product information architecture: `首页 / 计划 / 训练 / 饮食 / 我的`.
-- The source's in-progress exercise list is represented by `训练` and `动作库` routes in the native app, keeping the home screen focused on one primary task and two secondary shortcuts.
+## Findings and correction history
 
-## Severity review
+1. Replaced the previous generic Material palette with the prototype tokens: warm `#F4F4EF` page, near-black `#10110F`, fluorescent `#EFFF31`, 22–34 dp radii, soft shadow cards, and the 82 dp floating navigation dock.
+2. Rebuilt the five primary destinations around the reference hierarchy instead of reskinning the old layout: oversized home hero, calendar spotlight and segmented views, food macro bento, profile avatar/stat card, and selected navigation tiles.
+3. Added the missing reference states and product behavior: week/month/year calendar persistence, provider cards and dropdowns, profile avatar handling, structured AI profile snapshot, full-screen rest timer, and workout summary.
+4. Corrected scroll and semantics regressions found by instrumentation tests after the visual restructuring.
+5. A first year-view screenshot contained a transient black capture region. The state was reopened and recaptured on the emulator; the live screen showed the expected fixed 240 dp spotlight and year grid, so no product defect remained.
 
-- P0: none. Core navigation and workout start path are usable.
-- P1: none. No clipped primary controls, broken navigation, unreadable text, or missing required state.
-- P2: none. Card spacing, radii, contrast, imagery, hierarchy, and bottom-navigation safe-area handling are consistent across the captured screens.
-- P3: none requiring a code change. The remaining source differences are intentional product-state and information-architecture decisions documented above.
+## Verification
 
-## Supporting screens reviewed
-
-- `home.png`: completed-workout state, weekly progress `1 / 2`
-- `plan.png`: weekly schedule and four-week plan draft
-- `training-prep.png`: exercise preparation and start action
-- `training-active.png`: immersive active workout without global bottom navigation
-- `workout-summary.png`: persisted set, volume, duration, and feedback summary
-- `food.png`: nutrition totals and persisted meal timeline
-- `profile.png`: local profile, workout totals, and settings hierarchy
+- `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:connectedDebugAndroidTest`
+- Result: `BUILD SUCCESSFUL`; 70 connected tests completed, 0 failed.
+- `git diff --check`: clean.
+- Severity review: no remaining P0, P1, or P2 visual findings in the checked states.
 
 final result: passed

@@ -3,6 +3,7 @@ package com.shanqijie.fitnessapp.ui.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,17 +12,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,13 +38,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.shanqijie.fitnessapp.ai.AiTestResult
+import com.shanqijie.fitnessapp.ai.AiProviderCatalog
 import com.shanqijie.fitnessapp.data.AiProviderEntity
 import com.shanqijie.fitnessapp.data.EquipmentEntity
 import com.shanqijie.fitnessapp.data.TrainingVenueEntity
@@ -47,6 +57,7 @@ import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
 import com.shanqijie.fitnessapp.ui.components.FitnessSurfaceCard
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import com.shanqijie.fitnessapp.ui.theme.FitnessDimensions
+import com.shanqijie.fitnessapp.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -72,7 +83,6 @@ fun VenueSettingsScreen(
     val coroutineScope = rememberCoroutineScope()
 
     SettingsColumn(modifier.testTag(SettingsTags.VenueScreen)) {
-        FitnessPageHeader(title = "场地与器械", kicker = "训练计划的本地条件")
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Text("当前场地", style = MaterialTheme.typography.headlineSmall)
             OutlinedTextField(
@@ -174,64 +184,104 @@ fun VenueSettingsScreen(
 
 @Composable
 fun SmartSettingsScreen(
-    provider: AiProviderEntity?,
-    onSaveApiKey: suspend (String) -> Unit,
-    onTestConnection: suspend () -> AiTestResult,
+    providers: List<AiProviderEntity>,
+    onSelectProvider: suspend (String, String, String) -> Unit,
+    onSaveApiKey: suspend (String, String) -> Unit,
+    onTestConnection: suspend (String) -> AiTestResult,
     modifier: Modifier = Modifier,
 ) {
+    var selectedProviderId by rememberSaveable(providers) {
+        mutableStateOf(providers.firstOrNull { it.enabled }?.id ?: AiProviderCatalog.entries.first().id)
+    }
+    val catalog = AiProviderCatalog.entry(selectedProviderId) ?: AiProviderCatalog.entries.first()
+    val provider = providers.firstOrNull { it.id == selectedProviderId }
+    var endpoint by rememberSaveable(selectedProviderId) {
+        mutableStateOf(provider?.baseUrl?.takeIf { it in catalog.endpoints } ?: catalog.endpoints.first())
+    }
+    var model by rememberSaveable(selectedProviderId) {
+        mutableStateOf(provider?.model ?: catalog.models.first())
+    }
     var apiKey by rememberSaveable { mutableStateOf("") }
     var busy by rememberSaveable { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
     SettingsColumn(modifier.testTag(SettingsTags.SmartScreen)) {
-        FitnessPageHeader(title = "智能设置", kicker = "用于生成可确认的训练和饮食建议")
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
-            Text("连接状态", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                text = if (provider?.apiKeyStored == true) "已连接" else "未连接",
-                color = FitnessColors.Ink,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.testTag(SettingsTags.SmartConnectionStatus),
-            )
-            Text(
-                "密钥只加密保存在这台设备。智能建议在你确认前，不会写入训练或饮食记录。",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Text(if (provider?.apiKeyStored == true) "当前已连接" else "当前未连接", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.testTag(SettingsTags.SmartConnectionStatus))
+            Text("训练记录、计划执行、动作库和饮食手动记录不依赖 AI 服务。", style = MaterialTheme.typography.bodyMedium)
+        }
+        FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("服务配置", style = MaterialTheme.typography.headlineSmall)
+                Text(catalog.displayName, color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AiProviderCatalog.entries.forEach { item ->
+                    Surface(
+                        onClick = {
+                            selectedProviderId = item.id
+                            endpoint = providers.firstOrNull { it.id == item.id }?.baseUrl
+                                ?.takeIf { it in item.endpoints } ?: item.endpoints.first()
+                            model = providers.firstOrNull { it.id == item.id }?.model ?: item.models.first()
+                            message = null
+                            runSettingAction(coroutineScope, { busy = it }, { message = it }) {
+                                onSelectProvider(item.id, endpoint, model)
+                            }
+                        },
+                        color = if (selectedProviderId == item.id) FitnessColors.Orange else FitnessColors.SurfaceStrong,
+                        shape = RoundedCornerShape(22.dp),
+                        shadowElevation = 6.dp,
+                        modifier = Modifier.weight(1f).heightIn(min = 104.dp),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                            Image(painterResource(providerLogo(item.id)), contentDescription = "${item.displayName} Logo", modifier = Modifier.size(38.dp).clip(CircleShape))
+                            Text(item.displayName, color = FitnessColors.Ink, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                            Text(providerOwner(item.id), style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
+                        }
+                    }
+                }
+            }
+            CatalogDropdown("接口地址", endpoint, catalog.endpoints) {
+                endpoint = it; message = null
+                runSettingAction(coroutineScope, { busy = it }, { message = it }) { onSelectProvider(selectedProviderId, endpoint, model) }
+            }
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it; message = null },
-                label = { Text(if (provider?.apiKeyStored == true) "粘贴新密钥以更新" else "粘贴 AI 服务密钥") },
+                label = { Text("接口密钥") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag(SettingsTags.SmartApiKey),
-            )
-            FitnessPrimaryButton(
-                text = if (busy) "保存中…" else "安全保存密钥",
-                enabled = !busy,
-                testTag = SettingsTags.SaveSmartKey,
-                onClick = {
-                    if (!busy) {
-                        busy = true
-                        message = null
-                        coroutineScope.launch {
-                            try {
-                                onSaveApiKey(apiKey)
-                                apiKey = ""
-                                message = "密钥已安全保存在本机"
-                            } catch (cancellation: CancellationException) {
-                                throw cancellation
-                            } catch (error: Exception) {
-                                message = error.message ?: "保存密钥失败"
-                            } finally {
-                                busy = false
+                trailingIcon = {
+                    TextButton(
+                        onClick = {
+                            if (!busy) {
+                                busy = true
+                                coroutineScope.launch {
+                                    try {
+                                        onSaveApiKey(selectedProviderId, apiKey)
+                                        apiKey = ""
+                                        message = "密钥已安全保存在本机"
+                                    } catch (error: Exception) {
+                                        message = error.message ?: "保存密钥失败"
+                                    } finally {
+                                        busy = false
+                                    }
+                                }
                             }
-                        }
-                    }
+                        },
+                        modifier = Modifier.testTag(SettingsTags.SaveSmartKey),
+                    ) { Text(if (busy) "保存中" else "保存") }
                 },
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.fillMaxWidth().testTag(SettingsTags.SmartApiKey),
             )
+            CatalogDropdown("模型", model, catalog.models.distinct().let { options ->
+                if (model in options) options else listOf(model) + options
+            }) {
+                model = it; message = null
+                runSettingAction(coroutineScope, { busy = it }, { message = it }) { onSelectProvider(selectedProviderId, endpoint, model) }
+            }
             OutlinedButton(
                 onClick = {
                     if (!busy) {
@@ -239,7 +289,7 @@ fun SmartSettingsScreen(
                         message = null
                         coroutineScope.launch {
                             try {
-                                val result = onTestConnection()
+                                val result = onTestConnection(selectedProviderId)
                                 message = result.message
                             } catch (cancellation: CancellationException) {
                                 throw cancellation
@@ -257,8 +307,68 @@ fun SmartSettingsScreen(
                     .heightIn(min = FitnessDimensions.MinimumTouchTarget),
             ) { Text("检查连接") }
         }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("数据边界", style = MaterialTheme.typography.headlineSmall)
+            Text("发送前可见", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+        }
+        FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("训练计划建议", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                    Text("发送训练偏好、全部体测数据与器械约束", style = MaterialTheme.typography.bodyMedium)
+                }
+                Switch(checked = true, onCheckedChange = null)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("饮食照片估算", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                    Text("仅在你选择照片后发送", style = MaterialTheme.typography.bodyMedium)
+                }
+                Switch(checked = false, onCheckedChange = null)
+            }
+        }
         message?.let { SettingsMessage(it) }
     }
+}
+
+@Composable
+private fun CatalogDropdown(
+    label: String,
+    value: String,
+    options: List<String>,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
+        Surface(
+            onClick = { expanded = true },
+            shape = RoundedCornerShape(22.dp),
+            color = FitnessColors.SurfaceStrong,
+            shadowElevation = 4.dp,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+        ) { Row(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) { Text(value, maxLines = 1) } }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = { onSelect(option); expanded = false },
+                )
+            }
+        }
+    }
+}
+
+private fun providerLogo(id: String): Int = when (id) {
+    "openai" -> R.drawable.provider_openai
+    "gemini" -> R.drawable.provider_gemini
+    else -> R.drawable.provider_qwen
+}
+
+private fun providerOwner(id: String): String = when (id) {
+    "openai" -> "官方"
+    "gemini" -> "Google"
+    else -> "阿里云百炼"
 }
 
 @Composable
@@ -315,7 +425,6 @@ fun BackupSettingsScreen(
     }
 
     SettingsColumn(modifier.testTag(SettingsTags.BackupScreen)) {
-        FitnessPageHeader(title = "数据备份", kicker = "本地文件导出与恢复")
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Text("本地备份", style = MaterialTheme.typography.headlineSmall)
             Text("备份包含档案、计划、训练和饮食记录，不包含明文 API Key。", style = MaterialTheme.typography.bodyMedium)
@@ -403,7 +512,6 @@ fun BackupSettingsScreen(
 @Composable
 fun AboutScreen(modifier: Modifier = Modifier) {
     SettingsColumn(modifier.testTag(SettingsTags.AboutScreen)) {
-        FitnessPageHeader(title = "关于", kicker = "i fitness 本地优先版")
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Text("数据在你手里", style = MaterialTheme.typography.headlineSmall)
             Text("训练、计划、饮食和档案默认保存在本机，无账号、无云同步。", style = MaterialTheme.typography.bodyLarge)

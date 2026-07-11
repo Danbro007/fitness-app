@@ -160,7 +160,9 @@ class FitnessDatabase(
                 body_water_kg REAL,
                 basal_metabolism_kcal INTEGER,
                 waist_hip_ratio REAL,
-                body_age INTEGER
+                body_age INTEGER,
+                bmi REAL,
+                avatar_path TEXT NOT NULL DEFAULT ''
             )
             """.trimIndent(),
         )
@@ -264,6 +266,10 @@ class FitnessDatabase(
             addColumnIfMissing(db, "user_profile", "waist_hip_ratio", "REAL")
             addColumnIfMissing(db, "user_profile", "body_age", "INTEGER")
         }
+        if (oldVersion < 9) {
+            addColumnIfMissing(db, "user_profile", "bmi", "REAL")
+            addColumnIfMissing(db, "user_profile", "avatar_path", "TEXT NOT NULL DEFAULT ''")
+        }
         if (oldVersion < 7) {
             addColumnIfMissing(db, "workout_session", "current_exercise_id", "TEXT")
             addColumnIfMissing(db, "workout_session", "rest_ends_at", "INTEGER")
@@ -340,7 +346,7 @@ class FitnessDatabase(
 
     companion object {
         private const val DATABASE_NAME = "fitness.db"
-        private const val DATABASE_VERSION = 8
+        private const val DATABASE_VERSION = 9
 
         @Volatile
         private var instance: FitnessDatabase? = null

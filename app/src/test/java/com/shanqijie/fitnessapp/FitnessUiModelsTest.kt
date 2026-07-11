@@ -121,7 +121,7 @@ class FitnessUiModelsTest {
             .substringAfter("fun SmartSettingsScreen(")
             .substringBefore("fun BackupSettingsScreen(")
 
-        assertEquals(0xFF11151B.toInt(), FitnessColors.Ink.toArgb())
+        assertEquals(0xFF10110F.toInt(), FitnessColors.Ink.toArgb())
         assertTrue(contrastRatio(FitnessColors.Ink, FitnessColors.Phone) >= 4.5)
         assertTrue(smartSection.contains("color = FitnessColors.Ink"))
         assertFalse(smartSection.contains("color = if (provider?.apiKeyStored == true) FitnessColors.Green"))

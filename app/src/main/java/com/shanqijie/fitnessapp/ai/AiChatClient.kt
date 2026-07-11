@@ -21,10 +21,70 @@ data class AiProviderConfig(
     val model: String,
 )
 
+data class AiProviderCatalogEntry(
+    val id: String,
+    val displayName: String,
+    val endpoints: List<String>,
+    val models: List<String>,
+)
+
+object AiProviderCatalog {
+    val entries = listOf(
+        AiProviderCatalogEntry(
+            id = "openai",
+            displayName = "OpenAI",
+            endpoints = listOf("https://api.openai.com/v1"),
+            models = listOf("gpt-5-mini", "gpt-5", "gpt-4.1-mini"),
+        ),
+        AiProviderCatalogEntry(
+            id = "gemini",
+            displayName = "Gemini",
+            endpoints = listOf("https://generativelanguage.googleapis.com/v1beta/openai"),
+            models = listOf("gemini-3.5-flash"),
+        ),
+        AiProviderCatalogEntry(
+            id = "qwen",
+            displayName = "千问",
+            endpoints = listOf(
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+            ),
+            models = listOf("qwen3.7-plus", "qwen3.7-max", "qwen3.6-flash"),
+        ),
+    )
+
+    fun entry(id: String): AiProviderCatalogEntry? = entries.firstOrNull { it.id == id }
+}
+
 data class AiTestResult(
     val success: Boolean,
     val message: String,
 )
+
+interface AiGateway {
+    fun testConnection(apiKey: String): AiTestResult
+
+    fun complete(
+        apiKey: String,
+        systemPrompt: String,
+        userPrompt: String,
+        temperature: Double = 0.2,
+    ): String
+
+    fun completeVision(
+        apiKey: String,
+        systemPrompt: String,
+        userPrompt: String,
+        imageMimeType: String,
+        imageBase64: String,
+        temperature: Double = 0.2,
+    ): String
+}
+
+fun interface AiGatewayFactory {
+    fun create(provider: AiProviderConfig): AiGateway
+}
 
 interface AiHttpTransport {
     fun postJson(url: String, headers: Map<String, String>, body: String): String
@@ -57,7 +117,7 @@ class HttpUrlConnectionAiTransport : AiHttpTransport {
 class AiChatClient(
     private val provider: AiProviderConfig,
     private val transport: AiHttpTransport = HttpUrlConnectionAiTransport(),
-) {
+) : AiGateway {
     fun buildTestRequestJson(prompt: String): String =
         buildChatRequestJson(
             systemPrompt = "You are a connection test endpoint. Reply briefly.",
@@ -147,11 +207,11 @@ class AiChatClient(
             },
         )
 
-    fun complete(
+    override fun complete(
         apiKey: String,
         systemPrompt: String,
         userPrompt: String,
-        temperature: Double = 0.2,
+        temperature: Double,
     ): String {
         val response = transport.postJson(
             url = "${provider.baseUrl.trimEnd('/')}/chat/completions",
@@ -164,13 +224,13 @@ class AiChatClient(
         return parseAssistantContent(response)
     }
 
-    fun completeVision(
+    override fun completeVision(
         apiKey: String,
         systemPrompt: String,
         userPrompt: String,
         imageMimeType: String,
         imageBase64: String,
-        temperature: Double = 0.2,
+        temperature: Double,
     ): String {
         val response = transport.postJson(
             url = "${provider.baseUrl.trimEnd('/')}/chat/completions",
@@ -189,7 +249,9 @@ class AiChatClient(
         return parseAssistantContent(response)
     }
 
-    fun testConnection(apiKey: String, prompt: String = "只回复：连接成功"): AiTestResult {
+    override fun testConnection(apiKey: String): AiTestResult = testConnection(apiKey, "只回复：连接成功")
+
+    fun testConnection(apiKey: String, prompt: String): AiTestResult {
         val response = transport.postJson(
             url = "${provider.baseUrl.trimEnd('/')}/chat/completions",
             headers = mapOf(

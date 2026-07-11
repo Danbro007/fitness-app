@@ -13,22 +13,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 object FitnessColors {
-    val Phone = Color(0xFFF5F2EC)
-    val Surface = Color(0xFFFFFDFA)
-    val Ink = Color(0xFF11151B)
-    val Muted = Color(0xFF5F6874)
-    val Orange = Color(0xFFFF7426)
-    val Green = Color(0xFF24C869)
-    val Hero = Color(0xFF151B24)
+    val Phone = Color(0xFFF4F4EF)
+    val Surface = Color(0xFFF8F8F4)
+    val SurfaceStrong = Color(0xFFFFFFFF)
+    val Ink = Color(0xFF10110F)
+    val Muted = Color(0xFF71746E)
+    /** Legacy token name retained to keep call sites surgical; this is the single neon accent. */
+    val Orange = Color(0xFFEFFF31)
+    val Green = Orange
+    val Hero = Color(0xFF121310)
     val OnOrange = Ink
     val OnHero = Color.White
 }
 
 object FitnessDimensions {
     val MinimumTouchTarget = 48.dp
-    val LargeRadius = 24.dp
-    val ContainerRadius = 16.dp
-    val ControlRadius = 14.dp
+    val LargeRadius = 34.dp
+    val ContainerRadius = 28.dp
+    val ControlRadius = 22.dp
 }
 
 private val FitnessColorScheme = lightColorScheme(
@@ -53,14 +55,14 @@ private val FitnessShapes = Shapes(
 private val FitnessTypography = Typography(
     headlineLarge = TextStyle(
         color = FitnessColors.Ink,
-        fontSize = 32.sp,
-        lineHeight = 38.sp,
-        fontWeight = FontWeight.Bold,
+        fontSize = 34.sp,
+        lineHeight = 40.sp,
+        fontWeight = FontWeight.ExtraBold,
     ),
     headlineSmall = TextStyle(
         color = FitnessColors.Ink,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
         fontWeight = FontWeight.Bold,
     ),
     bodyLarge = TextStyle(

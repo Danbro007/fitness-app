@@ -9,6 +9,7 @@ data class FitnessBackupPayload(
     val version: Int,
     val exportedAt: Long,
     val userProfile: UserProfileEntity?,
+    val avatarBase64: String = "",
     val venues: List<TrainingVenueEntity>,
     val equipment: List<EquipmentEntity>,
     val venueEquipment: List<VenueEquipmentEntity> = emptyList(),

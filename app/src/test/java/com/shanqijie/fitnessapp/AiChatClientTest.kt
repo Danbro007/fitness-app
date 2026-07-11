@@ -3,11 +3,20 @@ package com.shanqijie.fitnessapp
 import com.shanqijie.fitnessapp.ai.AiChatClient
 import com.shanqijie.fitnessapp.ai.AiHttpTransport
 import com.shanqijie.fitnessapp.ai.AiProviderConfig
+import com.shanqijie.fitnessapp.ai.AiProviderCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AiChatClientTest {
+    @Test
+    fun providerCatalogMatchesTheThreeSupportedServices() {
+        assertEquals(listOf("openai", "gemini", "qwen"), AiProviderCatalog.entries.map { it.id })
+        assertEquals(listOf("gpt-5-mini", "gpt-5", "gpt-4.1-mini"), AiProviderCatalog.entry("openai")?.models)
+        assertEquals("https://generativelanguage.googleapis.com/v1beta/openai", AiProviderCatalog.entry("gemini")?.endpoints?.single())
+        assertEquals(3, AiProviderCatalog.entry("qwen")?.endpoints?.size)
+    }
+
     @Test
     fun buildsDeepSeekTestRequestWithCurrentModel() {
         val client = AiChatClient(deepSeekConfig)

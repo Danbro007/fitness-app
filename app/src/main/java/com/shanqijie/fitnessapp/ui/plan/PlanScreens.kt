@@ -3,17 +3,22 @@ package com.shanqijie.fitnessapp.ui.plan
 import android.app.DatePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -31,6 +36,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,14 +46,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.shanqijie.fitnessapp.data.AiDraftEntity
 import com.shanqijie.fitnessapp.data.PlannedWorkoutEntity
 import com.shanqijie.fitnessapp.data.PlannedExerciseView
+import com.shanqijie.fitnessapp.data.WorkoutSessionEntity
+import com.shanqijie.fitnessapp.data.WorkoutSetLogEntity
+import com.shanqijie.fitnessapp.data.UserProfileEntity
 import com.shanqijie.fitnessapp.domain.ExerciseChineseNameTranslator
 import com.shanqijie.fitnessapp.ui.components.FitnessGifImage
 import com.shanqijie.fitnessapp.ui.components.FitnessPageHeader
@@ -58,6 +71,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
@@ -67,6 +82,12 @@ import java.util.Locale
 fun PlanScreen(
     plans: List<PlannedWorkoutEntity>,
     plannedExerciseViews: List<PlannedExerciseView>,
+    sessions: List<WorkoutSessionEntity> = emptyList(),
+    setLogs: List<WorkoutSetLogEntity> = emptyList(),
+    weeklyTrainingDays: Int = 3,
+    userProfile: UserProfileEntity? = null,
+    initialCalendarMode: String = "周",
+    onCalendarModeChange: suspend (String) -> Unit = {},
     activeMonthlyDraft: AiDraftEntity?,
     onOpenPlan: (String) -> Unit,
     onCreatePlan: suspend (name: String, date: String) -> Unit,
@@ -79,6 +100,9 @@ fun PlanScreen(
     var editorDate by rememberSaveable { mutableStateOf(LocalDate.now().plusDays(1).toString()) }
     var operationError by rememberSaveable { mutableStateOf<String?>(null) }
     var operationInProgress by rememberSaveable { mutableStateOf(false) }
+    var calendarMode by rememberSaveable { mutableStateOf(initialCalendarMode) }
+    var calendarMonth by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
+    var selectedDate by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val exerciseCountByPlan = plannedExerciseViews.groupingBy { it.plannedExercise.plannedWorkoutId }.eachCount()
@@ -86,34 +110,44 @@ fun PlanScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .background(FitnessColors.Phone)
             .testTag(PlanTags.Screen)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 20.dp),
+            .padding(horizontal = 18.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         FitnessPageHeader(
-            title = "本周训练",
-            kicker = "先安排这一周；周期建议单独确认",
+            title = "训练日历",
+            kicker = "历史训练与未来计划",
             action = {
-                Button(
+                Surface(
                     onClick = {
                         operationError = null
                         showNewPlanEditor = true
                     },
-                    modifier = Modifier
-                        .heightIn(min = FitnessDimensions.MinimumTouchTarget)
-                        .testTag(PlanTags.NewPlan),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = FitnessColors.Orange,
-                        contentColor = FitnessColors.OnOrange,
-                    ),
+                    modifier = Modifier.size(52.dp).testTag(PlanTags.NewPlan),
+                    shape = CircleShape,
+                    color = FitnessColors.Surface,
+                    shadowElevation = 8.dp,
                 ) {
-                    Icon(Icons.Rounded.Add, contentDescription = null)
-                    Text("添加训练日")
+                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, contentDescription = "添加训练日") }
                 }
             },
+        )
+
+        PlanSpotlight(weeklyTrainingDays)
+
+        TrainingCalendar(
+            mode = calendarMode,
+            month = YearMonth.parse(calendarMonth),
+            plans = plans,
+            sessions = sessions,
+            onModeChange = {
+                calendarMode = it
+                coroutineScope.launch { onCalendarModeChange(it) }
+            },
+            onMonthChange = { calendarMonth = it.toString() },
+            onSelectDate = { selectedDate = it.toString() },
         )
 
         WeeklySchedule(
@@ -124,6 +158,7 @@ fun PlanScreen(
 
         MonthlyDraftSection(
             draft = activeMonthlyDraft,
+            userProfile = userProfile,
             operationInProgress = operationInProgress,
             operationError = operationError,
             onGenerate = {
@@ -231,7 +266,203 @@ fun PlanScreen(
             }
         }
     }
+    selectedDate?.let { rawDate ->
+        val date = LocalDate.parse(rawDate)
+        val dayPlans = plans.filter { it.scheduledDate == rawDate }
+        val daySessions = sessions.filter { it.startedAt.toLocalDate() == date }
+        ModalBottomSheet(onDismissRequest = { selectedDate = null }, containerColor = FitnessColors.Surface) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(date.format(DateTimeFormatter.ofPattern("yyyy年M月d日")), style = MaterialTheme.typography.headlineSmall)
+                if (dayPlans.isEmpty() && daySessions.isEmpty()) {
+                    Text("休息日 / 当天没有训练安排", style = MaterialTheme.typography.bodyLarge)
+                }
+                daySessions.forEach { session ->
+                    val logs = setLogs.filter { it.sessionId == session.id && it.completed }
+                    Text("已完成训练 · ${logs.size} 组", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                    logs.forEach { log -> Text("第 ${log.setIndex} 组 · ${log.actualReps} 次 · ${log.actualWeightKg} kg", style = MaterialTheme.typography.bodyMedium) }
+                }
+                dayPlans.forEach { plan ->
+                    Text(plan.name, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                    Text(if (plan.status == "completed") "已完成" else "已计划", style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { selectedDate = null; onOpenPlan(plan.id) }) { Text("查看计划详情") }
+                }
+            }
+        }
+    }
 }
+
+@Composable
+private fun PlanSpotlight(weeklyTrainingDays: Int) {
+    Column(
+        modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(34.dp))
+            .background(FitnessColors.Hero).padding(24.dp),
+    ) {
+        Text("第 ${java.time.temporal.WeekFields.ISO.weekOfWeekBasedYear().getFrom(LocalDate.now())} 周 · 本地计划", color = Color(0xFF9B9E95), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text("一周 ${weeklyTrainingDays} 练", color = FitnessColors.OnHero, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 10.dp))
+        Text("力量优先 · 单次约 35 分钟", color = Color(0xFF9B9E95), fontSize = 13.sp)
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 34.dp), verticalAlignment = Alignment.CenterVertically) {
+            listOf("一", "三", "六").forEachIndexed { index, label ->
+                Surface(shape = CircleShape, color = if (index < 2) FitnessColors.Orange else Color.Transparent, border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF43453E)), modifier = Modifier.size(42.dp)) {
+                    Box(contentAlignment = Alignment.Center) { Text(label, color = if (index < 2) FitnessColors.Ink else Color(0xFF9B9E95), fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                }
+                if (index < 2) Spacer(Modifier.weight(1f).height(2.dp).background(Color(0xFF343630)))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrainingCalendar(
+    mode: String,
+    month: YearMonth,
+    plans: List<PlannedWorkoutEntity>,
+    sessions: List<WorkoutSessionEntity>,
+    onModeChange: (String) -> Unit,
+    onMonthChange: (YearMonth) -> Unit,
+    onSelectDate: (LocalDate) -> Unit,
+) {
+    val completedDates = sessions.filter { it.status == "completed" }.mapTo(mutableSetOf()) { it.startedAt.toLocalDate() }
+    val plannedDates = plans.filter { it.status != "completed" }.mapNotNullTo(mutableSetOf()) { runCatching { LocalDate.parse(it.scheduledDate) }.getOrNull() }
+    FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(FitnessColors.Phone).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("周", "月", "年").forEach { item ->
+                Button(
+                    onClick = { onModeChange(item) },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (mode == item) FitnessColors.Orange else Color.Transparent,
+                        contentColor = FitnessColors.Ink,
+                    ),
+                    modifier = Modifier.weight(1f).height(42.dp),
+                ) { Text(item) }
+            }
+        }
+        val overviewTitle = when (mode) {
+            "周" -> {
+                val start = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                "${start.monthValue} 月 ${start.dayOfMonth}—${start.plusDays(8).dayOfMonth} 日"
+            }
+            "月" -> "${month.year} 年 ${month.monthValue} 月"
+            else -> "${month.year} 年"
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+            Column {
+                Text(if (mode == "周") "本周与下周" else if (mode == "月") "月度分布" else "全年概览", fontSize = 10.sp, color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
+                Text(overviewTitle, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            Text("已完成 ${completedDates.size} · 已计划 ${plannedDates.size}", fontSize = 10.sp, color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf("✓ 已完成", "◯ 今天", "· 已计划").forEach { label ->
+                Surface(color = FitnessColors.Phone, shape = RoundedCornerShape(99.dp)) {
+                    Text(label, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp), fontSize = 9.sp, color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        when (mode) {
+            "周" -> {
+                val start = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                (0L..6L).forEach { offset ->
+                    val date = start.plusDays(offset)
+                    CalendarDayRow(date, completedDates, plannedDates, plans, sessions) { onSelectDate(date) }
+                }
+            }
+            "月" -> {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { onMonthChange(month.minusMonths(1)) }) { Text("上月") }
+                    Text("${month.year}年${month.monthValue}月", fontWeight = FontWeight.Bold)
+                    TextButton(onClick = { onMonthChange(month.plusMonths(1)) }) { Text("下月") }
+                }
+                Row(Modifier.fillMaxWidth()) {
+                    listOf("一", "二", "三", "四", "五", "六", "日").forEach { label ->
+                        Text(label, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontSize = 9.sp, color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
+                    }
+                }
+                val offset = month.atDay(1).dayOfWeek.value - 1
+                val cells = List(offset) { null } + (1..month.lengthOfMonth()).map(month::atDay)
+                cells.chunked(7).forEach { week ->
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        week.forEach { date ->
+                            val label = when {
+                                date == null -> ""
+                                date in completedDates -> "${date.dayOfMonth} ✓"
+                                date in plannedDates -> "${date.dayOfMonth} ·"
+                                else -> date.dayOfMonth.toString()
+                            }
+                            TextButton(
+                                onClick = { date?.let(onSelectDate) },
+                                enabled = date != null,
+                                modifier = Modifier.weight(1f).heightIn(min = FitnessDimensions.MinimumTouchTarget),
+                            ) { Text(label, maxLines = 1) }
+                        }
+                        repeat(7 - week.size) { Text("", modifier = Modifier.weight(1f)) }
+                    }
+                }
+            }
+            else -> {
+                Text("${month.year} 年", style = MaterialTheme.typography.headlineSmall)
+                (1..12).chunked(3).forEach { quarter ->
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        quarter.forEach { monthValue ->
+                            val target = YearMonth.of(month.year, monthValue)
+                            val completeCount = completedDates.count { YearMonth.from(it) == target }
+                            val planCount = plannedDates.count { YearMonth.from(it) == target }
+                            OutlinedButton(
+                                onClick = { onMonthChange(target); onModeChange("月") },
+                                modifier = Modifier.weight(1f).heightIn(min = 64.dp),
+                            ) { Text("${monthValue}月\n$completeCount/$planCount") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarDayRow(
+    date: LocalDate,
+    completedDates: Set<LocalDate>,
+    plannedDates: Set<LocalDate>,
+    plans: List<PlannedWorkoutEntity>,
+    sessions: List<WorkoutSessionEntity>,
+    onClick: () -> Unit,
+) {
+    val status = when {
+        date in completedDates -> "已完成"
+        date == LocalDate.now() -> "今天"
+        date in plannedDates -> "已计划"
+        else -> "休息日"
+    }
+    val plan = plans.firstOrNull { it.scheduledDate == date.toString() }
+    val completed = sessions.firstOrNull { it.status == "completed" && it.startedAt.toLocalDate() == date }
+    val eventName = plan?.name ?: if (completed != null) "已完成训练" else if (status == "休息日") "恢复与拉伸" else "当天训练"
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp)
+            .border(1.dp, if (date == LocalDate.now()) FitnessColors.Orange else Color(0x1410110F), RoundedCornerShape(22.dp))
+            .clickable(onClick = onClick).padding(horizontal = 11.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.size(width = 52.dp, height = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(if (date == LocalDate.now()) "今天" else WeekdayLabels[date.dayOfWeek.value - 1], fontSize = 9.sp, color = FitnessColors.Muted)
+            Text(date.dayOfMonth.toString().padStart(2, '0'), fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(eventName, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(if (plan != null) "${plan.status} · 本地计划" else if (completed != null) "训练记录已保存" else "当天没有训练安排", fontSize = 9.sp, color = FitnessColors.Muted)
+        }
+        Surface(
+            color = when (status) { "已完成" -> FitnessColors.Ink; "已计划" -> FitnessColors.Orange; else -> FitnessColors.Phone },
+            contentColor = if (status == "已完成") Color.White else FitnessColors.Ink,
+            shape = RoundedCornerShape(99.dp),
+        ) { Text(status, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp)) }
+    }
+}
+
+private fun Long.toLocalDate(): LocalDate = java.time.Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
 
 @Composable
 private fun WeeklySchedule(
@@ -308,6 +539,7 @@ private fun WeeklySchedule(
 @Composable
 private fun MonthlyDraftSection(
     draft: AiDraftEntity?,
+    userProfile: UserProfileEntity?,
     operationInProgress: Boolean,
     operationError: String?,
     onGenerate: () -> Unit,
@@ -335,6 +567,9 @@ private fun MonthlyDraftSection(
                 Text(if (operationInProgress) "生成中…" else "生成四周建议")
             }
         } else {
+            Text("本次 AI 输入", style = MaterialTheme.typography.headlineSmall)
+            Text("全部档案数据已参与", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+            Text(userProfile.aiInputSnapshot(), style = MaterialTheme.typography.bodyMedium)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -358,6 +593,22 @@ private fun MonthlyDraftSection(
     }
 }
 
+private fun UserProfileEntity?.aiInputSnapshot(): String {
+    if (this == null) return "请先补全训练偏好与体测档案"
+    val m = bodyMeasurement
+    return listOf(
+        "昵称：$displayName", "出生年：$birthYear", "身高：$heightCm cm", "体重：$weightKg kg",
+        "训练目标：$goal", "每周训练天数：$weeklyTrainingDays", "单次训练分钟：$preferredMinutes",
+        "伤病/注意事项：${injuries.ifBlank { "未填写" }}",
+        "体脂率：${m.bodyFatPercentage?.let { "$it%" } ?: "未填写"}",
+        "体脂肪：${m.bodyFatMassKg?.let { "$it kg" } ?: "未填写"}", "BMI：${m.bmi ?: "未填写"}",
+        "骨骼肌：${m.skeletalMuscleKg?.let { "$it kg" } ?: "未填写"}",
+        "身体水分：${m.bodyWaterKg?.let { "$it kg" } ?: "未填写"}",
+        "基础代谢：${m.basalMetabolismKcal?.let { "$it kcal" } ?: "未填写"}",
+        "腰臀比：${m.waistHipRatio ?: "未填写"}",
+    ).joinToString("\n")
+}
+
 @Composable
 fun PlanDetailScreen(
     plan: PlannedWorkoutEntity,
@@ -375,7 +626,7 @@ fun PlanDetailScreen(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        FitnessPageHeader(plan.name, kicker = plan.scheduledDate)
+        Text(plan.name, style = MaterialTheme.typography.headlineLarge)
         Text("${exercises.size} 个动作", style = MaterialTheme.typography.bodyLarge)
         exercises.sortedBy { it.plannedExercise.orderIndex }.forEach { view ->
             PlanExerciseRow(view)
@@ -420,7 +671,6 @@ fun PlanEditScreen(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        FitnessPageHeader("编辑计划", kicker = "修改后保存到本地")
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },

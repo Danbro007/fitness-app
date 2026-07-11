@@ -77,10 +77,6 @@ fun LibraryScreen(
                 .padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            FitnessPageHeader(
-                title = "动作库",
-                kicker = "${exercises.size} 个本地动作",
-            )
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -212,7 +208,7 @@ fun ExerciseDetailScreen(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item { FitnessPageHeader(title = translatedName, kicker = "动作详情") }
+        item { Text(translatedName, style = MaterialTheme.typography.headlineLarge) }
         item {
             FitnessGifImage(
                 assetPath = exercise.localPath,

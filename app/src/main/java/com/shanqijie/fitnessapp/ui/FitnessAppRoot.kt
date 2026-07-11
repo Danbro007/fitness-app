@@ -5,7 +5,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -16,6 +21,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.CircleShape
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.shanqijie.fitnessapp.data.FitnessAppState
 import com.shanqijie.fitnessapp.data.FitnessDatabase
@@ -220,18 +227,8 @@ fun FitnessAppRootContent(
             }
         },
         topBar = {
-            if (navState.route !is AppRoute.Primary) {
-                TopAppBar(
-                    title = { Text("返回") },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = returnFromSecondary,
-                            modifier = Modifier.testTag(FitnessTestTags.Back),
-                        ) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回")
-                        }
-                    },
-                )
+            if (navState.route !is AppRoute.Primary && navState.route !is AppRoute.TrainingActive && navState.route !is AppRoute.WorkoutSummary) {
+                SecondaryAppBar(navState.route, returnFromSecondary)
             }
         },
     ) { contentPadding ->
@@ -259,6 +256,12 @@ fun FitnessAppRootContent(
                         PlanScreen(
                             plans = currentState.plannedWorkouts,
                             plannedExerciseViews = currentState.plannedExerciseViews,
+                            sessions = currentState.workoutSessions,
+                            setLogs = currentState.workoutSetLogs,
+                            weeklyTrainingDays = currentState.userProfile?.weeklyTrainingDays ?: 3,
+                            userProfile = currentState.userProfile,
+                            initialCalendarMode = currentState.preferences[FitnessRepository.CALENDAR_MODE_KEY] ?: "周",
+                            onCalendarModeChange = fitnessRepository::setCalendarMode,
                             activeMonthlyDraft = currentState.aiDrafts
                                 .firstOrNull { it.type == "weekly_plan" && it.status == "draft" },
                             onOpenPlan = { planId -> navigate(AppRoute.PlanDetail(planId)) },
@@ -346,9 +349,7 @@ fun FitnessAppRootContent(
                             totalVolumeKg = currentState.workoutSetLogs
                                 .filter { it.completed }
                                 .sumOf { it.actualReps * it.actualWeightKg },
-                            providerConnected = currentState.aiProviders
-                                .firstOrNull { it.id == FitnessRepository.DEEPSEEK_PROVIDER_ID }
-                                ?.apiKeyStored == true,
+                            providerConnected = currentState.aiProviders.any { it.enabled && it.apiKeyStored },
                             onOpenPreferences = { navigate(AppRoute.ProfileEdit) },
                             onOpenVenue = { navigate(AppRoute.VenueSettings) },
                             onOpenSmart = { navigate(AppRoute.SmartSettings) },
@@ -363,7 +364,7 @@ fun FitnessAppRootContent(
                 val currentState = appState
                 if (currentState == null) {
                     RoutePlaceholder(
-                        title = "动作库",
+                        title = "正在读取本地动作",
                         subtitle = "正在读取本地动作…",
                         modifier = Modifier.padding(contentPadding),
                     )
@@ -570,6 +571,7 @@ fun FitnessAppRootContent(
                             )
                             navState = navState.selectPrimary(PrimaryTab.Profile)
                         },
+                        onSaveAvatar = fitnessRepository::saveProfileAvatar,
                         modifier = Modifier.padding(contentPadding),
                     )
                 }
@@ -621,14 +623,10 @@ fun FitnessAppRootContent(
                     RoutePlaceholder("智能设置", "正在读取本机密钥状态…", Modifier.padding(contentPadding))
                 } else {
                     SmartSettingsScreen(
-                        provider = currentState.aiProviders
-                            .firstOrNull { it.id == FitnessRepository.DEEPSEEK_PROVIDER_ID },
-                        onSaveApiKey = { apiKey ->
-                            fitnessRepository.saveAiApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID, apiKey)
-                        },
-                        onTestConnection = {
-                            fitnessRepository.testAiProvider(FitnessRepository.DEEPSEEK_PROVIDER_ID)
-                        },
+                        providers = currentState.aiProviders,
+                        onSelectProvider = fitnessRepository::selectAiProvider,
+                        onSaveApiKey = fitnessRepository::saveAiApiKey,
+                        onTestConnection = fitnessRepository::testAiProvider,
                         modifier = Modifier.padding(contentPadding),
                     )
                 }
@@ -649,6 +647,41 @@ fun FitnessAppRootContent(
             }
             AppRoute.About -> AboutScreen(modifier = Modifier.padding(contentPadding))
         }
+    }
+}
+
+@Composable
+private fun SecondaryAppBar(route: AppRoute, onBack: () -> Unit) {
+    val (title, kicker) = when (route) {
+        AppRoute.ProfileEdit -> "训练偏好与体测" to "只在此页编辑"
+        AppRoute.VenueSettings -> "场地与器械" to "本地训练条件"
+        AppRoute.SmartSettings -> "连接 AI 服务" to "可选 · 核心功能可离线"
+        AppRoute.DataBackup -> "数据备份" to "本地导出与恢复"
+        AppRoute.About -> "关于" to "i fitness"
+        is AppRoute.Library -> "动作库" to "1324 个本地动作"
+        is AppRoute.ExerciseDetail -> "动作详情" to "本地动作资料"
+        is AppRoute.PlanDetail -> "计划详情" to "本地训练安排"
+        is AppRoute.PlanEdit -> "编辑计划" to "修改后保存到本地"
+        is AppRoute.TrainingActive -> "训练中" to "当前训练"
+        is AppRoute.WorkoutSummary -> "训练总结" to "已保存在本机"
+        else -> "i fitness" to "本地优先"
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().statusBarsPadding().height(82.dp).padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            onClick = onBack,
+            shape = CircleShape,
+            color = FitnessColors.Surface,
+            shadowElevation = 8.dp,
+            modifier = Modifier.size(52.dp).testTag(FitnessTestTags.Back),
+        ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回") } }
+        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(kicker, style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
+            Text(title, style = MaterialTheme.typography.headlineSmall)
+        }
+        Box(Modifier.size(52.dp))
     }
 }
 

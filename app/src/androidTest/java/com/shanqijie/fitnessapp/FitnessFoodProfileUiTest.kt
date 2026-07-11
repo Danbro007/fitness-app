@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -52,7 +53,7 @@ class FitnessFoodProfileUiTest {
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         credentialStore = AiCredentialStore(context)
-        credentialStore.deleteApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID)
+        credentialStore.deleteApiKey(FitnessRepository.OPENAI_PROVIDER_ID)
         databaseName = "fitness-food-profile-ui-${System.nanoTime()}.db"
         context.deleteDatabase(databaseName)
         database = FitnessDatabase(context, databaseName)
@@ -64,7 +65,7 @@ class FitnessFoodProfileUiTest {
     fun tearDown() {
         composeRule.runOnUiThread { composeRule.activity.setContent {} }
         composeRule.waitForIdle()
-        credentialStore.deleteApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID)
+        credentialStore.deleteApiKey(FitnessRepository.OPENAI_PROVIDER_ID)
         database.close()
         assertTrue(context.deleteDatabase(databaseName))
     }
@@ -172,9 +173,9 @@ class FitnessFoodProfileUiTest {
         openPrimary(PrimaryTab.Food, FoodScreenTag)
 
         composeRule.onNodeWithTag(NutritionReferenceTag).assertIsDisplayed()
-        composeRule.onNodeWithText("今日参考摄入").assertIsDisplayed()
-        composeRule.onNodeWithText("热量 500 / 2475 kcal").assertIsDisplayed()
-        composeRule.onNodeWithText("还可参考 1975 kcal").assertIsDisplayed()
+        composeRule.onNodeWithText("今日热量").assertIsDisplayed()
+        composeRule.onNodeWithTag(FoodCaloriesTotalTag).assertTextContains("500")
+        composeRule.onNodeWithText("目标 2475 千卡 · 剩余 1975").assertIsDisplayed()
     }
 
     @Test
@@ -201,7 +202,7 @@ class FitnessFoodProfileUiTest {
         showRealRoot()
         openPrimary(PrimaryTab.Profile, ProfileScreenTag)
         composeRule.onNodeWithTag(BodyMeasurementSummaryTag).performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("体型：偏胖型").assertIsDisplayed()
+        composeRule.onAllNodesWithText("体型：偏胖型").assertCountEquals(0)
 
         composeRule.onNodeWithTag(ProfilePreferencesRowTag).performScrollTo().performClick()
         waitForTag(ProfileEditTag)
@@ -239,13 +240,13 @@ class FitnessFoodProfileUiTest {
         runBlocking { repository.importBackupJson(providerFlagBackup(apiKeyStored = true)) }
         assertFalse(
             currentState().aiProviders
-                .single { it.id == FitnessRepository.DEEPSEEK_PROVIDER_ID }
+                .single { it.id == FitnessRepository.OPENAI_PROVIDER_ID }
                 .apiKeyStored,
         )
         showRealRoot()
         openPrimary(PrimaryTab.Profile, ProfileScreenTag)
         composeRule.onAllNodes(hasSetTextAction()).assertCountEquals(0)
-        listOf("训练偏好", "场地与器械", "智能设置", "数据备份", "关于").forEach { label ->
+        listOf("训练偏好", "场地与器械", "连接 AI 服务", "本地数据备份", "关于").forEach { label ->
             composeRule.onNodeWithText(label).performScrollTo().assertIsDisplayed()
         }
 
@@ -258,18 +259,18 @@ class FitnessFoodProfileUiTest {
 
         composeRule.onNodeWithTag(ProfileSmartRowTag).performScrollTo().performClick()
         waitForTag(SmartScreenTag)
-        composeRule.onNodeWithTag(SmartConnectionStatusTag).assertTextContains("未连接")
+        composeRule.onNodeWithTag(SmartConnectionStatusTag).assertTextEquals("当前未连接")
         composeRule.onAllNodesWithText("已连接").assertCountEquals(0)
         composeRule.onNodeWithTag(SmartApiKeyTag).performTextReplacement("sk-local-ui-test")
         composeRule.onNodeWithTag(SaveSmartKeyTag).performClick()
 
         waitUntilState { state ->
-            state.aiProviders.single { it.id == FitnessRepository.DEEPSEEK_PROVIDER_ID }.apiKeyStored
+            state.aiProviders.single { it.id == FitnessRepository.OPENAI_PROVIDER_ID }.apiKeyStored
         }
-        composeRule.onNodeWithTag(SmartConnectionStatusTag).assertTextContains("已连接")
-        assertEquals("sk-local-ui-test", credentialStore.loadApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID))
+        composeRule.onNodeWithTag(SmartConnectionStatusTag).assertTextEquals("当前已连接")
+        assertEquals("sk-local-ui-test", credentialStore.loadApiKey(FitnessRepository.OPENAI_PROVIDER_ID))
         assertFalse(
-            credentialStore.encryptedPayloadForTest(FitnessRepository.DEEPSEEK_PROVIDER_ID)
+            credentialStore.encryptedPayloadForTest(FitnessRepository.OPENAI_PROVIDER_ID)
                 .orEmpty()
                 .contains("sk-local-ui-test"),
         )
@@ -289,7 +290,7 @@ class FitnessFoodProfileUiTest {
                 weeklyTrainingDays = 4,
                 preferredMinutes = 50,
             )
-            repository.saveAiApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID, "sk-reset-ui-test")
+            repository.saveAiApiKey(FitnessRepository.OPENAI_PROVIDER_ID, "sk-reset-ui-test")
         }
         showRealRoot()
         openPrimary(PrimaryTab.Profile, ProfileScreenTag)
@@ -309,12 +310,12 @@ class FitnessFoodProfileUiTest {
                 state.userProfile == null &&
                 state.workoutSessions.isEmpty() &&
                 state.aiProviders
-                    .firstOrNull { it.id == FitnessRepository.DEEPSEEK_PROVIDER_ID }
+                    .firstOrNull { it.id == FitnessRepository.OPENAI_PROVIDER_ID }
                     ?.apiKeyStored == false
         }
         waitForTag(ProfileEditTag)
         composeRule.onNodeWithText("先完成训练设置").assertIsDisplayed()
-        assertNull(credentialStore.loadApiKey(FitnessRepository.DEEPSEEK_PROVIDER_ID))
+        assertNull(credentialStore.loadApiKey(FitnessRepository.OPENAI_PROVIDER_ID))
         assertTrue(currentState().plannedWorkouts.isEmpty())
     }
 
@@ -348,10 +349,10 @@ class FitnessFoodProfileUiTest {
     }
 
     private fun assertFoodTotals() {
-        composeRule.onNodeWithTag(FoodCaloriesTotalTag).assertTextContains("650")
-        composeRule.onNodeWithTag(FoodProteinTotalTag).assertTextContains("42.5")
-        composeRule.onNodeWithTag(FoodCarbsTotalTag).assertTextContains("57")
-        composeRule.onNodeWithTag(FoodFatTotalTag).assertTextContains("15")
+        composeRule.onNodeWithTag(FoodCaloriesTotalTag).assertTextContains("650", substring = true)
+        composeRule.onNodeWithTag(FoodProteinTotalTag).assertTextContains("42.5", substring = true)
+        composeRule.onNodeWithTag(FoodCarbsTotalTag).assertTextContains("57", substring = true)
+        composeRule.onNodeWithTag(FoodFatTotalTag).assertTextContains("15", substring = true)
     }
 
     private fun currentState(): FitnessAppState = runBlocking { repository.appState().first() }
@@ -381,7 +382,7 @@ class FitnessFoodProfileUiTest {
           "foodLogs": [],
           "aiDrafts": [],
           "aiProviders": [{
-            "id": "${FitnessRepository.DEEPSEEK_PROVIDER_ID}",
+            "id": "${FitnessRepository.OPENAI_PROVIDER_ID}",
             "displayName": "DeepSeek",
             "baseUrl": "https://api.deepseek.com",
             "model": "deepseek-v4-flash",

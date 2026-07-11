@@ -14,10 +14,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -34,6 +37,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +47,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
@@ -118,77 +126,33 @@ fun FoodScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .background(FitnessColors.Phone)
             .testTag(FoodTags.Screen)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 20.dp),
+            .padding(horizontal = 18.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         FitnessPageHeader(
             title = "饮食",
             kicker = "今日已确认的本地记录与参考摄入",
             action = {
-                Button(
+                Surface(
                     onClick = {
                         mode = null
                         operationError = null
                         showAddSheet = true
                     },
-                    modifier = Modifier
-                        .heightIn(min = FitnessDimensions.MinimumTouchTarget)
-                        .testTag(FoodTags.AddMeal),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = FitnessColors.Orange,
-                        contentColor = FitnessColors.OnOrange,
-                    ),
+                    modifier = Modifier.size(52.dp).testTag(FoodTags.AddMeal),
+                    shape = CircleShape,
+                    color = FitnessColors.Surface,
+                    shadowElevation = 8.dp,
                 ) {
-                    Icon(Icons.Rounded.Add, contentDescription = null)
-                    Text("添加一餐")
+                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, contentDescription = "添加一餐") }
                 }
             },
         )
 
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FitnessMetricCard(
-                    value = summary.calories.toString(),
-                    label = "热量 kcal",
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag(FoodTags.TotalCalories)
-                        .semantics(mergeDescendants = true) {},
-                )
-                FitnessMetricCard(
-                    value = summary.protein.toMacro(),
-                    label = "蛋白质 g",
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag(FoodTags.TotalProtein)
-                        .semantics(mergeDescendants = true) {},
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FitnessMetricCard(
-                    value = summary.carbs.toMacro(),
-                    label = "碳水 g",
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag(FoodTags.TotalCarbs)
-                        .semantics(mergeDescendants = true) {},
-                )
-                FitnessMetricCard(
-                    value = summary.fat.toMacro(),
-                    label = "脂肪 g",
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag(FoodTags.TotalFat)
-                        .semantics(mergeDescendants = true) {},
-                )
-            }
-        }
-
-        NutritionReferenceCard(summary)
+        FoodMacroHero(summary)
 
         activeDraft?.let { draft ->
             FitnessSurfaceCard(
@@ -237,6 +201,19 @@ fun FoodScreen(
             } else {
                 todayLogs.forEach { log -> FoodTimelineRow(log) }
             }
+        }
+        FitnessPrimaryButton(
+            text = "添加一餐",
+            onClick = { mode = null; operationError = null; showAddSheet = true },
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("记录原则", style = MaterialTheme.typography.headlineSmall)
+            Text("确认后落库", style = MaterialTheme.typography.bodyMedium)
+        }
+        FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Rounded.CameraAlt, contentDescription = null)
+            Text("AI 识别只生成草稿", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+            Text("照片不会自动写入正式饮食记录。", style = MaterialTheme.typography.bodyMedium)
         }
     }
 
@@ -402,6 +379,47 @@ fun FoodScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FoodMacroHero(summary: NutritionSummary) {
+    val reference = summary.reference
+    val target = reference?.calories ?: 2100
+    val remaining = (target - summary.calories).coerceAtLeast(0)
+    Row(
+        modifier = Modifier.fillMaxWidth().height(236.dp).testTag(FoodTags.NutritionReference),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            color = FitnessColors.Hero,
+            contentColor = FitnessColors.OnHero,
+            shape = RoundedCornerShape(34.dp),
+            modifier = Modifier.weight(1.28f).fillMaxSize().testTag(FoodTags.TotalCalories).semantics(mergeDescendants = true) {},
+        ) {
+            Column(Modifier.padding(23.dp)) {
+                Text("今日热量", color = Color(0xFF9B9E95), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(summary.calories.toString(), fontSize = 48.sp, lineHeight = 54.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 14.dp))
+                Text("目标 $target 千卡 · 剩余 $remaining", color = Color(0xFF9B9E95), fontSize = 12.sp)
+                LinearProgressIndicator(
+                    progress = { (summary.calories.toFloat() / target.coerceAtLeast(1)).coerceIn(0f, 1f) },
+                    color = FitnessColors.Orange,
+                    trackColor = Color(0xFF343630),
+                    modifier = Modifier.fillMaxWidth().padding(top = 30.dp).height(8.dp).clip(RoundedCornerShape(99.dp)),
+                )
+            }
+        }
+        Column(Modifier.weight(.72f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            FitnessSurfaceCard(modifier = Modifier.weight(1f).fillMaxWidth().testTag(FoodTags.TotalProtein).semantics(mergeDescendants = true) {}) {
+                Text("蛋白质", style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
+                Text("${summary.protein.toMacro()} 克", style = MaterialTheme.typography.headlineSmall)
+            }
+            FitnessSurfaceCard(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                Text("碳水 / 脂肪", style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
+                Text("${summary.carbs.toMacro()} 克", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, modifier = Modifier.testTag(FoodTags.TotalCarbs).semantics(mergeDescendants = true) {})
+                Text("${summary.fat.toMacro()} 克脂肪", style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag(FoodTags.TotalFat).semantics(mergeDescendants = true) {})
             }
         }
     }

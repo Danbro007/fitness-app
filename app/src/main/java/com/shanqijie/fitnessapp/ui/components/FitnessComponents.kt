@@ -3,13 +3,18 @@ package com.shanqijie.fitnessapp.ui.components
 import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
@@ -22,16 +27,21 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -93,7 +103,7 @@ fun FitnessPrimaryButton(
         enabled = enabled,
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = FitnessDimensions.MinimumTouchTarget)
+            .heightIn(min = 58.dp)
             .then(testTag?.let { Modifier.testTag(it) } ?: Modifier),
         shape = RoundedCornerShape(FitnessDimensions.ControlRadius),
         colors = ButtonDefaults.buttonColors(
@@ -117,6 +127,12 @@ fun FitnessSelectionChip(
         selected = selected,
         onClick = onClick,
         label = { Text(label) },
+        shape = RoundedCornerShape(16.dp),
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = FitnessColors.Surface,
+            selectedContainerColor = FitnessColors.Orange,
+            selectedLabelColor = FitnessColors.Ink,
+        ),
         modifier = modifier
             .heightIn(min = FitnessDimensions.MinimumTouchTarget)
             .then(testTag?.let { Modifier.testTag(it) } ?: Modifier),
@@ -178,9 +194,11 @@ fun FitnessSurfaceCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val shape = RoundedCornerShape(FitnessDimensions.LargeRadius)
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(FitnessDimensions.LargeRadius))
+            .shadow(7.dp, shape)
+            .clip(shape)
             .background(FitnessColors.Surface)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -231,33 +249,27 @@ fun FitnessBottomNav(
     onTabSelected: (PrimaryTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    NavigationBar(
-        modifier = modifier.testTag(FitnessTestTags.BottomNav),
-        containerColor = FitnessColors.Surface,
-        contentColor = FitnessColors.Ink,
+    Surface(
+        color = FitnessColors.SurfaceStrong,
+        shape = RoundedCornerShape(30.dp),
+        shadowElevation = 18.dp,
+        modifier = modifier.padding(horizontal = 12.dp, vertical = 8.dp).height(82.dp).testTag(FitnessTestTags.BottomNav),
     ) {
-        PrimaryTab.entries.forEach { tab ->
-            NavigationBarItem(
-                selected = tab == selectedTab,
-                onClick = { onTabSelected(tab) },
-                icon = {
-                    Icon(
-                        imageVector = tab.icon,
-                        contentDescription = null,
-                    )
-                },
-                label = { Text(tab.title) },
-                modifier = Modifier
-                    .heightIn(min = FitnessDimensions.MinimumTouchTarget)
-                    .testTag(FitnessTestTags.primaryTab(tab)),
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = FitnessColors.Green,
-                    selectedTextColor = FitnessColors.Ink,
-                    indicatorColor = FitnessColors.Phone,
-                    unselectedIconColor = FitnessColors.Muted,
-                    unselectedTextColor = FitnessColors.Muted,
-                ),
-            )
+        Row(Modifier.fillMaxWidth().padding(8.dp)) {
+            PrimaryTab.entries.forEach { tab ->
+                val selected = tab == selectedTab
+                Column(
+                    modifier = Modifier.weight(1f).height(64.dp).clip(RoundedCornerShape(23.dp))
+                        .background(if (selected) FitnessColors.Orange else androidx.compose.ui.graphics.Color.Transparent)
+                        .selectable(selected = selected, role = Role.Tab) { onTabSelected(tab) }
+                        .testTag(FitnessTestTags.primaryTab(tab)),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(tab.icon, contentDescription = null, tint = if (selected) FitnessColors.Ink else FitnessColors.Muted)
+                    Text(tab.title, color = if (selected) FitnessColors.Ink else FitnessColors.Muted, style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
     }
 }

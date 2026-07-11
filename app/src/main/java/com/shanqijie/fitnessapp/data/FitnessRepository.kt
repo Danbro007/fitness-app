@@ -1,9 +1,15 @@
 package com.shanqijie.fitnessapp.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.Log
+import android.util.Base64
 import com.shanqijie.fitnessapp.ai.AiChatClient
+import com.shanqijie.fitnessapp.ai.AiGatewayFactory
 import com.shanqijie.fitnessapp.ai.AiProviderConfig
+import com.shanqijie.fitnessapp.ai.AiProviderCatalog
 import com.shanqijie.fitnessapp.ai.AiTestResult
 import com.shanqijie.fitnessapp.domain.ExerciseAsset
 import com.shanqijie.fitnessapp.domain.ExerciseManifestParser
@@ -31,6 +37,10 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 import java.util.UUID
+import java.io.File
+import java.io.FileOutputStream
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 fun interface TimeProvider {
     fun currentTimeMillis(): Long
@@ -41,6 +51,7 @@ class FitnessRepository(
     private val store: FitnessStore,
     private val credentialStore: AiCredentialStore = AiCredentialStore(context),
     private val timeProvider: TimeProvider = TimeProvider(System::currentTimeMillis),
+    private val aiGatewayFactory: AiGatewayFactory = AiGatewayFactory(::AiChatClient),
 ) {
     private val refreshSignal = MutableStateFlow(0)
 
@@ -193,6 +204,12 @@ class FitnessRepository(
         refreshSignal.update { it + 1 }
     }
 
+    suspend fun setCalendarMode(mode: String) = withContext(Dispatchers.IO) {
+        require(mode in setOf("周", "月", "年")) { "不支持的日历维度" }
+        store.putPreference(CALENDAR_MODE_KEY, mode)
+        refreshSignal.update { it + 1 }
+    }
+
     suspend fun searchExercises(query: String, limit: Int = 100): List<ExerciseMediaEntity> =
         withContext(Dispatchers.IO) {
             store.searchExercises(query = query, limit = limit)
@@ -209,12 +226,14 @@ class FitnessRepository(
         preferredMinutes: Int,
         bodyMeasurement: BodyMeasurement = BodyMeasurement(),
     ) = withContext(Dispatchers.IO) {
-        val trimmedName = displayName.trim().ifEmpty { "我" }
+        val trimmedName = displayName.trim()
+        require(trimmedName.length in 1..30) { "昵称需要在 1 到 30 个字符之间" }
         require(birthYear in 1940..LocalDate.now().year) { "出生年份不合理" }
         require(heightCm in 80.0..240.0) { "身高不合理" }
         require(weightKg in 25.0..250.0) { "体重不合理" }
         require(weeklyTrainingDays in 1..7) { "每周训练天数需要在 1 到 7 之间" }
         require(preferredMinutes in 15..180) { "单次训练时长需要在 15 到 180 分钟之间" }
+        require(injuries.length <= 500) { "伤病与注意事项不能超过 500 个字符" }
         validateBodyMeasurement(bodyMeasurement)
         store.upsertUserProfile(
             UserProfileEntity(
@@ -229,8 +248,36 @@ class FitnessRepository(
                 preferredMinutes = preferredMinutes,
                 updatedAt = System.currentTimeMillis(),
                 bodyMeasurement = bodyMeasurement.normalized(),
+                avatarPath = store.userProfile()?.avatarPath.orEmpty(),
             ),
         )
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun saveProfileAvatar(source: Uri) = withContext(Dispatchers.IO) {
+        val profile = requireNotNull(store.userProfile()) { "请先保存训练档案" }
+        val mime = context.contentResolver.getType(source).orEmpty()
+        require(mime in setOf("image/jpeg", "image/png", "image/webp")) { "仅支持 JPG、PNG 或 WebP" }
+        context.contentResolver.openAssetFileDescriptor(source, "r")?.use { descriptor ->
+            require(descriptor.length < 0 || descriptor.length <= 5L * 1024 * 1024) { "头像不能超过 5 MB" }
+        }
+        val decoded = context.contentResolver.openInputStream(source)?.use(BitmapFactory::decodeStream)
+            ?: error("无法读取头像")
+        val side = minOf(decoded.width, decoded.height)
+        val square = Bitmap.createBitmap(decoded, (decoded.width - side) / 2, (decoded.height - side) / 2, side, side)
+        val output = if (side > 512) Bitmap.createScaledBitmap(square, 512, 512, true) else square
+        val avatarDir = File(context.filesDir, "avatars").apply { mkdirs() }
+        val relativePath = "avatars/profile-${System.currentTimeMillis()}.jpg"
+        val target = File(context.filesDir, relativePath)
+        FileOutputStream(target).use { stream ->
+            require(output.compress(Bitmap.CompressFormat.JPEG, 85, stream)) { "头像压缩失败" }
+        }
+        val oldPath = profile.avatarPath
+        store.upsertUserProfile(profile.copy(avatarPath = relativePath, updatedAt = System.currentTimeMillis()))
+        if (oldPath.isNotBlank() && oldPath != relativePath) File(context.filesDir, oldPath).delete()
+        if (output !== square) output.recycle()
+        if (square !== decoded) square.recycle()
+        decoded.recycle()
         refreshSignal.update { it + 1 }
     }
 
@@ -560,6 +607,7 @@ class FitnessRepository(
 
     suspend fun resetLocalData() = withContext(Dispatchers.IO) {
         credentialStore.deleteApiKey(DEEPSEEK_PROVIDER_ID)
+        AiProviderCatalog.entries.forEach { credentialStore.deleteApiKey(it.id) }
         store.clearPersonalData()
         val now = timeProvider.currentTimeMillis()
         seedDefaultVenue(now)
@@ -642,7 +690,7 @@ class FitnessRepository(
         measurement.bodyWaterKg?.let { require(it in 0.0..150.0) { "身体水分需要在 0 到 150 kg 之间" } }
         measurement.basalMetabolismKcal?.let { require(it in 500..5000) { "基础代谢需要在 500 到 5000 kcal 之间" } }
         measurement.waistHipRatio?.let { require(it in 0.3..2.0) { "腰臀比需要在 0.3 到 2.0 之间" } }
-        measurement.bodyAge?.let { require(it in 1..120) { "身体年龄需要在 1 到 120 岁之间" } }
+        measurement.bmi?.let { require(it in 10.0..80.0) { "BMI 需要在 10 到 80 之间" } }
     }
 
     private fun BodyMeasurement.normalized(): BodyMeasurement = copy(
@@ -657,28 +705,38 @@ class FitnessRepository(
         venueName: String,
         equipment: String,
     ): String = buildString {
-        appendLine("目标：${profile?.goal ?: "保持体能"}")
+        appendLine("昵称：${profile?.displayName ?: "未填写"}")
+        appendLine("出生年：${profile?.birthYear ?: "未填写"}")
+        appendLine("身高：${profile?.heightCm?.toMetricText() ?: "未填写"} cm")
+        appendLine("体重：${profile?.weightKg?.toMetricText() ?: "未填写"} kg")
+        appendLine("训练目标：${profile?.goal ?: "未填写"}")
         appendLine("每周训练：$days 天")
         appendLine("单次时长：$minutes 分钟")
         appendLine(profile?.bodyMeasurement?.toPlanContext() ?: "体测数据：未填写")
-        appendLine("伤病与注意事项：${profile?.injuries?.ifBlank { "无" } ?: "未填写"}")
+        appendLine("伤病与注意事项：${profile?.injuries?.ifBlank { "未填写" } ?: "未填写"}")
         appendLine("场地：$venueName")
         append("可用器械：$equipment")
     }
 
+    internal fun buildPlanPromptForTesting(profile: UserProfileEntity): String =
+        buildPlanPrompt(
+            profile = profile,
+            days = profile.weeklyTrainingDays,
+            minutes = profile.preferredMinutes,
+            venueName = "测试场地",
+            equipment = "哑铃",
+        )
+
     private fun BodyMeasurement.toPlanContext(): String {
-        val values = buildList {
-            measuredAt.takeIf(String::isNotBlank)?.let { add("体测日期 $it") }
-            bodyType.takeIf(String::isNotBlank)?.let { add("体型 $it") }
-            bodyFatPercentage?.let { add("体脂率 ${it.toMetricText()}%") }
-            bodyFatMassKg?.let { add("体脂肪 ${it.toMetricText()} kg") }
-            skeletalMuscleKg?.let { add("骨骼肌 ${it.toMetricText()} kg") }
-            bodyWaterKg?.let { add("身体水分 ${it.toMetricText()} kg") }
-            basalMetabolismKcal?.let { add("基础代谢 $it kcal") }
-            waistHipRatio?.let { add("腰臀比 ${it.toMetricText()}") }
-            bodyAge?.let { add("身体年龄 $it 岁") }
+        return buildString {
+            appendLine("体脂率：${bodyFatPercentage?.let { "${it.toMetricText()}%" } ?: "未填写"}")
+            appendLine("体脂肪：${bodyFatMassKg?.let { "${it.toMetricText()} kg" } ?: "未填写"}")
+            appendLine("BMI：${bmi?.toMetricText() ?: "未填写"}")
+            appendLine("骨骼肌：${skeletalMuscleKg?.let { "${it.toMetricText()} kg" } ?: "未填写"}")
+            appendLine("身体水分：${bodyWaterKg?.let { "${it.toMetricText()} kg" } ?: "未填写"}")
+            appendLine("基础代谢：${basalMetabolismKcal?.let { "$it kcal" } ?: "未填写"}")
+            append("腰臀比：${waistHipRatio?.toMetricText() ?: "未填写"}")
         }
-        return if (values.isEmpty()) "体测数据：未填写" else "体测数据：${values.joinToString("；")}"
     }
 
     private fun Double.toMetricText(): String =
@@ -817,7 +875,7 @@ class FitnessRepository(
         val apiKey = credentialStore.loadApiKey(provider.id)
         val aiContent = if (apiKey != null && latest != null) {
             runCatching {
-                AiChatClient(provider.toConfig()).complete(
+                aiGatewayFactory.create(provider.toConfig()).complete(
                     apiKey = apiKey,
                     systemPrompt = "你是力量训练教练。请基于训练记录给出下一次训练调整建议，回复不超过 80 字中文。",
                     userPrompt = "动作：${exercise?.name ?: exerciseId}\n最近记录：${latest.actualWeightKg}kg x ${latest.actualReps}，体感 ${latest.feeling}\n本地建议：$localContent",
@@ -899,7 +957,7 @@ class FitnessRepository(
         val apiKey = credentialStore.loadApiKey(provider.id)
         val aiNote = if (apiKey != null) {
             runCatching {
-                val client = AiChatClient(provider.toConfig())
+                val client = aiGatewayFactory.create(provider.toConfig())
                 if (imageBase64.isNotBlank() && imageMimeType.isNotBlank()) {
                     client.completeVision(
                         apiKey = apiKey,
@@ -981,7 +1039,7 @@ class FitnessRepository(
     }
 
     suspend fun generateWeeklyPlanDraft(): AiDraftEntity = withContext(Dispatchers.IO) {
-        val profile = store.userProfile()
+        val profile = requireNotNull(store.userProfile()) { "请先补全训练偏好与体测档案" }
         val venue = store.defaultVenue()
         val equipment = venue
             ?.let { store.equipmentNamesForVenue(it.id) }
@@ -995,7 +1053,7 @@ class FitnessRepository(
         val apiKey = credentialStore.loadApiKey(provider.id)
         val aiContent = if (apiKey != null) {
             runCatching {
-                AiChatClient(provider.toConfig()).complete(
+                aiGatewayFactory.create(provider.toConfig()).complete(
                     apiKey = apiKey,
                     systemPrompt = "你是健身计划助手。请基于用户目标、体测数据、场地和器械生成一周训练草稿。不要作医学诊断；如有伤病须优先保守安排。结果必须提醒用户确认后再保存。",
                     userPrompt = buildPlanPrompt(profile, days, minutes, venue?.name ?: "默认场地", equipment),
@@ -1116,6 +1174,23 @@ class FitnessRepository(
         refreshSignal.update { it + 1 }
     }
 
+    suspend fun selectAiProvider(providerId: String, endpoint: String, model: String) = withContext(Dispatchers.IO) {
+        val catalog = requireNotNull(AiProviderCatalog.entry(providerId)) { "不支持的智能服务" }
+        require(endpoint in catalog.endpoints) { "接口地址不属于当前服务商" }
+        require(model in catalog.models || model == store.aiProvider(providerId)?.model) { "模型不属于当前服务商" }
+        val now = System.currentTimeMillis()
+        store.aiProviders().forEach { current ->
+            store.upsertAiProvider(
+                if (current.id == providerId) {
+                    current.copy(baseUrl = endpoint, model = model, enabled = true, updatedAt = now)
+                } else {
+                    current.copy(enabled = false, updatedAt = now)
+                },
+            )
+        }
+        refreshSignal.update { it + 1 }
+    }
+
     suspend fun testAiProvider(providerId: String): AiTestResult = withContext(Dispatchers.IO) {
         val provider = store.aiProvider(providerId)
             ?: return@withContext AiTestResult(success = false, message = "智能服务不存在")
@@ -1123,11 +1198,15 @@ class FitnessRepository(
             ?: return@withContext AiTestResult(success = false, message = "请先保存接口密钥")
 
         runCatching {
-            AiChatClient(provider.toConfig()).testConnection(apiKey)
+            aiGatewayFactory.create(provider.toConfig()).testConnection(apiKey)
         }.getOrElse { error ->
             AiTestResult(
                 success = false,
-                message = "测试失败：${error.message ?: error::class.java.simpleName}",
+                message = when (error) {
+                    is SocketTimeoutException -> "连接超时，请稍后重试"
+                    is UnknownHostException -> "当前无网络，请检查连接"
+                    else -> "连接失败：${error.message ?: error::class.java.simpleName}"
+                },
             )
         }
     }
@@ -1135,9 +1214,15 @@ class FitnessRepository(
     suspend fun exportBackupJson(): String = withContext(Dispatchers.IO) {
         FitnessBackupCodec.encode(
             FitnessBackupPayload(
-                version = 3,
+                version = 4,
                 exportedAt = timeProvider.currentTimeMillis(),
                 userProfile = store.userProfile(),
+                avatarBase64 = store.userProfile()?.avatarPath?.takeIf(String::isNotBlank)
+                    ?.let { File(context.filesDir, it) }
+                    ?.takeIf(File::isFile)
+                    ?.readBytes()
+                    ?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
+                    .orEmpty(),
                 venues = store.trainingVenues(),
                 equipment = store.allEquipment(),
                 venueEquipment = store.venueEquipment(),
@@ -1160,7 +1245,21 @@ class FitnessRepository(
         validateBackupPayload(payload)
         store.transaction {
             store.clearPersonalData()
-            payload.userProfile?.let(store::upsertUserProfile)
+            val restoredProfile = payload.userProfile?.let { profile ->
+                val restoredPath = runCatching {
+                    if (payload.avatarBase64.isBlank()) return@runCatching ""
+                    val bytes = Base64.decode(payload.avatarBase64, Base64.DEFAULT)
+                    require(bytes.size <= 5 * 1024 * 1024) { "头像文件过大" }
+                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: error("头像损坏")
+                    bitmap.recycle()
+                    File(context.filesDir, "avatars").mkdirs()
+                    val relative = "avatars/restored-profile.jpg"
+                    File(context.filesDir, relative).writeBytes(bytes)
+                    relative
+                }.getOrDefault("")
+                profile.copy(avatarPath = restoredPath)
+            }
+            restoredProfile?.let(store::upsertUserProfile)
             payload.venues.forEach(store::upsertVenue)
             payload.equipment.forEach(store::upsertEquipment)
             payload.venueEquipment.forEach(store::upsertVenueEquipment)
@@ -1173,13 +1272,13 @@ class FitnessRepository(
             payload.foodLogs.forEach(store::insertFoodLog)
             payload.aiDrafts.forEach(store::upsertAiDraft)
             payload.trainingAdjustments.forEach(store::upsertTrainingAdjustment)
-            payload.aiProviders.forEach(store::upsertAiProvider)
+            payload.aiProviders.filter { AiProviderCatalog.entry(it.id) != null }.forEach(store::upsertAiProvider)
         }
         refreshSignal.update { it + 1 }
     }
 
     private fun validateBackupPayload(payload: FitnessBackupPayload) {
-        require(payload.version in 1..3) { "不支持的备份版本" }
+        require(payload.version in 1..4) { "不支持的备份版本" }
         requireUnique("场地 ID", payload.venues.map { it.id })
         requireUnique("器械 ID", payload.equipment.map { it.id })
         requireUnique("计划 ID", payload.plannedWorkouts.map { it.id })
@@ -1522,6 +1621,7 @@ class FitnessRepository(
                 smithMachineExercises = store.exercisesByEquipment("smith machine"),
                 exercises = store.allExercises(limit = 1_500),
                 aiProviders = aiProviders,
+                preferences = store.preferences(),
             )
         }
 
@@ -1579,31 +1679,33 @@ class FitnessRepository(
     }
 
     private fun seedDefaultAiProviders(now: Long) {
-        val existing = store.aiProvider(DEEPSEEK_PROVIDER_ID)
-        val apiKeyStored = credentialStore.loadApiKey(DEEPSEEK_PROVIDER_ID) != null
-        store.upsertAiProvider(
-            AiProviderEntity(
-                id = DEEPSEEK_PROVIDER_ID,
-                displayName = "DeepSeek",
-                baseUrl = "https://api.deepseek.com",
-                model = "deepseek-v4-flash",
-                enabled = true,
-                apiKeyStored = apiKeyStored,
-                updatedAt = existing?.updatedAt ?: now,
-            ),
-        )
+        store.deleteAiProvider(DEEPSEEK_PROVIDER_ID)
+        AiProviderCatalog.entries.forEachIndexed { index, catalog ->
+            val existing = store.aiProvider(catalog.id)
+            store.upsertAiProvider(
+                AiProviderEntity(
+                    id = catalog.id,
+                    displayName = catalog.displayName,
+                    baseUrl = existing?.baseUrl?.takeIf { it in catalog.endpoints } ?: catalog.endpoints.first(),
+                    model = existing?.model ?: catalog.models.first(),
+                    enabled = existing?.enabled ?: (index == 0),
+                    apiKeyStored = credentialStore.loadApiKey(catalog.id) != null,
+                    updatedAt = existing?.updatedAt ?: now,
+                ),
+            )
+        }
     }
 
     private fun activeAiProviderOrDefault(): AiProviderEntity =
         store.aiProviders().firstOrNull { it.enabled }
-            ?: store.aiProvider(DEEPSEEK_PROVIDER_ID)
+            ?: store.aiProvider(OPENAI_PROVIDER_ID)
             ?: AiProviderEntity(
-                id = DEEPSEEK_PROVIDER_ID,
-                displayName = "DeepSeek",
-                baseUrl = "https://api.deepseek.com",
-                model = "deepseek-v4-flash",
+                id = OPENAI_PROVIDER_ID,
+                displayName = "OpenAI",
+                baseUrl = "https://api.openai.com/v1",
+                model = "gpt-5-mini",
                 enabled = true,
-                apiKeyStored = credentialStore.loadApiKey(DEEPSEEK_PROVIDER_ID) != null,
+                apiKeyStored = credentialStore.loadApiKey(OPENAI_PROVIDER_ID) != null,
                 updatedAt = System.currentTimeMillis(),
             )
 
@@ -1627,8 +1729,10 @@ class FitnessRepository(
         const val DEFAULT_SESSION_ID = "session-local-smith-bench"
         const val SMITH_BENCH_PRESS_ID = "0748"
         const val DEEPSEEK_PROVIDER_ID = "deepseek"
+        const val OPENAI_PROVIDER_ID = "openai"
         const val LOCAL_PROFILE_ID = "profile-local"
         const val ONBOARDING_COMPLETED_KEY = "onboarding_completed"
+        const val CALENDAR_MODE_KEY = "calendar_mode"
         const val DEFAULT_REST_SECONDS = 90
         const val DEFAULT_TARGET_SETS = 3
         const val DEFAULT_TARGET_REPS = "8-12"
@@ -1668,6 +1772,7 @@ data class FitnessAppState(
     val exercises: List<ExerciseMediaEntity>,
     val aiProviders: List<AiProviderEntity>,
     val workoutSessionExercises: List<WorkoutSessionExerciseEntity> = emptyList(),
+    val preferences: Map<String, String> = emptyMap(),
 )
 
 data class PlannedExerciseView(

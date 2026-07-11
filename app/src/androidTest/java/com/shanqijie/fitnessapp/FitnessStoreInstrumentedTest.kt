@@ -21,11 +21,43 @@ import com.shanqijie.fitnessapp.data.WorkoutSetLogEntity
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
 class FitnessStoreInstrumentedTest {
     private lateinit var context: Context
+
+    @Test
+    fun versionEightProfileMigratesToBmiAndAvatarWithoutLosingLegacyData() {
+        val legacyName = "fitness-v8-${System.nanoTime()}.db"
+        context.deleteDatabase(legacyName)
+        context.openOrCreateDatabase(legacyName, Context.MODE_PRIVATE, null).use { raw ->
+            raw.execSQL("""
+                CREATE TABLE user_profile (
+                    id TEXT PRIMARY KEY, display_name TEXT NOT NULL, birth_year INTEGER NOT NULL,
+                    height_cm REAL NOT NULL, weight_kg REAL NOT NULL, goal TEXT NOT NULL, injuries TEXT NOT NULL,
+                    weekly_training_days INTEGER NOT NULL, preferred_minutes INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+                    measured_at TEXT NOT NULL DEFAULT '', body_type TEXT NOT NULL DEFAULT '', body_fat_percentage REAL,
+                    body_fat_mass_kg REAL, skeletal_muscle_kg REAL, body_water_kg REAL, basal_metabolism_kcal INTEGER,
+                    waist_hip_ratio REAL, body_age INTEGER
+                )
+            """.trimIndent())
+            raw.execSQL("INSERT INTO user_profile(id,display_name,birth_year,height_cm,weight_kg,goal,injuries,weekly_training_days,preferred_minutes,updated_at) VALUES('legacy','旧档案',1990,175,70,'保持体能','',3,45,1)")
+            raw.version = 8
+        }
+        val upgraded = FitnessDatabase(context, legacyName)
+        try {
+            val profile = FitnessStore(upgraded).userProfile()
+            assertEquals("旧档案", profile?.displayName)
+            assertNull(profile?.bodyMeasurement?.bmi)
+            assertEquals("", profile?.avatarPath)
+            assertEquals(9, upgraded.readableDatabase.version)
+        } finally {
+            upgraded.close()
+            context.deleteDatabase(legacyName)
+        }
+    }
     private lateinit var db: FitnessDatabase
     private lateinit var store: FitnessStore
 
@@ -390,7 +422,7 @@ class FitnessStoreInstrumentedTest {
             assertEquals("偏胖型", measurement.bodyType)
             assertEquals(24.8, measurement.bodyFatPercentage ?: 0.0, 0.01)
             assertEquals(1613, measurement.basalMetabolismKcal)
-            assertEquals(39, measurement.bodyAge)
+            assertNull(measurement.bodyAge)
         }
         assertEquals(listOf("鸡胸饭"), store.foodLogs().map { it.name })
         assertEquals(620, store.foodLogs().single().calories)

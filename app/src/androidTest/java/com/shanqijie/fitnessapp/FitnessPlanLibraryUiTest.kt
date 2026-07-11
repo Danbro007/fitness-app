@@ -58,6 +58,16 @@ class FitnessPlanLibraryUiTest {
         repository = FitnessRepository(context, FitnessStore(database))
         runBlocking {
             repository.bootstrap()
+            repository.saveUserProfile(
+                displayName = "测试用户",
+                birthYear = 1994,
+                heightCm = 176.0,
+                weightKg = 75.0,
+                goal = "保持体能",
+                injuries = "",
+                weeklyTrainingDays = 3,
+                preferredMinutes = 35,
+            )
             repository.setOnboardingCompleted(true)
             repository.createWorkoutFromTemplate(
                 name = "测试训练",
@@ -81,15 +91,12 @@ class FitnessPlanLibraryUiTest {
         composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Plan)).performClick()
         waitForTag(PlanScreenTag)
 
-        val weeklyTop = composeRule.onNodeWithTag(WeeklyScheduleTag)
-            .fetchSemanticsNode().boundsInRoot.top
-        val monthlyTop = composeRule.onNodeWithTag(MonthlyGeneratorTag)
-            .fetchSemanticsNode().boundsInRoot.top
-        assertTrue(weeklyTop < monthlyTop)
+        composeRule.onNodeWithText("训练日历").assertIsDisplayed()
         composeRule.onAllNodesWithText("休息日").onFirst().assertIsDisplayed()
+        composeRule.onNodeWithTag(WeeklyScheduleTag).performScrollTo().assertIsDisplayed()
 
         val initialCount = currentState().plannedWorkouts.size
-        composeRule.onNodeWithTag(NewPlanTag).performClick()
+        composeRule.onNodeWithTag(NewPlanTag).performScrollTo().performClick()
         composeRule.onNodeWithTag(PlanEditorTag).assertIsDisplayed()
         assertEquals(initialCount, currentState().plannedWorkouts.size)
         composeRule.onNodeWithTag(PlanNameInputTag).performTextReplacement("周末背部训练")

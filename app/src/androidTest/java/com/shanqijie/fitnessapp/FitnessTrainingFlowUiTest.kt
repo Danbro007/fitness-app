@@ -128,8 +128,8 @@ class FitnessTrainingFlowUiTest {
         composeRule.onNodeWithTag(FitnessTestTags.ConfirmFinish).assertIsDisplayed().performClick()
 
         waitForTag(FitnessTestTags.WorkoutSummary)
-        composeRule.onNodeWithText("训练已部分完成").assertIsDisplayed()
-        composeRule.onNodeWithText("1 组").assertIsDisplayed()
+        composeRule.onNodeWithText("部分完成").assertIsDisplayed()
+        composeRule.onNodeWithText("/ 7 组", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("20 kg").assertIsDisplayed()
         composeRule.onNodeWithTag(FitnessTestTags.SummaryDone).performClick()
 
@@ -270,8 +270,8 @@ class FitnessTrainingFlowUiTest {
             }
         }
         composeRule.waitForIdle()
-        assertTextContainsColor("WORKOUT / SAVED", FitnessColors.Ink)
-        assertTextDoesNotContainColor("WORKOUT / SAVED", FitnessColors.Green)
+        assertTextContainsColor("训练已保存 · 本机", FitnessColors.Muted)
+        assertTextDoesNotContainColor("训练已保存 · 本机", FitnessColors.Green)
     }
 
     @Test

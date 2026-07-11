@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FitnessCenter
 import androidx.compose.material.icons.rounded.Restaurant
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.NorthEast
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -31,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -67,12 +71,12 @@ fun HomeScreen(
             .fillMaxSize()
             .background(FitnessColors.Phone),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 20.dp,
-            top = 20.dp,
-            end = 20.dp,
-            bottom = 28.dp,
+            start = 18.dp,
+            top = 12.dp,
+            end = 18.dp,
+            bottom = 112.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(22.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         item {
             HomeGreeting(
@@ -80,6 +84,7 @@ fun HomeScreen(
                 workoutName = heroTitle,
             )
         }
+        item { Spacer(Modifier.height(14.dp)) }
         item {
             HomeWorkoutHero(
                 state = state,
@@ -88,6 +93,7 @@ fun HomeScreen(
                 onNavigate = onNavigate,
             )
         }
+        item { Spacer(Modifier.height(26.dp)) }
         item {
             WeeklyProgress(
                 completed = state.completedThisWeek,
@@ -95,6 +101,7 @@ fun HomeScreen(
                 weekDays = weekDays.take(4),
             )
         }
+        item { Spacer(Modifier.height(26.dp)) }
         item {
             HomeQuickActions(onNavigate = onNavigate)
         }
@@ -113,7 +120,7 @@ private fun HomeGreeting(
     ) {
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Text(
                 text = "$venueName · 本地计划",
@@ -127,17 +134,14 @@ private fun HomeGreeting(
             )
         }
         Surface(
-            modifier = Modifier.size(48.dp),
+            modifier = Modifier.size(52.dp),
             shape = CircleShape,
             color = FitnessColors.Surface,
             shadowElevation = 2.dp,
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(RoundedCornerShape(7.dp))
-                        .background(FitnessColors.Green),
+                    modifier = Modifier.size(20.dp).clip(CircleShape).background(FitnessColors.Ink),
                 )
             }
         }
@@ -152,56 +156,50 @@ private fun HomeWorkoutHero(
     onNavigate: (AppRoute) -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().height(350.dp),
         shape = RoundedCornerShape(FitnessDimensions.LargeRadius),
         colors = CardDefaults.cardColors(containerColor = FitnessColors.Hero),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            Text(
-            text = when {
+        Box(modifier = Modifier.fillMaxSize().padding(22.dp)) {
+            Row(modifier = Modifier.align(Alignment.TopStart).padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(FitnessColors.Orange))
+                Text(
+                text = when {
                 state.completedToday -> "今日已完成"
                 state.nextWorkout == null -> "下一步"
-                else -> "今日训练"
+                else -> "今日唯一任务"
             },
-                color = Color(0xFFB8BDC6),
+                color = Color(0xFFB7BAAF),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.8.sp,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                letterSpacing = 1.2.sp,
+                )
+            }
+            Surface(
+                color = Color(0xFF20211E),
+                shape = RoundedCornerShape(99.dp),
+                modifier = Modifier.align(Alignment.TopEnd).height(38.dp),
+            ) { Box(Modifier.padding(horizontal = 13.dp), contentAlignment = Alignment.Center) { Text("0%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold) } }
+            Column(modifier = Modifier.align(Alignment.TopStart).padding(top = 72.dp)) {
+                Text(
+                    text = heroTitle,
+                    color = FitnessColors.OnHero,
+                    fontSize = 40.sp,
+                    lineHeight = 42.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text("2 个动作 · 7 组 · 约 21 分钟", color = Color(0xFFA4A69F), fontSize = 14.sp)
+            }
+            Box(
+                modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 64.dp, end = 2.dp)
+                    .size(width = 132.dp, height = 112.dp).clip(RoundedCornerShape(28.dp)).background(FitnessColors.Surface),
+                contentAlignment = Alignment.Center,
             ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = heroTitle,
-                        color = FitnessColors.OnHero,
-                        fontSize = 28.sp,
-                        lineHeight = 34.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = "${state.completedThisWeek} / ${state.targetThisWeek.coerceAtLeast(0)} 次本周进度",
-                        color = Color(0xFFB8BDC6),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
                 Box(
-                    modifier = Modifier
-                        .width(112.dp)
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFF252C36)),
+                    modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (!heroAssetPath.isNullOrBlank()) {
@@ -214,17 +212,26 @@ private fun HomeWorkoutHero(
                         Icon(
                             imageVector = Icons.Rounded.FitnessCenter,
                             contentDescription = null,
-                            tint = FitnessColors.Green,
+                            tint = FitnessColors.Ink,
                             modifier = Modifier.size(44.dp),
                         )
                     }
                 }
             }
-            FitnessPrimaryButton(
-                text = state.primaryAction.label,
+            Surface(
                 onClick = { onNavigate(state.primaryAction.route) },
-                testTag = FitnessTestTags.HomePrimaryAction,
-            )
+                color = FitnessColors.Orange,
+                contentColor = FitnessColors.Ink,
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(58.dp).testTag(FitnessTestTags.HomePrimaryAction),
+            ) {
+                Row(Modifier.fillMaxSize().padding(start = 22.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(state.primaryAction.label, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                    Surface(shape = CircleShape, color = FitnessColors.Ink, modifier = Modifier.size(38.dp)) {
+                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.NorthEast, contentDescription = null, tint = Color.White) }
+                    }
+                }
+            }
         }
     }
 }
@@ -244,7 +251,7 @@ private fun WeeklyProgress(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("本周", style = MaterialTheme.typography.headlineSmall)
+            Text("本周节奏", style = MaterialTheme.typography.headlineSmall)
             Text(
                 text = "$completed / ${target.coerceAtLeast(0)} 次",
                 color = FitnessColors.Ink,
@@ -255,13 +262,14 @@ private fun WeeklyProgress(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            weekDays.forEach { day ->
+            weekDays.forEachIndexed { index, day ->
                 Surface(
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 72.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    color = if (day.completed) FitnessColors.Green else FitnessColors.Surface,
+                        .heightIn(min = 92.dp)
+                        .shadow(7.dp, RoundedCornerShape(24.dp)),
+                    shape = RoundedCornerShape(24.dp),
+                    color = if (index == 0) FitnessColors.Orange else FitnessColors.Surface,
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
@@ -270,7 +278,7 @@ private fun WeeklyProgress(
                     ) {
                         Text(
                             text = day.dayLabel,
-                            color = if (day.completed) FitnessColors.Ink else FitnessColors.Muted,
+                            color = if (index == 0) FitnessColors.Ink.copy(alpha = .62f) else FitnessColors.Muted,
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
@@ -289,14 +297,17 @@ private fun WeeklyProgress(
 @Composable
 private fun HomeQuickActions(onNavigate: (AppRoute) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("快速记录", style = MaterialTheme.typography.headlineSmall)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("快速入口", style = MaterialTheme.typography.headlineSmall)
+            Text("本机数据", style = MaterialTheme.typography.bodyMedium)
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             QuickActionCard(
-                title = "记饮食",
-                subtitle = "更新今日营养",
+                title = "记录饮食",
+                subtitle = "更新今日营养进度",
                 icon = {
                     Icon(
                         Icons.Rounded.Restaurant,
@@ -307,6 +318,7 @@ private fun HomeQuickActions(onNavigate: (AppRoute) -> Unit) {
                 modifier = Modifier
                     .weight(1f)
                     .testTag(FitnessTestTags.OpenFood),
+                highlighted = true,
                 onClick = { onNavigate(AppRoute.Primary(PrimaryTab.Food)) },
             )
             QuickActionCard(
@@ -335,16 +347,18 @@ private fun QuickActionCard(
     icon: @Composable () -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    highlighted: Boolean = false,
 ) {
     Card(
         modifier = modifier
-            .heightIn(min = 104.dp)
+            .heightIn(min = 136.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(FitnessDimensions.ContainerRadius),
-        colors = CardDefaults.cardColors(containerColor = FitnessColors.Surface),
+        colors = CardDefaults.cardColors(containerColor = if (highlighted) FitnessColors.Orange else FitnessColors.Surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 7.dp),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             icon()
