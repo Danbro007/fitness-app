@@ -1,8 +1,8 @@
 ---
 name: i fitness README
 description: i fitness 本地优先 Android 健身助手的中文 GitHub 项目入口。
-version: 1.3.0
-last_updated: 2026-07-11
+version: 1.4.0
+last_updated: 2026-07-15
 maintained_by: shanqijie
 ---
 
@@ -20,6 +20,33 @@ maintained_by: shanqijie
 - 主流程已跑通：制定计划、选择动作、训练执行、组间休息、训练总结、饮食记录、AI 设置和本地备份。
 - 动作清单包含 1324 条元数据；正式构建默认排除第三方 GIF，只有提供授权凭证时才能显式启用。
 - 已在 Pixel 8 Pro 模拟器完成真实数据验收：29/29 JVM 测试、61/61 设备测试通过，无崩溃或 ANR。
+
+## 界面预览
+
+以下截图来自 Pixel 8 Pro 模拟器中的真实原生 Android 应用，展示本地优先的首次设置、计划、饮食、个人档案和备份流程。
+
+<table>
+  <tr>
+    <td align="center"><img src="./docs/images/readme/onboarding.png" width="260" alt="首次训练设置界面"></td>
+    <td align="center"><img src="./docs/images/readme/plan.png" width="260" alt="训练日历界面"></td>
+    <td align="center"><img src="./docs/images/readme/food.png" width="260" alt="饮食记录界面"></td>
+  </tr>
+  <tr>
+    <td align="center">首次设置</td>
+    <td align="center">训练日历</td>
+    <td align="center">饮食记录</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/images/readme/profile.png" width="260" alt="个人训练档案界面"></td>
+    <td align="center"><img src="./docs/images/readme/backup.png" width="260" alt="本地数据备份界面"></td>
+    <td align="center"></td>
+  </tr>
+  <tr>
+    <td align="center">个人档案</td>
+    <td align="center">数据备份</td>
+    <td align="center"></td>
+  </tr>
+</table>
 
 ## 当前开发需求
 
