@@ -1,7 +1,16 @@
 package com.shanqijie.fitnessapp.ui.training
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.view.WindowManager
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,13 +24,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.NorthEast
 import androidx.compose.material3.Icon
@@ -37,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -48,18 +59,34 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.shanqijie.fitnessapp.BuildConfig
+import com.shanqijie.fitnessapp.data.AiDraftEntity
+import com.shanqijie.fitnessapp.domain.toReadableAiText
 import com.shanqijie.fitnessapp.domain.WorkoutSummary
+import com.shanqijie.fitnessapp.domain.WorkoutAdjustmentDirection
+import com.shanqijie.fitnessapp.domain.workoutReviewMetadata
 import com.shanqijie.fitnessapp.ui.components.FitnessGifImage
+import com.shanqijie.fitnessapp.ui.components.FitnessFloatingBottomDialog
 import com.shanqijie.fitnessapp.ui.components.FitnessMetricCard
 import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
-import com.shanqijie.fitnessapp.ui.components.FitnessSelectionChip
 import com.shanqijie.fitnessapp.ui.components.FitnessSurfaceCard
 import com.shanqijie.fitnessapp.ui.navigation.FitnessTestTags
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
@@ -93,6 +120,8 @@ data class TrainingPreparationScreenUi(
 data class TrainingActiveScreenUi(
     val sessionId: String,
     val planName: String,
+    val startedAt: Long = 0L,
+    val pausedAt: Long? = null,
     val currentExerciseId: String,
     val restEndsAt: Long?,
     val exercises: List<TrainingExerciseScreenUi>,
@@ -101,11 +130,42 @@ data class TrainingActiveScreenUi(
         get() = exercises.first { it.exerciseId == currentExerciseId }
 }
 
+internal data class ParsedTrainingInputs(
+    val reps: Int,
+    val weightKg: Double,
+    val valid: Boolean,
+)
+
+internal fun initialRepsInput(targetReps: String): String =
+    (targetReps.substringBefore('-').toIntOrNull()?.coerceIn(1, 50) ?: 8).toString()
+
+internal fun parseTrainingInputs(repsInput: String, weightInput: String): ParsedTrainingInputs {
+    val parsedReps = repsInput.toIntOrNull()
+    val parsedWeight = weightInput.toDoubleOrNull()
+    return ParsedTrainingInputs(
+        reps = parsedReps?.coerceIn(1, 50) ?: 1,
+        weightKg = parsedWeight?.coerceIn(0.0, 500.0) ?: 0.0,
+        valid = parsedReps != null && parsedReps in 1..50 &&
+            parsedWeight != null && parsedWeight in 0.0..500.0,
+    )
+}
+
+internal fun normalizeStepperCandidate(candidate: String, decimal: Boolean, maximum: Double): String? {
+    val normalized = candidate.replace(',', '.')
+    val validFormat = if (decimal) {
+        normalized.matches(Regex("\\d{0,3}(\\.\\d?)?"))
+    } else {
+        normalized.matches(Regex("\\d{0,2}"))
+    }
+    val parsed = normalized.toDoubleOrNull()
+    return normalized.takeIf { validFormat && (parsed == null || parsed <= maximum) }
+}
+
 @Composable
 fun TrainingPreparationScreen(
     state: TrainingPreparationScreenUi?,
     onStartWorkout: (String) -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier,
 ) {
     Column(
         modifier = modifier
@@ -113,37 +173,83 @@ fun TrainingPreparationScreen(
             .background(FitnessColors.Phone)
             .testTag(FitnessTestTags.TrainingPrep)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(
-            text = "TRAINING / READY",
-            color = FitnessColors.Ink,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = state?.planName ?: "先安排一次训练",
-            style = MaterialTheme.typography.headlineLarge,
-        )
-        Text(
-            text = state?.let { "${it.exercises.size} 个动作 · 约 ${it.estimatedMinutes} 分钟" }
-                ?: "完成计划后，这里会显示训练清单。",
-            style = MaterialTheme.typography.bodyLarge,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("训练准备 · 今日", color = FitnessColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(state?.planName ?: "先安排一次训练", style = MaterialTheme.typography.headlineLarge)
+            }
+            Surface(
+                modifier = Modifier.size(52.dp),
+                shape = CircleShape,
+                color = FitnessColors.Surface,
+                shadowElevation = 8.dp,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(20.dp).clip(CircleShape).background(FitnessColors.Ink))
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth().height(196.dp),
+            shape = RoundedCornerShape(FitnessDimensions.LargeRadius),
+            colors = CardDefaults.cardColors(containerColor = FitnessColors.Hero),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("准备就绪", color = Color(0xFF9B9E95), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("${state?.exercises?.size ?: 0} 个动作", color = FitnessColors.OnHero, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        state?.let { "目标 ${it.exercises.sumOf { exercise -> exercise.targetSets }} 组 · 预计 ${it.estimatedMinutes} 分钟" }
+                            ?: "完成计划后显示训练清单",
+                        color = Color(0xFF9B9E95),
+                        fontSize = 13.sp,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PreparationNode("热身", active = true)
+                    Box(Modifier.weight(1f).height(2.dp).background(Color(0xFF32342F)))
+                    PreparationNode("训练", active = false)
+                    Box(Modifier.weight(1f).height(2.dp).background(Color(0xFF32342F)))
+                    PreparationNode("保存", active = false)
+                }
+            }
+        }
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("动作顺序", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
+            Text("可在训练中切换", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+        }
 
         state?.exercises?.forEachIndexed { index, exercise ->
-            FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 92.dp),
+                shape = RoundedCornerShape(26.dp),
+                colors = CardDefaults.cardColors(containerColor = FitnessColors.Surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = (index + 1).toString().padStart(2, '0'),
-                        color = FitnessColors.Ink,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Box(
+                        modifier = Modifier.size(62.dp).clip(RoundedCornerShape(20.dp)).background(FitnessColors.Phone),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        FitnessGifImage(exercise.assetPath, exercise.name, Modifier.fillMaxSize())
+                    }
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -154,13 +260,17 @@ fun TrainingPreparationScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
+                    Text((index + 1).toString().padStart(2, '0'), color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
+        val startWorkout = state?.let { current ->
+            { onStartWorkout(current.planId) }
+        } ?: {}
         FitnessPrimaryButton(
             text = if (state == null) "暂无可开始训练" else "开始训练",
-            onClick = { state?.let { onStartWorkout(it.planId) } },
+            onClick = startWorkout,
             enabled = state != null,
             testTag = FitnessTestTags.StartWorkout,
         )
@@ -168,27 +278,87 @@ fun TrainingPreparationScreen(
 }
 
 @Composable
+private fun PreparationNode(label: String, active: Boolean) {
+    Surface(
+        modifier = Modifier.size(48.dp),
+        shape = CircleShape,
+        color = if (active) FitnessColors.Orange else Color.Transparent,
+        border = if (active) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF474942)),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(label, color = if (active) FitnessColors.Ink else Color(0xFF9B9E95), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun TrainingActiveScreen(
     state: TrainingActiveScreenUi,
     onSelectExercise: (String) -> Unit,
     onRecordSet: suspend (reps: Int, weightKg: Double, feeling: String) -> Unit,
     onRestFinished: () -> Unit,
     onSkipRest: () -> Unit,
+    onExtendRest: () -> Unit,
+    onTogglePause: () -> Unit,
     onFinishWorkout: () -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier,
 ) {
-    val current = state.currentExercise
-    var reps by rememberSaveable(current.exerciseId) {
-        mutableStateOf(current.targetReps.substringBefore('-').toIntOrNull()?.coerceIn(1, 50) ?: 8)
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val window = view.context.findActivity().window
+        val controller = WindowCompat.getInsetsController(window, view)
+        val previousStatusBarColor = window.statusBarColor
+        val previousNavigationBarColor = window.navigationBarColor
+        val previousLightStatusBars = controller.isAppearanceLightStatusBars
+        val previousLightNavigationBars = controller.isAppearanceLightNavigationBars
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+        window.statusBarColor = FitnessColors.Hero.toArgb()
+        window.navigationBarColor = FitnessColors.Hero.toArgb()
+        window.decorView.setBackgroundColor(FitnessColors.Hero.toArgb())
+        controller.isAppearanceLightStatusBars = false
+        controller.isAppearanceLightNavigationBars = false
+        onDispose {
+            window.decorView.setBackgroundColor(FitnessColors.Phone.toArgb())
+            window.statusBarColor = previousStatusBarColor
+            window.navigationBarColor = previousNavigationBarColor
+            controller.isAppearanceLightStatusBars = previousLightStatusBars
+            controller.isAppearanceLightNavigationBars = previousLightNavigationBars
+        }
     }
-    var weightKg by rememberSaveable(current.exerciseId) { mutableStateOf(current.targetWeightKg) }
+    val current = state.currentExercise
+    var repsInput by rememberSaveable(current.exerciseId) {
+        mutableStateOf(initialRepsInput(current.targetReps))
+    }
+    var weightInput by rememberSaveable(current.exerciseId) { mutableStateOf(current.targetWeightKg.asWeight()) }
+    val parsedInputs = parseTrainingInputs(repsInput, weightInput)
+    val reps = parsedInputs.reps
+    val weightKg = parsedInputs.weightKg
+    val numericInputsValid = parsedInputs.valid
     var feeling by rememberSaveable(current.exerciseId) { mutableStateOf(WorkoutFeelings[1]) }
     var showFinishDialog by rememberSaveable { mutableStateOf(false) }
     var isRecording by remember { mutableStateOf(false) }
+    var isFinishing by remember { mutableStateOf(false) }
     var submittedCompletedSets by remember { mutableStateOf<Int?>(null) }
     var recordError by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
-    val resting = state.restEndsAt != null
+    val restEndsAt = state.restEndsAt
+    val resting = restEndsAt != null
+    val isPaused = state.pausedAt != null
+    val totalTargetSets = state.exercises.sumOf { it.targetSets }.coerceAtLeast(1)
+    val totalCompletedSets = state.exercises.sumOf { it.completedSets }
+    val allSetsCompleted = totalCompletedSets >= totalTargetSets
+    var clockNow by remember(state.sessionId) { mutableLongStateOf(System.currentTimeMillis()) }
+
+    LaunchedEffect(state.sessionId, state.pausedAt) {
+        while (true) {
+            clockNow = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    val displayedNow = state.pausedAt ?: clockNow
+    val elapsedText = formatElapsedTime((displayedNow - state.startedAt).coerceAtLeast(0L))
 
     LaunchedEffect(current.exerciseId, current.completedSets, state.restEndsAt) {
         val submittedSets = submittedCompletedSets
@@ -206,7 +376,12 @@ fun TrainingActiveScreen(
     if (resting) {
         Box(modifier = modifier.fillMaxSize().testTag(FitnessTestTags.TrainingActive)) {
             RestPanel(
-                restEndsAt = requireNotNull(state.restEndsAt),
+                restEndsAt = restEndsAt,
+                exerciseName = current.name,
+                weightKg = weightKg,
+                reps = reps,
+                startedAt = state.startedAt,
+                onExtendRest = onExtendRest,
                 onRestFinished = onRestFinished,
                 onSkipRest = onSkipRest,
                 modifier = Modifier.fillMaxSize(),
@@ -225,31 +400,34 @@ fun TrainingActiveScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(FitnessColors.Hero)
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                    .statusBarsPadding()
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "LIVE WORKOUT",
-                        color = FitnessColors.Green,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = state.planName,
-                        color = FitnessColors.OnHero,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                TextButton(
+                Surface(
                     onClick = { showFinishDialog = true },
-                    modifier = Modifier
-                        .heightIn(min = FitnessDimensions.MinimumTouchTarget)
-                        .testTag(FitnessTestTags.RequestFinish),
+                    modifier = Modifier.size(52.dp).testTag(FitnessTestTags.RequestFinish),
+                    shape = CircleShape,
+                    color = Color(0xFF1A1C18),
                 ) {
-                    Text("结束", color = FitnessColors.OnHero)
+                    Box(contentAlignment = Alignment.Center) { Text("×", color = Color.White, fontSize = 28.sp) }
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("训练用时", color = Color(0xFF8F9189), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(elapsedText, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+                Surface(
+                    onClick = onTogglePause,
+                    modifier = Modifier
+                        .size(52.dp)
+                        .semantics { contentDescription = if (isPaused) "继续训练" else "暂停训练" },
+                    shape = CircleShape,
+                    color = if (isPaused) FitnessColors.Orange else Color(0xFF1A1C18),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(if (isPaused) "▶" else "Ⅱ", color = if (isPaused) FitnessColors.Ink else Color.White, fontSize = 20.sp)
+                    }
                 }
             }
         },
@@ -276,12 +454,19 @@ fun TrainingActiveScreen(
                 }
                 FitnessPrimaryButton(
                     text = when {
+                        allSetsCompleted && isFinishing -> "正在整理训练总结…"
+                        allSetsCompleted -> "完成训练并查看 AI 总结"
                         resting -> "休息中"
                         isRecording -> "保存中…"
                         else -> "完成本组"
                     },
                     onClick = {
-                        if (!isRecording) {
+                        if (allSetsCompleted) {
+                            if (!isFinishing) {
+                                isFinishing = true
+                                onFinishWorkout()
+                            }
+                        } else if (!isRecording) {
                             isRecording = true
                             submittedCompletedSets = current.completedSets
                             recordError = null
@@ -298,7 +483,11 @@ fun TrainingActiveScreen(
                             }
                         }
                     },
-                    enabled = !resting && !isRecording && current.completedSets < current.targetSets,
+                    enabled = if (allSetsCompleted) {
+                        !isPaused && !isFinishing
+                    } else {
+                        numericInputsValid && !resting && !isPaused && !isRecording && current.completedSets < current.targetSets
+                    },
                     testTag = FitnessTestTags.CompleteSet,
                 )
             }
@@ -312,14 +501,43 @@ fun TrainingActiveScreen(
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(state.exercises, key = { it.sessionExerciseId }) { exercise ->
-                    FitnessSelectionChip(
-                        label = "${exercise.name} ${exercise.completedSets}/${exercise.targetSets}",
-                        selected = exercise.exerciseId == current.exerciseId,
-                        onClick = { if (!resting) onSelectExercise(exercise.exerciseId) },
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                LinearProgressIndicator(
+                    progress = { (totalCompletedSets.toFloat() / totalTargetSets).coerceIn(0f, 1f) },
+                    modifier = Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(99.dp)),
+                    color = FitnessColors.Orange,
+                    trackColor = Color(0xFF292A25),
+                )
+                Text("$totalCompletedSets/$totalTargetSets 组", color = Color(0xFF9A9C94), fontSize = 11.sp)
+            }
+
+            if (isPaused) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = FitnessColors.Orange,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "训练已暂停 · 点击右上角继续",
+                        color = FitnessColors.Ink,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(14.dp),
                     )
                 }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(current.name, color = FitnessColors.OnHero, fontSize = 29.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    if (current.completedSets >= current.targetSets) {
+                        "动作 ${state.exercises.indexOfFirst { it.exerciseId == current.exerciseId } + 1}/${state.exercises.size} · 本动作已完成"
+                    } else {
+                        "动作 ${state.exercises.indexOfFirst { it.exerciseId == current.exerciseId } + 1}/${state.exercises.size} · 当前第 ${current.completedSets + 1} 组"
+                    },
+                    color = FitnessColors.OnHero.copy(alpha = 0.58f),
+                    fontSize = 12.sp,
+                )
             }
 
             Box(
@@ -327,71 +545,104 @@ fun TrainingActiveScreen(
                     .fillMaxWidth()
                     .aspectRatio(4f / 3f)
                     .clip(RoundedCornerShape(FitnessDimensions.LargeRadius))
-                    .background(Color.Black),
+                    .background(FitnessColors.Phone),
             ) {
                 FitnessGifImage(
                     assetPath = current.assetPath,
                     contentDescription = current.name,
                     modifier = Modifier.fillMaxSize(),
                 )
-                Text(
-                    text = "${current.completedSets}/${current.targetSets} SETS",
-                    color = FitnessColors.OnHero,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(12.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color.Black.copy(alpha = 0.68f))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                )
+                if (BuildConfig.EXERCISE_MEDIA_ENABLED) {
+                    Text(
+                        text = "本地动作动图",
+                        color = FitnessColors.OnHero,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(12.dp)
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(Color.Black.copy(alpha = 0.68f))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        fontSize = 10.sp,
+                    )
+                }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = current.name,
-                    color = FitnessColors.OnHero,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = current.detail,
-                    color = FitnessColors.OnHero.copy(alpha = 0.7f),
-                    fontSize = 14.sp,
-                )
-            }
-
-            Row(
+            if (allSetsCompleted) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(FitnessDimensions.LargeRadius),
+                    color = Color(0xFF2A2C28),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = "全部训练组已完成",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                        Text(
+                            text = "本次重量、次数和体感已保存，下一步查看 AI 训练总结。",
+                            color = Color.White.copy(alpha = 0.68f),
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            } else {
+                Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Stepper(
-                        label = "重量",
-                        value = "${weightKg.asWeight()} kg",
+                        label = "重量 · 公斤",
+                        value = weightInput,
+                        onValueChange = { weightInput = it },
+                        decimal = true,
+                        maximum = 500.0,
+                        inputTag = "training-weight-input",
                         decreaseDescription = "减少重量",
                         increaseDescription = "增加重量",
-                        onDecrease = { weightKg = max(0.0, weightKg - 2.5) },
-                        onIncrease = { weightKg += 2.5 },
+                        onDecrease = { weightInput = max(0.0, weightKg - 2.5).asWeight() },
+                        onIncrease = { weightInput = (weightKg + 2.5).coerceAtMost(500.0).asWeight() },
                         modifier = Modifier.weight(1f),
                     )
                     Stepper(
                         label = "次数",
-                        value = reps.toString(),
+                        value = repsInput,
+                        onValueChange = { repsInput = it },
+                        decimal = false,
+                        maximum = 50.0,
+                        inputTag = "training-reps-input",
                         decreaseDescription = "减少次数",
                         increaseDescription = "增加次数",
-                        onDecrease = { reps = max(1, reps - 1) },
-                        onIncrease = { reps = (reps + 1).coerceAtMost(50) },
+                        onDecrease = { repsInput = max(1, reps - 1).toString() },
+                        onIncrease = { repsInput = (reps + 1).coerceAtMost(50).toString() },
                         modifier = Modifier.weight(1f),
                     )
                 }
 
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(WorkoutFeelings) { option ->
-                    FitnessSelectionChip(
-                        label = option,
-                        selected = feeling == option,
-                        onClick = { feeling = option },
-                    )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WorkoutFeelings.forEach { option ->
+                        Surface(
+                            onClick = { feeling = option },
+                            modifier = Modifier.weight(1f).height(46.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            color = if (feeling == option) FitnessColors.Orange else Color(0xFF2A2C28),
+                            contentColor = if (feeling == option) FitnessColors.Ink else Color.White,
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    option,
+                                    color = if (feeling == option) FitnessColors.Ink else Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
                 }
             }
             Spacer(Modifier.size(4.dp))
@@ -399,20 +650,35 @@ fun TrainingActiveScreen(
     }
 
     if (showFinishDialog) {
-        AlertDialog(
+        FitnessFloatingBottomDialog(
             onDismissRequest = { showFinishDialog = false },
-            title = { Text("结束本次训练？") },
-            text = { Text("已完成的训练组会保存到本地，未完成动作不会补记。") },
-            dismissButton = {
-                TextButton(onClick = { showFinishDialog = false }) { Text("继续训练") }
-            },
-            confirmButton = {
+            modifier = Modifier,
+            containerColor = Color(0xFF1A1C18),
+            contentColor = Color.White,
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("现在结束训练？", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    "已完成的 ${state.exercises.sumOf { it.completedSets }} 组会保存；未完成动作不会补记，也不会把部分训练计为整次完成。",
+                    color = Color(0xFF9B9E95),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TextButton(
+                        onClick = { showFinishDialog = false },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp)
+                            .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(28.dp)),
+                        colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
+                    ) { Text("继续训练", color = Color.White, fontWeight = FontWeight.Bold) }
                 Button(
                     onClick = {
                         showFinishDialog = false
                         onFinishWorkout()
                     },
                     modifier = Modifier
+                        .weight(1.5f)
                         .heightIn(min = FitnessDimensions.MinimumTouchTarget)
                         .testTag(FitnessTestTags.ConfirmFinish),
                     colors = ButtonDefaults.buttonColors(
@@ -420,19 +686,32 @@ fun TrainingActiveScreen(
                         contentColor = FitnessColors.OnOrange,
                     ),
                 ) {
-                    Text("确认结束")
+                    Text("保存并结束")
                 }
-            },
-        )
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> error("训练进行页必须挂载在 Activity 上下文中")
 }
 
 @Composable
 private fun RestPanel(
     restEndsAt: Long,
+    exerciseName: String,
+    weightKg: Double,
+    reps: Int,
+    startedAt: Long,
+    onExtendRest: () -> Unit,
     onRestFinished: () -> Unit,
     onSkipRest: () -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier,
 ) {
     var now by remember(restEndsAt) { mutableLongStateOf(System.currentTimeMillis()) }
     var completionSent by remember(restEndsAt) { mutableStateOf(false) }
@@ -450,16 +729,30 @@ private fun RestPanel(
 
     val remainingSeconds = ceil(max(0L, restEndsAt - now) / 1_000.0).toInt()
     Column(
-        modifier = modifier.background(FitnessColors.Hero).testTag(FitnessTestTags.RestPanel).padding(horizontal = 18.dp, vertical = 20.dp),
+        modifier = modifier
+            .background(FitnessColors.Hero)
+            .testTag(FitnessTestTags.RestPanel)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 18.dp, vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Surface(shape = CircleShape, color = Color(0xFF1A1C18), modifier = Modifier.size(52.dp)) { Box(contentAlignment = Alignment.Center) { Text("×", color = Color.White, fontSize = 28.sp) } }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("训练用时", color = Color(0xFF9B9E95), fontSize = 10.sp)
-                Text("00:00", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(formatElapsedTime((now - startedAt).coerceAtLeast(0L)), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
-            Surface(shape = CircleShape, color = Color(0xFF1A1C18), modifier = Modifier.size(52.dp)) { Box(contentAlignment = Alignment.Center) { Text("＋", color = Color.White, fontSize = 22.sp) } }
+            Surface(
+                onClick = onExtendRest,
+                shape = CircleShape,
+                color = Color(0xFF1A1C18),
+                modifier = Modifier.semantics { contentDescription = "延长休息 30 秒" },
+            ) {
+                Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp), contentAlignment = Alignment.Center) {
+                    Text("+30 秒", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
         Card(
             modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
@@ -483,7 +776,7 @@ private fun RestPanel(
                     }
                 }
                 Text("放松，下一组马上开始", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 30.dp))
-                Text("下一组：当前动作 · 目标组数", color = Color(0xFF9B9E95), fontSize = 13.sp)
+                Text("下一组：$exerciseName · ${weightKg.asWeight()} kg × $reps", color = Color(0xFF9B9E95), fontSize = 13.sp)
                 Surface(
                     onClick = onSkipRest,
                     shape = RoundedCornerShape(22.dp),
@@ -495,16 +788,35 @@ private fun RestPanel(
     }
 }
 
+private fun formatElapsedTime(elapsedMillis: Long): String {
+    val totalSeconds = elapsedMillis / 1_000L
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        String.format(Locale.ROOT, "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.ROOT, "%02d:%02d", minutes, seconds)
+    }
+}
+
 @Composable
 private fun Stepper(
     label: String,
     value: String,
+    onValueChange: (String) -> Unit,
+    decimal: Boolean,
+    maximum: Double,
+    inputTag: String,
     decreaseDescription: String,
     increaseDescription: String,
     onDecrease: () -> Unit,
     onIncrease: () -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier,
 ) {
+    var inputFocused by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val inputShape = RoundedCornerShape(12.dp)
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(FitnessDimensions.ContainerRadius))
@@ -514,7 +826,46 @@ private fun Stepper(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(label, color = FitnessColors.OnHero.copy(alpha = 0.65f), fontSize = 12.sp)
-        Text(value, color = FitnessColors.OnHero, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        BasicTextField(
+            value = value, // coverage-exempt: compiler-generated BasicTextField adapter branch
+            onValueChange = { candidate ->
+                normalizeStepperCandidate(candidate, decimal, maximum)?.let(onValueChange)
+            },
+            modifier = Modifier
+                .widthIn(min = 84.dp)
+                .height(42.dp)
+                .onFocusChanged { inputFocused = it.isFocused }
+                .clip(inputShape)
+                .background(Color(0xFF171915))
+                .border(
+                    width = if (inputFocused) 1.5.dp else 1.dp,
+                    color = if (inputFocused) FitnessColors.Orange else Color.White.copy(alpha = 0.2f),
+                    shape = inputShape,
+                )
+                .testTag(inputTag)
+                .semantics { contentDescription = "$label，点击输入数字" }, // coverage-exempt: compiler-generated semantics lambda branch
+            textStyle = TextStyle(
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            ),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number,
+                imeAction = ImeAction.Done,
+            ),
+            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+            cursorBrush = SolidColor(FitnessColors.Orange),
+            singleLine = true,
+            decorationBox = { innerTextField ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (value.isBlank()) {
+                        Text("输入", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp)
+                    }
+                    innerTextField()
+                }
+            },
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -523,7 +874,7 @@ private fun Stepper(
                 onClick = onDecrease,
                 modifier = Modifier
                     .size(FitnessDimensions.MinimumTouchTarget)
-                    .semantics { contentDescription = decreaseDescription },
+                    .semantics { contentDescription = decreaseDescription }, // coverage-exempt: compiler-generated semantics lambda branch
             ) {
                 Text("−", color = FitnessColors.OnHero, fontSize = 24.sp)
             }
@@ -531,7 +882,7 @@ private fun Stepper(
                 onClick = onIncrease,
                 modifier = Modifier
                     .size(FitnessDimensions.MinimumTouchTarget)
-                    .semantics { contentDescription = increaseDescription },
+                    .semantics { contentDescription = increaseDescription }, // coverage-exempt: compiler-generated semantics lambda branch
             ) {
                 Text("+", color = FitnessColors.OnHero, fontSize = 24.sp)
             }
@@ -545,8 +896,20 @@ fun WorkoutSummaryScreen(
     weeklyCompleted: Int,
     weeklyTarget: Int,
     onDone: () -> Unit,
-    modifier: Modifier = Modifier,
+    reviewDraft: AiDraftEntity?,
+    onGenerateReview: suspend (postWorkoutFeeling: String, note: String) -> Unit,
+    onResolveReview: suspend (draftId: String, applyAdjustment: Boolean) -> Unit,
+    modifier: Modifier,
 ) {
+    var postWorkoutFeeling by rememberSaveable(summary.sessionId) { mutableStateOf("正常疲劳") }
+    var postWorkoutNote by rememberSaveable(summary.sessionId) { mutableStateOf("") }
+    var reviewBusy by rememberSaveable(summary.sessionId) { mutableStateOf(false) }
+    var reviewError by rememberSaveable(summary.sessionId) { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    val reviewMetadata = reviewDraft?.workoutReviewMetadata()
+    val reviewDirection = reviewMetadata?.direction
+        ?.let { runCatching { WorkoutAdjustmentDirection.valueOf(it) }.getOrNull() }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -556,8 +919,15 @@ fun WorkoutSummaryScreen(
             .padding(horizontal = 18.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("训练已保存 · 本机", color = FitnessColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        Text(if (summary.isFullyCompleted) "训练完成" else "部分完成", style = MaterialTheme.typography.headlineLarge)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("训练已保存 · 本机", color = FitnessColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(if (summary.isFullyCompleted) "训练完成" else "部分完成", style = MaterialTheme.typography.headlineLarge)
+            }
+            Surface(shape = CircleShape, color = FitnessColors.Orange, modifier = Modifier.size(52.dp)) {
+                Box(contentAlignment = Alignment.Center) { Text("✓", color = FitnessColors.Ink, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold) }
+            }
+        }
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                 Column {
@@ -568,7 +938,7 @@ fun WorkoutSummaryScreen(
                     }
                 }
                 Surface(color = FitnessColors.Orange, shape = RoundedCornerShape(99.dp)) {
-                    Text(if (summary.isFullyCompleted) "已全部保存" else "已保存部分", modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(if (summary.isFullyCompleted) "全部完成" else "已保存部分", modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
             LinearProgressIndicator(
@@ -581,19 +951,167 @@ fun WorkoutSummaryScreen(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             FitnessMetricCard("${summary.durationSeconds / 60} 分钟", "训练时长", Modifier.weight(1f))
             FitnessMetricCard("${summary.totalVolumeKg.asWeight()} kg", "训练容量", Modifier.weight(1f))
-            FitnessMetricCard(summary.feelingCounts.maxByOrNull { it.value }?.key ?: "合适", "主观体感", Modifier.weight(1f))
+            FitnessMetricCard(dominantFeeling(summary.feelingCounts), "主观体感", Modifier.weight(1f))
         }
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Rounded.NorthEast, contentDescription = null)
-            Text("已保存已完成的部分", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
-            Text(if (summary.isFullyCompleted) "本周已完成 $weeklyCompleted / $weeklyTarget 次。" else "未完成动作不会补记，本周完成次数也不会虚增。", style = MaterialTheme.typography.bodyMedium)
+            Text(if (summary.isFullyCompleted) "今天的目标已达成" else "已保存已完成的部分", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+            Text(if (summary.isFullyCompleted) "下一步可以补充蛋白质并安排恢复。" else "未完成动作不会补记，本周完成次数也不会虚增。", style = MaterialTheme.typography.bodyMedium)
         }
 
         FitnessPrimaryButton(
-            text = "返回首页",
+            text = "稍后总结，返回首页",
             onClick = onDone,
             testTag = FitnessTestTags.SummaryDone,
         )
+
+        if (reviewDraft == null) {
+            FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+                Text("训练后感受", style = MaterialTheme.typography.headlineSmall)
+                Text("AI 会结合每组次数、重量、组间体感与这里的恢复反馈进行总结。", style = MaterialTheme.typography.bodyMedium)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("状态很好", "正常疲劳").forEach { feeling ->
+                        WorkoutFeedbackChip(feeling, postWorkoutFeeling == feeling, Modifier.weight(1f)) { postWorkoutFeeling = feeling }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("非常疲劳", "疼痛不适").forEach { feeling ->
+                        WorkoutFeedbackChip(feeling, postWorkoutFeeling == feeling, Modifier.weight(1f)) { postWorkoutFeeling = feeling }
+                    }
+                }
+                Text("补充感受（可选）", style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
+                Surface(
+                    color = FitnessColors.Phone,
+                    shape = RoundedCornerShape(FitnessDimensions.ControlRadius),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
+                ) {
+                    BasicTextField(
+                        value = postWorkoutNote,
+                        onValueChange = { if (it.length <= 300) postWorkoutNote = it },
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = FitnessColors.Ink),
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        decorationBox = { inner ->
+                            Box {
+                                if (postWorkoutNote.isBlank()) Text("例如：右肩有些紧、最后两组动作变形", color = FitnessColors.Muted)
+                                inner()
+                            }
+                        },
+                    )
+                }
+                Text("AI 只生成复盘草稿，不会自动修改后续计划。", color = FitnessColors.Muted, fontSize = 11.sp)
+            }
+            FitnessPrimaryButton(
+                text = if (reviewBusy) "正在分析…" else "生成 AI 训练总结",
+                enabled = !reviewBusy,
+                onClick = {
+                    reviewBusy = true
+                    reviewError = null
+                    coroutineScope.launch {
+                        try {
+                            onGenerateReview(postWorkoutFeeling, postWorkoutNote)
+                        } catch (error: Exception) {
+                            reviewError = error.message ?: "生成训练总结失败"
+                        } finally {
+                            reviewBusy = false
+                        }
+                    }
+                },
+            )
+        } else {
+            FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("AI 训练复盘", style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        when (reviewDraft.status) {
+                            "confirmed" -> "已应用"
+                            "dismissed" -> "保持原计划"
+                            else -> "待确认"
+                        },
+                        color = FitnessColors.Muted,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Text(reviewDraft.title, color = FitnessColors.Ink, fontWeight = FontWeight.ExtraBold)
+                Text(reviewDraft.content.toReadableAiText(), style = MaterialTheme.typography.bodyMedium)
+                reviewMetadata?.let {
+                    Text("训练后感受：${it.postWorkoutFeeling}", color = FitnessColors.Muted, fontSize = 12.sp)
+                }
+            }
+            if (reviewDraft.status == "draft") {
+                FitnessPrimaryButton(
+                    text = when (reviewDirection) {
+                        WorkoutAdjustmentDirection.INCREASE -> "确认小幅加量"
+                        WorkoutAdjustmentDirection.REDUCE -> "确认降低后续负荷"
+                        else -> "确认保持当前计划"
+                    },
+                    enabled = !reviewBusy,
+                    onClick = {
+                        reviewBusy = true
+                        reviewError = null
+                        coroutineScope.launch {
+                            try {
+                                onResolveReview(reviewDraft.id, true)
+                            } catch (error: Exception) {
+                                reviewError = error.message ?: "调整计划失败"
+                            } finally {
+                                reviewBusy = false
+                            }
+                        }
+                    },
+                )
+                if (reviewDirection != WorkoutAdjustmentDirection.MAINTAIN) {
+                    TextButton(
+                        onClick = {
+                            reviewBusy = true
+                            reviewError = null
+                            coroutineScope.launch {
+                                try {
+                                    onResolveReview(reviewDraft.id, false)
+                                } catch (error: Exception) {
+                                    reviewError = error.message ?: "保留原计划失败"
+                                } finally {
+                                    reviewBusy = false
+                                }
+                            }
+                        },
+                        enabled = !reviewBusy,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = FitnessDimensions.MinimumTouchTarget),
+                    ) {
+                        Text("保持原计划", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        reviewError?.let { Text(it, color = WorkoutOnErrorContainer, fontWeight = FontWeight.Bold) }
+
+    }
+}
+
+internal fun dominantFeeling(feelingCounts: Map<String, Int>): String {
+    var dominant = "合适"
+    var highestCount = Int.MIN_VALUE
+    feelingCounts.forEach { (feeling, count) ->
+        if (count > highestCount) {
+            dominant = feeling
+            highestCount = count
+        }
+    }
+    return dominant
+}
+
+@Composable
+private fun WorkoutFeedbackChip(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = FitnessDimensions.MinimumTouchTarget),
+        shape = RoundedCornerShape(99.dp),
+        color = if (selected) FitnessColors.Orange else FitnessColors.Phone,
+        border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, FitnessColors.Muted.copy(alpha = .5f)),
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
+            Text(label, color = FitnessColors.Ink, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        }
     }
 }
 

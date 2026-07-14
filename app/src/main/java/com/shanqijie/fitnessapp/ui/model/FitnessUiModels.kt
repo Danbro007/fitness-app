@@ -85,8 +85,8 @@ data class TrainingUiState(
         require(currentExerciseIndex in exercises.indices) { "当前动作索引越界" }
     }
 
-    val currentExercise: TrainingExerciseUi?
-        get() = exercises.getOrNull(currentExerciseIndex)
+    val currentExercise: TrainingExerciseUi
+        get() = exercises[currentExerciseIndex]
 }
 
 sealed interface TrainingEvent {
@@ -100,7 +100,7 @@ fun TrainingUiState.reduce(event: TrainingEvent): TrainingUiState = when (event)
 }
 
 private fun TrainingUiState.completeCurrentSet(restEndsAt: Long): TrainingUiState {
-    val current = currentExercise ?: return this
+    val current = currentExercise
     if (phase != TrainingPhase.Active || current.completedSets >= current.targetSets) return this
 
     val updatedExercises = exercises.toMutableList().apply {
@@ -114,11 +114,11 @@ private fun TrainingUiState.completeCurrentSet(restEndsAt: Long): TrainingUiStat
 
 private fun TrainingUiState.finishRest(): TrainingUiState {
     if (phase !is TrainingPhase.Resting) return this
-    val current = currentExercise ?: return this
+    val current = currentExercise
     if (current.completedSets < current.targetSets) return copy(phase = TrainingPhase.Active)
 
     val nextIndex = currentExerciseIndex + 1
-    return if (nextIndex in exercises.indices) {
+    return if (nextIndex < exercises.size) {
         copy(currentExerciseIndex = nextIndex, phase = TrainingPhase.Active)
     } else {
         copy(phase = TrainingPhase.Completed)

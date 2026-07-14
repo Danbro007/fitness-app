@@ -1,16 +1,23 @@
 package com.shanqijie.fitnessapp.domain
 
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 object ExerciseChineseNameTranslator {
     private val cjkRegex = Regex("[\\u4e00-\\u9fff]")
     private val latinRegex = Regex("[A-Za-z]+")
     private val spaceRegex = Regex("\\s+")
     private val tokenSplitRegex = Regex("\\s+")
+    private val punctuationRegex = Regex("[()\\[\\],:]")
+    private val separatorRegex = Regex("[-_]")
+    private val numberRegex = Regex("\\d+")
+    private val translationCache = ConcurrentHashMap<String, String>()
 
     private val exactNameMap = mapOf(
         "smith bench press" to "史密斯机卧推",
         "dumbbell bench press" to "哑铃卧推",
+        "dumbbell incline bench press" to "上斜哑铃卧推",
+        "lever seated fly" to "器械夹胸",
         "smith squat" to "史密斯机深蹲",
         "smith full squat" to "史密斯机全蹲",
         "smith chair squat" to "史密斯机箱式深蹲",
@@ -151,6 +158,14 @@ object ExerciseChineseNameTranslator {
         "child pose" to "婴儿式",
     )
 
+    private val phraseRules by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        phraseMap
+            .sortedByDescending { it.first.length }
+            .map { (english, chinese) ->
+                Regex("(?<![a-z])${Regex.escape(english)}(?![a-z])") to chinese
+            }
+    }
+
     private val wordMap = mapOf(
         "ab" to "腹",
         "abs" to "腹肌",
@@ -230,7 +245,7 @@ object ExerciseChineseNameTranslator {
         "cat" to "猫式",
         "catch" to "接",
         "chair" to "椅式",
-        "chest" to "胸",
+        "chest" to "胸部",
         "chin" to "反握引体",
         "circles" to "绕环",
         "circular" to "环形",
@@ -654,7 +669,10 @@ object ExerciseChineseNameTranslator {
         "against", "between", "through",
     )
 
-    fun translate(rawName: String): String {
+    fun translate(rawName: String): String =
+        translationCache.getOrPut(rawName) { translateUncached(rawName) }
+
+    private fun translateUncached(rawName: String): String {
         val trimmed = rawName.trim()
         if (trimmed.isBlank()) return "训练动作"
         if (cjkRegex.containsMatchIn(trimmed)) return trimmed
@@ -670,13 +688,13 @@ object ExerciseChineseNameTranslator {
             .replace("°", "度")
             .replace("&", " and ")
             .replace("+", " plus ")
-            .replace(Regex("[()\\[\\],:]"), " ")
-            .replace(Regex("[-_]"), " ")
+            .replace(punctuationRegex, " ")
+            .replace(separatorRegex, " ")
             .replace(spaceRegex, " ")
             .trim()
 
-        phraseMap.sortedByDescending { it.first.length }.forEach { (english, chinese) ->
-            normalized = Regex("(?<![a-z])${Regex.escape(english)}(?![a-z])")
+        phraseRules.forEach { (rule, chinese) ->
+            normalized = rule
                 .replace(normalized, " $chinese ")
                 .replace(spaceRegex, " ")
                 .trim()
@@ -685,7 +703,6 @@ object ExerciseChineseNameTranslator {
         val parts = normalized
             .split(tokenSplitRegex)
             .mapNotNull(::translateToken)
-            .filter { it.isNotBlank() }
 
         val result = cleanup(parts.joinToString(""))
         return result.ifBlank { "训练动作" }
@@ -695,8 +712,7 @@ object ExerciseChineseNameTranslator {
         if (token.isBlank()) return null
         if (cjkRegex.containsMatchIn(token)) return token
         if (ignoredWords.contains(token)) return null
-        if (token.matches(Regex("\\d+度"))) return token
-        if (token.matches(Regex("\\d+"))) return token
+        if (token.matches(numberRegex)) return token
         return wordMap[token] ?: token.replace(latinRegex, "").ifBlank { null }
     }
 

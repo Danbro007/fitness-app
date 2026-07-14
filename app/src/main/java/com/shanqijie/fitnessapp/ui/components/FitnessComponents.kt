@@ -1,5 +1,6 @@
 package com.shanqijie.fitnessapp.ui.components
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.background
@@ -11,9 +12,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,13 +48,17 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.ImageLoader
 import coil.compose.AsyncImage
+import coil.decode.Decoder
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import com.shanqijie.fitnessapp.BuildConfig
@@ -66,6 +75,12 @@ internal enum class GifDecoderKind {
 internal fun gifDecoderKindFor(apiLevel: Int): GifDecoderKind =
     if (apiLevel >= 28) GifDecoderKind.ImageDecoder else GifDecoderKind.GifDecoder
 
+@SuppressLint("NewApi")
+internal fun gifDecoderFactoryFor(apiLevel: Int): Decoder.Factory = when (gifDecoderKindFor(apiLevel)) {
+    GifDecoderKind.GifDecoder -> GifDecoder.Factory()
+    GifDecoderKind.ImageDecoder -> ImageDecoderDecoder.Factory()
+}
+
 internal class SharedInstance<T : Any> {
     @Volatile
     private var instance: T? = null
@@ -77,17 +92,54 @@ internal class SharedInstance<T : Any> {
 }
 
 private val SharedGifImageLoader = SharedInstance<ImageLoader>()
+private val SharedStaticImageLoader = SharedInstance<ImageLoader>()
+
+@Composable
+fun FitnessFloatingBottomDialog(
+    onDismissRequest: () -> Unit,
+    modifier: Modifier,
+    containerColor: Color,
+    contentColor: Color,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize().navigationBarsPadding().padding(horizontal = 18.dp),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Surface(
+                modifier = modifier.fillMaxWidth().offset(y = 6.dp),
+                shape = RoundedCornerShape(30.dp),
+                color = containerColor,
+                contentColor = contentColor,
+                shadowElevation = 14.dp,
+            ) {
+                Column {
+                    Box(Modifier.fillMaxWidth().padding(top = 14.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(width = 36.dp, height = 4.dp).clip(RoundedCornerShape(99.dp)).background(contentColor.copy(alpha = .28f)))
+                    }
+                    content()
+                }
+            }
+        }
+    }
+}
 
 private fun fitnessGifImageLoader(context: Context): ImageLoader =
     SharedGifImageLoader.get {
         ImageLoader.Builder(context.applicationContext)
             .components {
-                when (gifDecoderKindFor(Build.VERSION.SDK_INT)) {
-                    GifDecoderKind.ImageDecoder -> add(ImageDecoderDecoder.Factory())
-                    GifDecoderKind.GifDecoder -> add(GifDecoder.Factory())
-                }
+                add(gifDecoderFactoryFor(Build.VERSION.SDK_INT))
             }
             .build()
+    }
+
+private fun fitnessStaticImageLoader(context: Context): ImageLoader =
+    SharedStaticImageLoader.get {
+        ImageLoader.Builder(context.applicationContext).build()
     }
 
 @Composable
@@ -123,17 +175,20 @@ fun FitnessSelectionChip(
     modifier: Modifier = Modifier,
     testTag: String? = null,
 ) {
+    val shape = RoundedCornerShape(18.dp)
     FilterChip(
         selected = selected,
         onClick = onClick,
         label = { Text(label) },
-        shape = RoundedCornerShape(16.dp),
+        shape = shape,
+        border = null,
         colors = FilterChipDefaults.filterChipColors(
             containerColor = FitnessColors.Surface,
             selectedContainerColor = FitnessColors.Orange,
             selectedLabelColor = FitnessColors.Ink,
         ),
         modifier = modifier
+            .shadow(5.dp, shape)
             .heightIn(min = FitnessDimensions.MinimumTouchTarget)
             .then(testTag?.let { Modifier.testTag(it) } ?: Modifier),
     )
@@ -212,7 +267,8 @@ fun FitnessGifImage(
     contentDescription: String,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
-) {
+    animated: Boolean = true,
+) { // coverage-exempt: compiler-generated default-argument bridge
     if (!BuildConfig.EXERCISE_MEDIA_ENABLED && assetPath.startsWith("exercise-media/gifs/")) {
         FitnessSurfaceCard(modifier = modifier) {
             Text(
@@ -225,7 +281,11 @@ fun FitnessGifImage(
     }
 
     val context = LocalContext.current
-    val imageLoader = fitnessGifImageLoader(context)
+    val imageLoader = if (animated) {
+        fitnessGifImageLoader(context)
+    } else {
+        fitnessStaticImageLoader(context)
+    }
     val model = remember(assetPath) {
         when {
             "://" in assetPath -> assetPath

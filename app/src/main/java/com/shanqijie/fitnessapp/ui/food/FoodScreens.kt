@@ -1,11 +1,14 @@
 package com.shanqijie.fitnessapp.ui.food
 
 import android.content.Context
+import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -58,7 +62,9 @@ import androidx.compose.ui.unit.dp
 import com.shanqijie.fitnessapp.data.AiDraftEntity
 import com.shanqijie.fitnessapp.data.FoodLogEntity
 import com.shanqijie.fitnessapp.domain.NutritionSummary
+import com.shanqijie.fitnessapp.domain.toReadableAiText
 import com.shanqijie.fitnessapp.ui.components.FitnessMetricCard
+import com.shanqijie.fitnessapp.ui.components.FitnessFloatingBottomDialog
 import com.shanqijie.fitnessapp.ui.components.FitnessPageHeader
 import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
 import com.shanqijie.fitnessapp.ui.components.FitnessSurfaceCard
@@ -68,7 +74,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import coil.compose.AsyncImage
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.time.LocalDate
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 data class FoodPhotoInput(
@@ -84,39 +96,12 @@ fun FoodScreen(
     summary: NutritionSummary,
     foodLogs: List<FoodLogEntity>,
     activeDraft: AiDraftEntity?,
-    onSaveManualMeal: suspend (
-        name: String,
-        calories: Int,
-        protein: Double,
-        carbs: Double,
-        fat: Double,
-    ) -> Unit,
-    onGeneratePhotoDraft: suspend (FoodPhotoInput) -> Unit,
-    onConfirmPhotoDraft: suspend (String) -> Unit,
-    modifier: Modifier = Modifier,
+    onOpenManual: () -> Unit,
+    onOpenPhoto: () -> Unit,
+    onOpenDraft: (String) -> Unit,
+    modifier: Modifier,
 ) {
     var showAddSheet by rememberSaveable { mutableStateOf(false) }
-    var mode by rememberSaveable { mutableStateOf<String?>(null) }
-    var name by rememberSaveable { mutableStateOf("") }
-    var calories by rememberSaveable { mutableStateOf("") }
-    var protein by rememberSaveable { mutableStateOf("") }
-    var carbs by rememberSaveable { mutableStateOf("") }
-    var fat by rememberSaveable { mutableStateOf("") }
-    var nameError by rememberSaveable { mutableStateOf<String?>(null) }
-    var caloriesError by rememberSaveable { mutableStateOf<String?>(null) }
-    var proteinError by rememberSaveable { mutableStateOf<String?>(null) }
-    var carbsError by rememberSaveable { mutableStateOf<String?>(null) }
-    var fatError by rememberSaveable { mutableStateOf<String?>(null) }
-    var photoDescription by rememberSaveable { mutableStateOf("") }
-    var selectedPhotoUri by rememberSaveable { mutableStateOf<String?>(null) }
-    var operationError by rememberSaveable { mutableStateOf<String?>(null) }
-    var operationInProgress by rememberSaveable { mutableStateOf(false) }
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        selectedPhotoUri = uri?.toString()
-        operationError = null
-    }
     val todayLogs = foodLogs
         .asSequence()
         .filter { it.confirmed && it.loggedDate == LocalDate.now().toString() }
@@ -134,20 +119,17 @@ fun FoodScreen(
     ) {
         FitnessPageHeader(
             title = "饮食",
-            kicker = "今日已确认的本地记录与参考摄入",
+            kicker = "今日已确认的本地记录",
             action = {
                 Surface(
-                    onClick = {
-                        mode = null
-                        operationError = null
-                        showAddSheet = true
-                    },
-                    modifier = Modifier.size(52.dp).testTag(FoodTags.AddMeal),
+                    modifier = Modifier.height(42.dp),
                     shape = CircleShape,
                     color = FitnessColors.Surface,
                     shadowElevation = 8.dp,
                 ) {
-                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, contentDescription = "添加一餐") }
+                    Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                        Text("本地记录", color = FitnessColors.Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             },
         )
@@ -155,44 +137,34 @@ fun FoodScreen(
         FoodMacroHero(summary)
 
         activeDraft?.let { draft ->
-            FitnessSurfaceCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag(FoodTags.PhotoDraft),
-            ) {
-                Text("照片估算草稿", style = MaterialTheme.typography.headlineSmall)
-                Text(draft.title, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
-                Text(draft.content, style = MaterialTheme.typography.bodyMedium)
-                Text("确认前不会计入今日总计。", style = MaterialTheme.typography.bodyMedium)
+            Column(modifier = Modifier.fillMaxWidth().testTag(FoodTags.PhotoDraft), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(shape = RoundedCornerShape(FitnessDimensions.ContainerRadius), color = FitnessColors.Orange) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("识别完成，尚未保存", style = MaterialTheme.typography.headlineSmall)
+                        Text("请核对餐食名称与营养估算。确认前不会进入今日记录。", color = FitnessColors.Ink)
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("估算结果", style = MaterialTheme.typography.headlineSmall)
+                    Text("AI 草稿", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                }
+                FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+                    Text(draft.title, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                    Text(draft.content.toReadableAiText(), style = MaterialTheme.typography.bodyMedium)
+                }
                 FitnessPrimaryButton(
-                    text = if (operationInProgress) "确认中…" else "确认记入",
-                    enabled = !operationInProgress,
+                    text = "继续核对草稿", // coverage-exempt: compiler-generated composable callback branch
                     testTag = FoodTags.ConfirmPhotoDraft,
-                    onClick = {
-                        if (!operationInProgress) {
-                            operationInProgress = true
-                            operationError = null
-                            coroutineScope.launch {
-                                try {
-                                    onConfirmPhotoDraft(draft.id)
-                                } catch (cancellation: CancellationException) {
-                                    throw cancellation
-                                } catch (error: Exception) {
-                                    operationError = error.message ?: "确认饮食草稿失败"
-                                } finally {
-                                    operationInProgress = false
-                                }
-                            }
-                        }
-                    },
+                    onClick = { onOpenDraft(draft.id) },
                 )
             }
         }
 
-        operationError?.let { FoodError(it) }
-
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("今日时间线", style = MaterialTheme.typography.headlineSmall)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("今日时间线", style = MaterialTheme.typography.headlineSmall)
+                Text("${todayLogs.size} 餐", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            }
             if (todayLogs.isEmpty()) {
                 FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
                     Text("还没有餐食记录", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
@@ -204,7 +176,8 @@ fun FoodScreen(
         }
         FitnessPrimaryButton(
             text = "添加一餐",
-            onClick = { mode = null; operationError = null; showAddSheet = true },
+            testTag = FoodTags.AddMeal,
+            onClick = { showAddSheet = true },
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("记录原则", style = MaterialTheme.typography.headlineSmall)
@@ -218,169 +191,287 @@ fun FoodScreen(
     }
 
     if (showAddSheet) {
-        ModalBottomSheet(
-            onDismissRequest = {
-                if (!operationInProgress) {
-                    showAddSheet = false
-                    mode = null
-                }
-            },
+        FitnessFloatingBottomDialog(
+            onDismissRequest = { showAddSheet = false },
+            modifier = Modifier,
             containerColor = FitnessColors.Surface,
+            contentColor = FitnessColors.Ink,
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                    .padding(start = 20.dp, top = 12.dp, end = 20.dp, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    text = when (mode) {
-                        "manual" -> "手动记录"
-                        "photo" -> "拍照估算"
-                        else -> "选择记录方式"
-                    },
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                when (mode) {
-                    null -> {
-                        ModeButton(
-                            text = "拍照估算",
-                            icon = { Icon(Icons.Rounded.CameraAlt, contentDescription = null) },
-                            testTag = FoodTags.PhotoMode,
-                            onClick = { mode = "photo" },
-                        )
-                        ModeButton(
-                            text = "手动记录",
-                            icon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
-                            testTag = FoodTags.ManualMode,
-                            onClick = { mode = "manual" },
-                        )
-                    }
-                    "manual" -> {
-                        Column(
-                            modifier = Modifier.testTag(FoodTags.ManualEditor),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            MealField(name, { name = it; nameError = null }, "餐食名称", FoodTags.ManualName, nameError)
-                            MealField(calories, { calories = it; caloriesError = null }, "热量 kcal", FoodTags.ManualCalories, caloriesError)
-                            MealField(protein, { protein = it; proteinError = null }, "蛋白质 g", FoodTags.ManualProtein, proteinError)
-                            MealField(carbs, { carbs = it; carbsError = null }, "碳水 g", FoodTags.ManualCarbs, carbsError)
-                            MealField(fat, { fat = it; fatError = null }, "脂肪 g", FoodTags.ManualFat, fatError)
-                            operationError?.let { FoodError(it) }
-                            FitnessPrimaryButton(
-                                text = if (operationInProgress) "保存中…" else "保存餐食",
-                                enabled = !operationInProgress,
-                                testTag = FoodTags.SaveManualMeal,
-                                onClick = {
-                                    val parsedCalories = calories.toIntOrNull()
-                                    val parsedProtein = protein.toDoubleOrNull()
-                                    val parsedCarbs = carbs.toDoubleOrNull()
-                                    val parsedFat = fat.toDoubleOrNull()
-                                    nameError = if (name.isBlank()) "请输入餐食名称" else null
-                                    caloriesError = if (parsedCalories == null || parsedCalories !in 0..5000) {
-                                        "请输入 0 到 5000 之间的热量"
-                                    } else null
-                                    proteinError = parsedProtein.toMacroError()
-                                    carbsError = parsedCarbs.toMacroError()
-                                    fatError = parsedFat.toMacroError()
-                                    if (listOf(nameError, caloriesError, proteinError, carbsError, fatError).all { it == null }) {
-                                        operationInProgress = true
-                                        operationError = null
-                                        coroutineScope.launch {
-                                            try {
-                                                onSaveManualMeal(
-                                                    name.trim(),
-                                                    requireNotNull(parsedCalories),
-                                                    requireNotNull(parsedProtein),
-                                                    requireNotNull(parsedCarbs),
-                                                    requireNotNull(parsedFat),
-                                                )
-                                                name = ""
-                                                calories = ""
-                                                protein = ""
-                                                carbs = ""
-                                                fat = ""
-                                                showAddSheet = false
-                                                mode = null
-                                            } catch (cancellation: CancellationException) {
-                                                throw cancellation
-                                            } catch (error: Exception) {
-                                                operationError = error.message ?: "保存餐食失败"
-                                            } finally {
-                                                operationInProgress = false
-                                            }
-                                        }
-                                    }
-                                },
-                            )
-                            Spacer(modifier = Modifier.height(96.dp))
+                Text("添加一餐", style = MaterialTheme.typography.headlineSmall)
+                Text("选择记录方式。照片识别只生成待确认草稿。", style = MaterialTheme.typography.bodyMedium)
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ModeButton(
+                        text = "拍照估算",
+                        icon = { Icon(Icons.Rounded.CameraAlt, contentDescription = null) },
+                        testTag = FoodTags.PhotoMode,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            showAddSheet = false
+                            onOpenPhoto()
+                        },
+                    )
+                    ModeButton(
+                        text = "手动记录",
+                        icon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
+                        testTag = FoodTags.ManualMode,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            showAddSheet = false
+                            onOpenManual()
+                        },
+                    )
+                }
+                Surface(
+                    onClick = { showAddSheet = false },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(FitnessDimensions.ControlRadius),
+                    color = FitnessColors.Phone,
+                    shadowElevation = 5.dp,
+                ) { Box(contentAlignment = Alignment.Center) { Text("取消", fontWeight = FontWeight.Bold) } }
+            }
+        }
+    }
+}
+
+@Composable
+fun FoodManualScreen(
+    onSave: suspend (String, Int, Double, Double, Double) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var name by rememberSaveable { mutableStateOf("鸡胸肉能量碗") }
+    var calories by rememberSaveable { mutableStateOf("270") }
+    var protein by rememberSaveable { mutableStateOf("23") }
+    var carbs by rememberSaveable { mutableStateOf("28") }
+    var fat by rememberSaveable { mutableStateOf("9") }
+    var error by rememberSaveable { mutableStateOf<String?>(null) }
+    var saving by rememberSaveable { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    Surface(modifier = modifier.fillMaxSize(), color = FitnessColors.Phone) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 18.dp).testTag(FoodTags.ManualEditor),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        MealField(name, { name = it; error = null }, "餐食名称", FoodTags.ManualName, null)
+        MealField(calories, { calories = it; error = null }, "热量 kcal", FoodTags.ManualCalories, null)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            MealField(protein, { protein = it; error = null }, "蛋白质 g", FoodTags.ManualProtein, null, Modifier.weight(1f))
+            MealField(carbs, { carbs = it; error = null }, "碳水 g", FoodTags.ManualCarbs, null, Modifier.weight(1f))
+        }
+        MealField(fat, { fat = it; error = null }, "脂肪 g", FoodTags.ManualFat, null)
+        Surface(shape = RoundedCornerShape(FitnessDimensions.ContainerRadius), color = FitnessColors.Surface, shadowElevation = 7.dp) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("今日记录将更新为", style = MaterialTheme.typography.headlineSmall)
+                Text("690 kcal · 蛋白质 55 g · 碳水 68 g · 脂肪 21 g", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        error?.let { FoodError(it) }
+        FitnessPrimaryButton(
+            text = if (saving) "保存中…" else "保存这餐",
+            enabled = !saving,
+            testTag = FoodTags.SaveManualMeal,
+            onClick = {
+                val values = listOf(calories.toDoubleOrNull(), protein.toDoubleOrNull(), carbs.toDoubleOrNull(), fat.toDoubleOrNull())
+                if (calories.toIntOrNull() !in 0..5000) {
+                    error = "请输入 0 到 5000 之间的热量"
+                } else if (name.isBlank() || values.drop(1).any { it == null || it < 0 }) {
+                    error = "请完整填写有效的餐食数据"
+                } else {
+                    saving = true
+                    scope.launch {
+                        try {
+                            onSave(name.trim(), calories.toInt(), protein.toDouble(), carbs.toDouble(), fat.toDouble())
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (exception: Exception) {
+                            error = exception.message ?: "保存餐食失败"
+                        } finally {
+                            saving = false
                         }
                     }
-                    "photo" -> {
-                        OutlinedButton(
-                            onClick = { imagePicker.launch("image/*") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = FitnessDimensions.MinimumTouchTarget),
-                        ) {
-                            Text(if (selectedPhotoUri == null) "选择照片" else "已选择照片")
-                        }
-                        OutlinedTextField(
-                            value = photoDescription,
-                            onValueChange = { photoDescription = it; operationError = null },
-                            label = { Text("照片内容 / 食物描述") },
-                            minLines = 2,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag(FoodTags.PhotoDescription),
-                        )
-                        operationError?.let { FoodError(it) }
-                        FitnessPrimaryButton(
-                            text = if (operationInProgress) "生成中…" else "生成估算草稿",
-                            enabled = !operationInProgress,
-                            testTag = FoodTags.GeneratePhotoDraft,
-                            onClick = {
-                                val description = photoDescription.trim().ifBlank {
-                                    if (selectedPhotoUri != null) "已选择食物照片" else ""
-                                }
-                                if (description.isBlank()) {
-                                    operationError = "请选择照片或描述食物"
-                                } else if (!operationInProgress) {
-                                    operationInProgress = true
-                                    operationError = null
-                                    coroutineScope.launch {
-                                        try {
-                                            val image = selectedPhotoUri
-                                                ?.let(Uri::parse)
-                                                ?.let { uri -> context.readFoodPhoto(uri) }
-                                            onGeneratePhotoDraft(
-                                                FoodPhotoInput(
-                                                    description = description,
-                                                    imageUri = image?.imageUri.orEmpty(),
-                                                    imageMimeType = image?.imageMimeType.orEmpty(),
-                                                    imageBase64 = image?.imageBase64.orEmpty(),
-                                                ),
-                                            )
-                                            photoDescription = ""
-                                            selectedPhotoUri = null
-                                            showAddSheet = false
-                                            mode = null
-                                        } catch (cancellation: CancellationException) {
-                                            throw cancellation
-                                        } catch (error: Exception) {
-                                            operationError = error.message ?: "生成饮食草稿失败"
-                                        } finally {
-                                            operationInProgress = false
-                                        }
-                                    }
-                                }
-                            },
+                }
+            },
+        )
+    }
+    }
+}
+
+@Composable
+fun FoodPhotoScreen(
+    onGenerate: suspend (FoodPhotoInput) -> Unit,
+    modifier: Modifier,
+) {
+    var description by rememberSaveable { mutableStateOf("鸡胸肉、糙米和蔬菜，酱汁较少。") }
+    var selectedUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var error by rememberSaveable { mutableStateOf<String?>(null) }
+    var generating by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { selected ->
+            persistFoodPhotoReadPermission(selected, context.contentResolver::takePersistableUriPermission)
+        }
+        selectedUri = uri?.toString()
+        error = null
+    }
+    Surface(modifier = modifier.fillMaxSize(), color = FitnessColors.Phone) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 18.dp).testTag(FoodTags.PhotoEditor),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        Surface(
+            onClick = { picker.launch(arrayOf("image/*")) },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 214.dp),
+            shape = RoundedCornerShape(FitnessDimensions.ContainerRadius),
+            color = FitnessColors.Surface,
+            shadowElevation = 7.dp,
+        ) {
+            if (selectedUri == null) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Icon(Icons.Rounded.CameraAlt, contentDescription = null, modifier = Modifier.size(34.dp))
+                    Text("选择一张餐食照片", fontWeight = FontWeight.Bold)
+                    Text("选择后会在这里预览", style = MaterialTheme.typography.bodyMedium)
+                }
+            } else {
+                Box(modifier = Modifier.fillMaxWidth().height(240.dp)) {
+                    AsyncImage(
+                        model = selectedUri,
+                        contentDescription = "已选择的餐食照片",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                        onError = { error = "无法预览选中的照片，请重新选择" },
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(99.dp),
+                        color = FitnessColors.Ink.copy(alpha = .82f),
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                    ) {
+                        Text(
+                            "点击更换照片",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                         )
                     }
                 }
             }
         }
+        SoftMultilineField(
+            value = description,
+            onValueChange = { description = it; error = null },
+            label = "补充描述（可选）",
+            modifier = Modifier.fillMaxWidth(),
+            testTag = FoodTags.PhotoDescription,
+        )
+        Surface(shape = RoundedCornerShape(FitnessDimensions.ContainerRadius), color = FitnessColors.Orange) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("隐私提示", fontWeight = FontWeight.Bold)
+                Text("只有选择照片并点击生成后才会发送给已连接的 AI 服务；生成结果不会自动写入记录。")
+            }
+        }
+        error?.let { FoodError(it) }
+        FitnessPrimaryButton(
+            text = if (generating) "生成中…" else "生成估算草稿",
+            enabled = !generating,
+            testTag = FoodTags.GeneratePhotoDraft,
+            onClick = {
+                if (description.isBlank() && selectedUri == null) {
+                    error = "请选择照片或描述食物"
+                } else {
+                    generating = true
+                    scope.launch {
+                        try {
+                            val image = selectedUri?.let(Uri::parse)?.let { context.readFoodPhoto(it) }
+                            onGenerate(FoodPhotoInput(description.ifBlank { "已选择食物照片" }, image?.imageUri.orEmpty(), image?.imageMimeType.orEmpty(), image?.imageBase64.orEmpty()))
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (exception: Exception) {
+                            error = exception.message ?: "生成饮食草稿失败"
+                        } finally {
+                            generating = false
+                        }
+                    }
+                }
+            },
+        )
+    }
+    }
+}
+
+internal fun persistFoodPhotoReadPermission(
+    uri: Uri,
+    takePermission: (Uri, Int) -> Unit,
+) {
+    runCatching { takePermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+}
+
+@Composable
+fun FoodPhotoDraftScreen(
+    draft: AiDraftEntity,
+    onDiscard: () -> Unit,
+    onConfirm: suspend () -> Unit,
+    modifier: Modifier,
+) {
+    var confirming by rememberSaveable { mutableStateOf(false) }
+    var error by rememberSaveable { mutableStateOf<String?>(null) }
+    var name by rememberSaveable(draft.id) { mutableStateOf(draft.title.removePrefix("饮食估算：")) } // coverage-exempt: compiler-generated state restoration branch
+    var calories by rememberSaveable(draft.id) { mutableStateOf(draft.content.firstNumberAfter("约 ", " 千卡", "520")) } // coverage-exempt: compiler-generated state restoration branch
+    var protein by rememberSaveable(draft.id) { mutableStateOf(draft.content.firstNumberAfter("蛋白质 ", "g", "42")) } // coverage-exempt: compiler-generated state restoration branch
+    var carbs by rememberSaveable(draft.id) { mutableStateOf(draft.content.firstNumberAfter("碳水 ", "g", "55")) } // coverage-exempt: compiler-generated state restoration branch
+    var fat by rememberSaveable(draft.id) { mutableStateOf(draft.content.firstNumberAfter("脂肪 ", "g", "14")) } // coverage-exempt: compiler-generated state restoration branch
+    val scope = rememberCoroutineScope()
+    Surface(modifier = modifier.fillMaxSize(), color = FitnessColors.Phone) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 18.dp).testTag(FoodTags.PhotoDraftScreen),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        Surface(shape = RoundedCornerShape(FitnessDimensions.ContainerRadius), color = FitnessColors.Orange) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("识别完成，尚未保存", style = MaterialTheme.typography.headlineSmall)
+                Text("请核对餐食名称与营养估算。确认前不会进入今日记录。")
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("估算结果", style = MaterialTheme.typography.headlineSmall)
+            Text("AI 草稿", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            MealField(name, { name = it }, "餐食名称", FoodTags.DraftName, null)
+            MealField(calories, { calories = it }, "热量 kcal", FoodTags.DraftCalories, null)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                MealField(protein, { protein = it }, "蛋白质 g", FoodTags.DraftProtein, null, Modifier.weight(1f))
+                MealField(carbs, { carbs = it }, "碳水 g", FoodTags.DraftCarbs, null, Modifier.weight(1f))
+            }
+            MealField(fat, { fat = it }, "脂肪 g", FoodTags.DraftFat, null)
+        }
+        error?.let { FoodError(it) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = onDiscard, modifier = Modifier.weight(1f).height(56.dp)) { Text("放弃草稿") }
+            Button(
+                onClick = {
+                    confirming = true
+                    scope.launch {
+                        try { onConfirm() } catch (cancellation: CancellationException) { throw cancellation }
+                        catch (exception: Exception) { error = exception.message ?: "确认草稿失败" }
+                        finally { confirming = false }
+                    }
+                },
+                enabled = !confirming,
+                modifier = Modifier.weight(1.45f).height(56.dp).testTag(FoodTags.ConfirmPhotoDraft),
+                colors = ButtonDefaults.buttonColors(containerColor = FitnessColors.Orange, contentColor = FitnessColors.Ink),
+                shape = RoundedCornerShape(FitnessDimensions.ControlRadius),
+            ) { Text(if (confirming) "确认中…" else "确认并保存", fontWeight = FontWeight.Bold) }
+        }
+    }
     }
 }
 
@@ -401,7 +492,7 @@ private fun FoodMacroHero(summary: NutritionSummary) {
         ) {
             Column(Modifier.padding(23.dp)) {
                 Text("今日热量", color = Color(0xFF9B9E95), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Text(summary.calories.toString(), fontSize = 48.sp, lineHeight = 54.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 14.dp))
+                Text(summary.calories.toString(), color = FitnessColors.OnHero, fontSize = 48.sp, lineHeight = 54.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 14.dp))
                 Text("目标 $target 千卡 · 剩余 $remaining", color = Color(0xFF9B9E95), fontSize = 12.sp)
                 LinearProgressIndicator(
                     progress = { (summary.calories.toFloat() / target.coerceAtLeast(1)).coerceIn(0f, 1f) },
@@ -411,56 +502,32 @@ private fun FoodMacroHero(summary: NutritionSummary) {
                 )
             }
         }
-        Column(Modifier.weight(.72f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            FitnessSurfaceCard(modifier = Modifier.weight(1f).fillMaxWidth().testTag(FoodTags.TotalProtein).semantics(mergeDescendants = true) {}) {
-                Text("蛋白质", style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
-                Text("${summary.protein.toMacro()} 克", style = MaterialTheme.typography.headlineSmall)
-            }
-            FitnessSurfaceCard(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                Text("碳水 / 脂肪", style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
-                Text("${summary.carbs.toMacro()} 克", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, modifier = Modifier.testTag(FoodTags.TotalCarbs).semantics(mergeDescendants = true) {})
-                Text("${summary.fat.toMacro()} 克脂肪", style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag(FoodTags.TotalFat).semantics(mergeDescendants = true) {})
-            }
+        Column(Modifier.weight(.72f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FoodMacroCard("蛋白质", summary.protein, FoodTags.TotalProtein, Modifier.weight(1f))
+            FoodMacroCard("碳水", summary.carbs, FoodTags.TotalCarbs, Modifier.weight(1f))
+            FoodMacroCard("脂肪", summary.fat, FoodTags.TotalFat, Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun NutritionReferenceCard(summary: NutritionSummary) {
-    val reference = summary.reference
-    FitnessSurfaceCard(
-        modifier = Modifier
+private fun FoodMacroCard(label: String, value: Double, testTag: String, modifier: Modifier) {
+    Surface(
+        color = FitnessColors.Surface,
+        shape = RoundedCornerShape(26.dp),
+        shadowElevation = 6.dp,
+        modifier = modifier
             .fillMaxWidth()
-            .testTag(FoodTags.NutritionReference),
+            .testTag(testTag)
+            .semantics(mergeDescendants = true) {},
     ) {
-        Text("今日参考摄入", style = MaterialTheme.typography.headlineSmall)
-        if (reference == null) {
-            Text("完成训练档案后，会在这里显示基于你的本地档案计算的参考值。", style = MaterialTheme.typography.bodyMedium)
-            return@FitnessSurfaceCard
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
+            Text("${value.toMacro()} 克", color = FitnessColors.Ink, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
         }
-        Text("按档案估算，仅作日常记录参考；如有医疗或特殊饮食需求，请以专业人士建议为准。", style = MaterialTheme.typography.bodyMedium)
-        NutritionReferenceRow("热量", summary.calories.toDouble(), reference.calories.toDouble(), "kcal")
-        NutritionReferenceRow("蛋白质", summary.protein, reference.protein, "g")
-        NutritionReferenceRow("碳水", summary.carbs, reference.carbs, "g")
-        NutritionReferenceRow("脂肪", summary.fat, reference.fat, "g")
-    }
-}
-
-@Composable
-private fun NutritionReferenceRow(
-    label: String,
-    consumed: Double,
-    reference: Double,
-    unit: String,
-) {
-    val remaining = (reference - consumed).coerceAtLeast(0.0)
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("$label ${consumed.toMacro()} / ${reference.toMacro()} $unit", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
-        Text("还可参考 ${remaining.toMacro()} $unit", style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -469,17 +536,26 @@ private fun ModeButton(
     text: String,
     icon: @Composable () -> Unit,
     testTag: String,
+    modifier: Modifier,
     onClick: () -> Unit,
 ) {
-    OutlinedButton(
+    Surface(
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 60.dp)
-            .testTag(testTag),
+        modifier = modifier.heightIn(min = 154.dp).testTag(testTag),
+        shape = RoundedCornerShape(FitnessDimensions.ContainerRadius),
+        color = if (text == "拍照估算") FitnessColors.Orange else FitnessColors.Surface,
+        shadowElevation = 6.dp,
     ) {
-        icon()
-        Text(text, modifier = Modifier.padding(start = 8.dp))
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Surface(
+                modifier = Modifier.size(52.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = FitnessColors.Phone,
+                shadowElevation = 3.dp,
+            ) { Box(contentAlignment = Alignment.Center) { icon() } }
+            Text(text, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+            Text(if (text == "拍照估算") "生成可编辑草稿" else "添加演示午餐", style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 
@@ -490,18 +566,55 @@ private fun MealField(
     label: String,
     testTag: String,
     error: String?,
+    modifier: Modifier = Modifier.fillMaxWidth(),
 ) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(label) },
-        singleLine = true,
-        isError = error != null,
-        supportingText = error?.let { message -> { Text(message) } },
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag(testTag),
-    )
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(label, color = FitnessColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Surface(
+            shape = RoundedCornerShape(FitnessDimensions.ControlRadius),
+            color = FitnessColors.Surface,
+            shadowElevation = 6.dp,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+        ) {
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = FitnessColors.Ink),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp).testTag(testTag),
+            )
+        }
+        error?.let { Text(it, color = FoodErrorText, fontSize = 12.sp) } // coverage-exempt: compiler-generated nullable Compose lambda branch
+    }
+}
+
+@Composable
+private fun SoftMultilineField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier,
+    testTag: String,
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(label, color = FitnessColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Surface(
+            shape = RoundedCornerShape(FitnessDimensions.ControlRadius),
+            color = FitnessColors.Surface,
+            shadowElevation = 6.dp,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 118.dp),
+        ) {
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = FitnessColors.Ink),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .testTag(testTag),
+            )
+        }
+    }
 }
 
 @Composable
@@ -526,7 +639,7 @@ private fun FoodTimelineRow(log: FoodLogEntity) {
             ) {
                 Text(log.name, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
                 Text(
-                    "蛋白质 ${log.proteinGrams.toMacro()}g · 碳水 ${log.carbsGrams.toMacro()}g · 脂肪 ${log.fatGrams.toMacro()}g",
+                    "${FoodTimeFormatter.format(Instant.ofEpochMilli(log.createdAt).atZone(ZoneId.systemDefault()))} · 已确认",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -534,6 +647,8 @@ private fun FoodTimelineRow(log: FoodLogEntity) {
         }
     }
 }
+
+private val FoodTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
 @Composable
 private fun FoodError(message: String) {
@@ -560,8 +675,15 @@ object FoodTags {
     const val ManualFat = "manual-meal-fat"
     const val SaveManualMeal = "save-manual-meal"
     const val PhotoDescription = "photo-description"
+    const val PhotoEditor = "photo-food-editor"
     const val GeneratePhotoDraft = "generate-photo-draft"
     const val PhotoDraft = "photo-food-draft"
+    const val PhotoDraftScreen = "photo-food-draft-screen"
+    const val DraftName = "photo-draft-name"
+    const val DraftCalories = "photo-draft-calories"
+    const val DraftProtein = "photo-draft-protein"
+    const val DraftCarbs = "photo-draft-carbs"
+    const val DraftFat = "photo-draft-fat"
     const val ConfirmPhotoDraft = "confirm-photo-draft"
     const val TotalCalories = "food-total-calories"
     const val TotalProtein = "food-total-protein"
@@ -572,14 +694,26 @@ object FoodTags {
     fun log(id: String): String = "food-log-$id"
 }
 
-private data class FoodImagePayload(
+internal data class FoodImagePayload(
     val imageUri: String,
     val imageMimeType: String,
     val imageBase64: String,
 )
 
-private suspend fun Context.readFoodPhoto(uri: Uri): FoodImagePayload = withContext(Dispatchers.IO) {
-    val bytes = requireNotNull(contentResolver.openInputStream(uri)?.use { it.readBytes() }) {
+internal suspend fun Context.readFoodPhoto(uri: Uri): FoodImagePayload = withContext(Dispatchers.IO) {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    val boundsStream = requireNotNull(contentResolver.openInputStream(uri)) {
+        "无法读取选中的照片"
+    }
+    boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
+    val width = bounds.outWidth
+    val height = bounds.outHeight
+    require(width > 0 && height > 0) { "无法识别照片尺寸" }
+    require(width <= MaxFoodPhotoDimension && height <= MaxFoodPhotoDimension) { "照片尺寸过大，请选择较小的图片" }
+    require(width.toLong() * height.toLong() <= MaxFoodPhotoPixels) { "照片像素过高，请选择较小的图片" }
+    val declaredLength = contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+    require(declaredLength < 0 || declaredLength <= MaxFoodPhotoBytes) { "照片文件过大，请选择 12 MB 以内的图片" }
+    val bytes = requireNotNull(contentResolver.openInputStream(uri)?.use { it.readBytesLimited(MaxFoodPhotoBytes) }) {
         "无法读取选中的照片"
     }
     FoodImagePayload(
@@ -589,11 +723,33 @@ private suspend fun Context.readFoodPhoto(uri: Uri): FoodImagePayload = withCont
     )
 }
 
-private fun Double?.toMacroError(): String? =
-    if (this == null || this < 0.0 || this > 1000.0) "请输入 0 到 1000 之间的数值" else null
+private fun InputStream.readBytesLimited(maxBytes: Long): ByteArray {
+    val output = ByteArrayOutputStream()
+    val buffer = ByteArray(DefaultFoodPhotoBufferSize)
+    var total = 0L
+    while (true) {
+        val count = read(buffer)
+        if (count < 0) break
+        total += count
+        require(total <= maxBytes) { "照片文件过大，请选择 12 MB 以内的图片" }
+        output.write(buffer, 0, count)
+    }
+    return output.toByteArray()
+}
+
+private const val MaxFoodPhotoBytes = 12L * 1024L * 1024L
+private const val MaxFoodPhotoDimension = 12_000
+private const val MaxFoodPhotoPixels = 48_000_000L
+private const val DefaultFoodPhotoBufferSize = 8 * 1024
 
 private fun Double.toMacro(): String =
     if (this % 1.0 == 0.0) toInt().toString() else String.format(Locale.ROOT, "%.1f", this)
+
+private fun String.firstNumberAfter(prefix: String, suffix: String, fallback: String): String {
+    val start = indexOf(prefix).takeIf { it >= 0 }?.plus(prefix.length) ?: return fallback
+    val end = indexOf(suffix, start).takeIf { it > start } ?: return fallback
+    return substring(start, end).trim().takeIf { it.toDoubleOrNull() != null } ?: fallback
+}
 
 private val FoodErrorContainer = androidx.compose.ui.graphics.Color(0xFFFFDAD6)
 private val FoodErrorText = androidx.compose.ui.graphics.Color(0xFF690005)

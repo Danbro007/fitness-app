@@ -105,9 +105,18 @@ class HttpUrlConnectionAiTransport : AiHttpTransport {
         }
 
         val status = connection.responseCode
-        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-        val response = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        if (status !in 200..299) {
+        val successful = status / 100 == 2
+        val stream = if (successful) connection.inputStream else connection.errorStream ?: connection.inputStream
+        val reader = java.io.BufferedReader(
+            java.io.InputStreamReader(stream, Charsets.UTF_8),
+            DEFAULT_BUFFER_SIZE,
+        )
+        val response = try {
+            reader.readText()
+        } finally {
+            reader.close()
+        }
+        if (!successful) {
             throw IllegalStateException("AI provider returned HTTP $status: ${response.take(200)}")
         }
         return response

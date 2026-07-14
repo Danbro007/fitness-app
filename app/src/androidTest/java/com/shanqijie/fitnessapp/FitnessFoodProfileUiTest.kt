@@ -3,32 +3,58 @@ package com.shanqijie.fitnessapp
 import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.pressBack
+import androidx.test.platform.app.InstrumentationRegistry
 import com.shanqijie.fitnessapp.data.AiCredentialStore
+import com.shanqijie.fitnessapp.data.AiDraftEntity
+import com.shanqijie.fitnessapp.data.AiProviderEntity
 import com.shanqijie.fitnessapp.data.BodyMeasurement
+import com.shanqijie.fitnessapp.data.EquipmentEntity
 import com.shanqijie.fitnessapp.data.FitnessAppState
 import com.shanqijie.fitnessapp.data.FitnessDatabase
+import com.shanqijie.fitnessapp.data.FoodLogEntity
 import com.shanqijie.fitnessapp.data.FitnessRepository
 import com.shanqijie.fitnessapp.data.FitnessStore
 import com.shanqijie.fitnessapp.ui.FitnessAppRoot
+import com.shanqijie.fitnessapp.ui.food.FoodScreen
+import com.shanqijie.fitnessapp.ui.food.FoodManualScreen
+import com.shanqijie.fitnessapp.ui.food.FoodPhotoDraftScreen
+import com.shanqijie.fitnessapp.ui.food.FoodPhotoScreen
 import com.shanqijie.fitnessapp.ui.navigation.FitnessTestTags
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
+import com.shanqijie.fitnessapp.ui.profile.ProfileEditScreen
+import com.shanqijie.fitnessapp.ui.settings.EquipmentFilterScreen
+import com.shanqijie.fitnessapp.ui.settings.BackupSettingsScreen
+import com.shanqijie.fitnessapp.ui.settings.SettingsTags
+import com.shanqijie.fitnessapp.ui.settings.SmartSettingsScreen
+import com.shanqijie.fitnessapp.ui.settings.VenueSettingsScreen
 import com.shanqijie.fitnessapp.ui.theme.FitnessTheme
+import com.shanqijie.fitnessapp.ai.AiTestResult
+import com.shanqijie.fitnessapp.domain.NutritionSummary
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -38,10 +64,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.io.File
+import java.io.FileOutputStream
+import android.graphics.Bitmap
 
 class FitnessFoodProfileUiTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun venueSettingsSupportsTheTransientMissingVenueState() {
+        composeRule.setContent {
+            FitnessTheme {
+                VenueSettingsScreen(
+                    currentVenue = null,
+                    venues = emptyList(),
+                    equipment = emptyList(),
+                    enabledEquipmentIds = emptySet(),
+                    onRenameVenue = {},
+                    onOpenEquipmentFilter = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(SettingsTags.VenueScreen).assertIsDisplayed()
+        composeRule.onNodeWithText("当前训练场地").assertIsDisplayed()
+    }
 
     private lateinit var context: Context
     private lateinit var database: FitnessDatabase
@@ -71,27 +120,239 @@ class FitnessFoodProfileUiTest {
     }
 
     @Test
+    fun smartProviderBrowsingDoesNotChangeActiveProviderUntilSave() {
+        var selectionCount = 0
+        var selectedProvider = ""
+        val now = System.currentTimeMillis()
+        composeRule.setContent {
+            FitnessTheme {
+                SmartSettingsScreen(
+                    providers = listOf(
+                        AiProviderEntity("openai", "OpenAI", "https://api.openai.com/v1", "gpt-5-mini", true, true, now),
+                        AiProviderEntity("gemini", "Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.5-flash", false, false, now),
+                    ),
+                    onSelectProvider = { providerId, _, _ -> selectionCount += 1; selectedProvider = providerId },
+                    onSaveApiKey = { _, _ -> },
+                    onTestConnection = { AiTestResult(true, "连接成功") },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Gemini").performClick()
+        composeRule.runOnIdle { assertEquals(0, selectionCount) }
+        composeRule.onNodeWithTag(SettingsTags.SmartApiKey).performTextReplacement("test-key")
+        composeRule.onNodeWithTag(SettingsTags.SaveSmartKey).performScrollTo().performClick()
+        composeRule.waitUntil(5_000) { selectionCount == 1 }
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText("已连接").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals("gemini", selectedProvider)
+    }
+
+    @Test
+    fun smartSettingsShowsProviderPersistenceFailureAndReEnablesAction() {
+        val now = System.currentTimeMillis()
+        composeRule.setContent {
+            FitnessTheme {
+                SmartSettingsScreen(
+                    providers = listOf(
+                        AiProviderEntity("openai", "OpenAI", "https://api.openai.com/v1", "gpt-5-mini", true, false, now),
+                    ),
+                    onSelectProvider = { _, _, _ -> error("保存服务商失败") },
+                    onSaveApiKey = { _, _ -> },
+                    onTestConnection = { AiTestResult(true, "连接成功") },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(SettingsTags.SmartApiKey).performTextReplacement("test-key")
+        composeRule.onNodeWithTag(SettingsTags.SaveSmartKey).performScrollTo().performClick()
+        composeRule.onNodeWithText("保存服务商失败").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag(SettingsTags.SaveSmartKey).assertIsEnabled()
+    }
+
+    @Test
+    fun smartSettingsFallsBackForMissingAndUnknownProviderCatalogEntries() {
+        val providers = mutableStateOf(emptyList<AiProviderEntity>())
+        val now = System.currentTimeMillis()
+        composeRule.setContent {
+            FitnessTheme {
+                SmartSettingsScreen(
+                    providers = providers.value,
+                    onSelectProvider = { _, _, _ -> },
+                    onSaveApiKey = { _, _ -> },
+                    onTestConnection = { AiTestResult(true, "连接成功") },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("尚未填写").assertIsDisplayed()
+        composeRule.runOnIdle {
+            providers.value = listOf(
+                AiProviderEntity("unknown", "未知服务", "https://example.invalid/v1", "custom-model", true, false, now),
+            )
+        }
+        composeRule.onNodeWithText("尚未填写").assertIsDisplayed()
+    }
+
+    @Test
+    fun backupScreenShowsExportAndResetFailuresWithoutLeavingThePage() {
+        composeRule.setContent {
+            FitnessTheme {
+                BackupSettingsScreen(
+                    onExportBackup = { error("生成备份失败：数据库繁忙") },
+                    onImportBackup = {},
+                    onResetLocalData = { error("重置本地数据失败：数据库繁忙") },
+                    onResetComplete = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("导出本机备份").performScrollTo().performClick()
+        composeRule.onNodeWithText("生成备份失败：数据库繁忙").performScrollTo().assertIsDisplayed()
+
+        composeRule.onNodeWithTag(RequestResetTag).performScrollTo().performClick()
+        composeRule.onNodeWithTag(ConfirmResetTag).performClick()
+        composeRule.onNodeWithText("重置本地数据失败：数据库繁忙").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag(RequestResetTag).assertIsEnabled()
+    }
+
+    @Test
+    fun backupResetDialogCannotDismissWhileTheResetTransactionIsRunning() {
+        val releaseReset = CompletableDeferred<Unit>()
+        var resetStarted = false
+        composeRule.setContent {
+            FitnessTheme {
+                BackupSettingsScreen(
+                    onExportBackup = { "{}" },
+                    onImportBackup = {},
+                    onResetLocalData = {
+                        resetStarted = true
+                        releaseReset.await()
+                    },
+                    onResetComplete = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(RequestResetTag).performScrollTo().performClick()
+        composeRule.onNodeWithTag(ConfirmResetTag).performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { resetStarted }
+        pressBack()
+        composeRule.onNodeWithTag(SettingsTags.ResetDialog).assertIsDisplayed()
+
+        composeRule.runOnIdle { releaseReset.complete(Unit) }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag(SettingsTags.ResetDialog).fetchSemanticsNodes().isEmpty()
+        }
+    }
+
+    @Test
+    fun equipmentFilterSearchesByTypeAndSavesHiddenSelections() {
+        val now = System.currentTimeMillis()
+        val equipment = listOf(
+            EquipmentEntity("machine", "胸推机", "machine", now, now),
+            EquipmentEntity("dumbbell", "哑铃", "free-weight", now, now),
+            EquipmentEntity("band", "弹力带", "accessory", now, now),
+            EquipmentEntity("bike", "固定单车", "cardio", now, now),
+            EquipmentEntity("elliptical", "椭圆机", "cardio", now, now),
+            EquipmentEntity("body", "自重训练", "body-weight", now, now),
+            EquipmentEntity("custom", "我的雪橇", "custom", now, now),
+            EquipmentEntity("hidden", "隐藏器械", "machine", now, now),
+        )
+        var savedIds: Set<String>? = null
+        composeRule.setContent {
+            FitnessTheme {
+                EquipmentFilterScreen(
+                    equipment = equipment,
+                    enabledEquipmentIds = setOf("hidden"),
+                    onSave = { savedIds = it },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("有氧器械")[0].assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("固定单车").assertIsDisplayed()
+        composeRule.onAllNodesWithText("胸推机").assertCountEquals(0)
+        composeRule.onNodeWithText("全部").performClick()
+        val equipmentSearch = hasSetTextAction() and hasAnyAncestor(hasTestTag(SettingsTags.EquipmentSearch))
+        composeRule.onNode(equipmentSearch, useUnmergedTree = true).performTextReplacement("椭圆仪")
+        composeRule.onNodeWithText("椭圆机").assertIsDisplayed()
+        composeRule.onNode(equipmentSearch, useUnmergedTree = true).performTextReplacement("")
+        composeRule.onNodeWithText("全选当前").performClick()
+        composeRule.onNodeWithText("清空当前").performClick()
+        composeRule.onNodeWithText("隐藏器械").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("隐藏器械").performClick()
+        composeRule.onNodeWithText("保存器械筛选").performScrollTo().performClick()
+        composeRule.waitUntil(5_000) { savedIds != null }
+        assertTrue("hidden" in savedIds.orEmpty())
+    }
+
+    @Test
+    fun foodOverviewShowsOnlyConfirmedLogsFromToday() {
+        val today = java.time.LocalDate.now()
+        fun log(id: String, date: String, confirmed: Boolean) = FoodLogEntity(
+            id = id,
+            loggedDate = date,
+            name = id,
+            calories = 100,
+            proteinGrams = 10.0,
+            carbsGrams = 10.0,
+            fatGrams = 2.0,
+            source = "manual",
+            imageNote = "",
+            confirmed = confirmed,
+            createdAt = id.length.toLong(),
+        )
+        composeRule.setContent {
+            FitnessTheme {
+                FoodScreen(
+                    summary = NutritionSummary(100, 10.0, 10.0, 2.0),
+                    foodLogs = listOf(
+                        log("未确认今日", today.toString(), false),
+                        log("已确认昨日", today.minusDays(1).toString(), true),
+                        log("已确认今日", today.toString(), true),
+                    ),
+                    activeDraft = null,
+                    onOpenManual = {},
+                    onOpenPhoto = {},
+                    onOpenDraft = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("1 餐").assertIsDisplayed()
+        composeRule.onNodeWithText("已确认今日").performScrollTo().assertIsDisplayed()
+        composeRule.onAllNodesWithText("未确认今日").assertCountEquals(0)
+        composeRule.onAllNodesWithText("已确认昨日").assertCountEquals(0)
+    }
+
+    @Test
     fun newUserMustFinishLocalSetupBeforeSeeingPrimaryNavigation() {
         composeRule.setContent {
             FitnessTheme { FitnessAppRoot(repository = repository) }
         }
         waitForTag(ProfileEditTag)
-        composeRule.onNodeWithText("先完成训练设置").assertIsDisplayed()
+        composeRule.onNodeWithText("建立基础档案").assertIsDisplayed()
+        composeRule.onNodeWithText("1 / 3 · 只保存在这台设备").assertIsDisplayed()
         composeRule.onAllNodesWithTag(FitnessTestTags.HomePrimaryAction).assertCountEquals(0)
 
-        runBlocking {
-            repository.saveUserProfile(
-                displayName = "山崎",
-                birthYear = 1994,
-                heightCm = 176.0,
-                weightKg = 75.0,
-                goal = "增肌减脂",
-                injuries = "",
-                weeklyTrainingDays = 3,
-                preferredMinutes = 45,
-            )
-            repository.setOnboardingCompleted(true)
-        }
+        composeRule.onNodeWithTag(ProfileNameTag).performTextReplacement("山崎")
+        composeRule.onNodeWithTag("profile-birth-year").performTextReplacement("1994")
+        composeRule.onNodeWithTag("profile-height").performTextReplacement("176")
+        composeRule.onNodeWithTag("profile-weight").performTextReplacement("75")
+        composeRule.onNodeWithTag("save-profile").performScrollTo().performClick()
+        composeRule.onNodeWithText("设置训练偏好").assertIsDisplayed()
+        composeRule.onNodeWithTag("save-profile").performScrollTo().performClick()
+        composeRule.onNodeWithText("补充身体参数").assertIsDisplayed()
+        composeRule.onNodeWithText("可跳过").assertIsDisplayed()
+        composeRule.onNodeWithTag("save-profile").performScrollTo().performClick()
 
         waitForTag(FitnessTestTags.HomePrimaryAction)
         assertTrue(currentState().onboardingCompleted)
@@ -212,6 +473,68 @@ class FitnessFoodProfileUiTest {
     }
 
     @Test
+    fun profileEditorKeepsEnteredValuesAndReEnablesSaveAfterPersistenceFailure() {
+        composeRule.setContent {
+            FitnessTheme {
+                ProfileEditScreen(
+                    profile = null,
+                    onSave = { _, _, _, _, _, _, _, _, _ -> error("保存档案失败：数据库繁忙") },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(ProfileNameTag).performTextReplacement("山崎")
+        composeRule.onNodeWithTag("save-profile").performScrollTo().performClick()
+        composeRule.onNodeWithText("保存档案失败：数据库繁忙").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("save-profile").assertIsEnabled()
+        composeRule.onNodeWithTag(ProfileNameTag).assertTextContains("山崎")
+    }
+
+    @Test
+    fun profileEditorShowsAndLocksTheSavingStateUntilPersistenceCompletes() {
+        val releaseSave = CompletableDeferred<Unit>()
+        var saveStarted = false
+        composeRule.setContent {
+            FitnessTheme {
+                ProfileEditScreen(
+                    profile = null,
+                    onSave = { _, _, _, _, _, _, _, _, _ ->
+                        saveStarted = true
+                        releaseSave.await()
+                    },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(ProfileNameTag).performTextReplacement("山崎")
+        composeRule.onNodeWithTag("save-profile").performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { saveStarted }
+        composeRule.onNodeWithText("保存中…").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("save-profile").assertIsNotEnabled()
+
+        composeRule.runOnIdle { releaseSave.complete(Unit) }
+        composeRule.onNodeWithTag("save-profile").assertIsEnabled()
+    }
+
+    @Test
+    fun initialProfileEditorAcceptsEveryExplicitOptionalArgument() {
+        composeRule.setContent {
+            FitnessTheme {
+                ProfileEditScreen(
+                    profile = null,
+                    onSave = { _, _, _, _, _, _, _, _, _ -> },
+                    onSaveAvatar = {},
+                    isInitialSetup = true,
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("基础资料").assertIsDisplayed()
+        composeRule.onNodeWithTag("save-profile").assertIsDisplayed()
+    }
+
+    @Test
     fun photoEstimateCreatesOnlyDraftUntilExplicitConfirmation() {
         showRealRoot()
         openPrimary(PrimaryTab.Food, FoodScreenTag)
@@ -224,8 +547,9 @@ class FitnessFoodProfileUiTest {
         val draftState = currentState()
         assertTrue(draftState.foodLogs.isEmpty())
         val draft = draftState.aiDrafts.single { it.type == "food_estimate" && it.status == "draft" }
-        waitForTag(PhotoDraftTag)
-        composeRule.onNodeWithText(draft.title).assertIsDisplayed()
+        waitForTag("photo-food-draft-screen")
+        composeRule.onNodeWithTag("photo-draft-name")
+            .assertTextContains(draft.title.removePrefix("饮食估算："))
 
         composeRule.onNodeWithTag(ConfirmPhotoDraftTag).performClick()
 
@@ -233,6 +557,164 @@ class FitnessFoodProfileUiTest {
         val confirmedState = currentState()
         assertEquals("confirmed", confirmedState.aiDrafts.single { it.id == draft.id }.status)
         assertTrue(confirmedState.foodLogs.single().confirmed)
+    }
+
+    @Test
+    fun manualMealEditorShowsPersistenceFailureAndReEnablesSaving() {
+        composeRule.setContent {
+            FitnessTheme {
+                FoodManualScreen(onSave = { _, _, _, _, _ -> error("本地餐食写入失败") })
+            }
+        }
+
+        composeRule.onNodeWithTag(SaveManualMealTag).performScrollTo().performClick()
+        composeRule.onNodeWithText("本地餐食写入失败").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag(SaveManualMealTag).assertIsEnabled()
+    }
+
+    @Test
+    fun foodOverviewShowsThePendingAiDraftAndOpensItForReview() {
+        val draft = AiDraftEntity(
+            id = "pending-food-draft",
+            type = "food_estimate",
+            title = "饮食估算：轻食沙拉",
+            content = "**约 380 千卡**\n- 蛋白质 24g",
+            status = "draft",
+            createdAt = 1L,
+            updatedAt = 1L,
+            confirmedAt = null,
+        )
+        var openedDraftId: String? = null
+        composeRule.setContent {
+            FitnessTheme {
+                FoodScreen(
+                    summary = NutritionSummary(0, 0.0, 0.0, 0.0),
+                    foodLogs = emptyList(),
+                    activeDraft = draft,
+                    onOpenManual = {},
+                    onOpenPhoto = {},
+                    onOpenDraft = { openedDraftId = it },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(PhotoDraftTag).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("约 380 千卡", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithTag(ConfirmPhotoDraftTag).performClick()
+        composeRule.runOnIdle { assertEquals(draft.id, openedDraftId) }
+    }
+
+    @Test
+    fun photoEditorValidatesEmptyInputAndShowsGenerationFailure() {
+        composeRule.setContent {
+            FitnessTheme {
+                FoodPhotoScreen(
+                    onGenerate = { error("食物识别服务暂时不可用") },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(PhotoDescriptionTag).performTextReplacement("")
+        composeRule.onNodeWithTag(GeneratePhotoDraftTag).performScrollTo().performClick()
+        composeRule.onNodeWithText("请选择照片或描述食物").assertIsDisplayed()
+
+        composeRule.onNodeWithTag(PhotoDescriptionTag).performTextReplacement("鸡胸肉米饭")
+        composeRule.onNodeWithTag(GeneratePhotoDraftTag).performScrollTo().performClick()
+        composeRule.onNodeWithText("食物识别服务暂时不可用").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag(GeneratePhotoDraftTag).assertIsEnabled()
+    }
+
+    @Test
+    fun photoDraftKeepsEditableDraftWhenConfirmationFails() {
+        val draft = AiDraftEntity(
+            id = "food-draft-error",
+            type = "food_estimate",
+            title = "饮食估算：鸡胸肉米饭",
+            content = "约 520 千卡；蛋白质 42g；碳水 55g；脂肪 14g",
+            status = "draft",
+            createdAt = 1L,
+            updatedAt = 1L,
+            metadataJson = "",
+            confirmedAt = null,
+        )
+        composeRule.setContent {
+            FitnessTheme {
+                FoodPhotoDraftScreen(
+                    draft = draft,
+                    onDiscard = {},
+                    onConfirm = { error("确认草稿失败：数据库繁忙") },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(ConfirmPhotoDraftTag).performScrollTo().performClick()
+        composeRule.onNodeWithText("确认草稿失败：数据库繁忙").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag(ConfirmPhotoDraftTag).assertIsEnabled()
+        composeRule.onNodeWithTag("photo-draft-name").assertTextContains("鸡胸肉米饭")
+    }
+
+    @Test
+    fun photoDraftUsesEditableFallbacksForMalformedAiContent() {
+        var confirmed = false
+        composeRule.setContent {
+            FitnessTheme {
+                FoodPhotoDraftScreen(
+                    draft = AiDraftEntity(
+                        id = "malformed-ui-draft",
+                        type = "food_estimate",
+                        title = "饮食估算：未知餐食",
+                        content = "模型未返回结构化营养数字",
+                        status = "draft",
+                        createdAt = 1L,
+                        updatedAt = 1L,
+                        metadataJson = "",
+                        confirmedAt = null,
+                    ),
+                    onDiscard = {},
+                    onConfirm = { confirmed = true },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("photo-draft-calories").assertTextContains("520")
+        composeRule.onNodeWithTag("photo-draft-protein").assertTextContains("42")
+        composeRule.onNodeWithTag(ConfirmPhotoDraftTag).performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) { confirmed }
+    }
+
+    @Test
+    fun foodEntryRoutesAreFullScreenAndProduceDesignEvidence() {
+        runBlocking { repository.logFood("燕麦酸奶早餐", 420, 32.0, 40.0, 12.0) }
+        showRealRoot()
+        openPrimary(PrimaryTab.Food, FoodScreenTag)
+        captureRoot("food-native.png")
+
+        composeRule.onNodeWithTag(AddMealTag).performClick()
+        waitForTag(ManualModeTag)
+        captureSystem("meal-sheet-native.png")
+        composeRule.onNodeWithTag(ManualModeTag).performClick()
+        waitForTag(ManualEditorTag)
+        composeRule.onAllNodesWithTag(FitnessTestTags.BottomNav).assertCountEquals(0)
+        captureRoot("food-manual-native.png")
+        pressBack()
+        waitForTag(FoodScreenTag)
+
+        composeRule.onNodeWithTag(AddMealTag).performClick()
+        composeRule.onNodeWithTag(PhotoModeTag).performClick()
+        waitForTag("photo-food-editor")
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag(PhotoModeTag).fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.onAllNodesWithTag(FitnessTestTags.BottomNav).assertCountEquals(0)
+        captureRoot("food-photo-native.png")
+        composeRule.onNodeWithTag(GeneratePhotoDraftTag).performClick()
+        waitForTag("photo-food-draft-screen")
+        composeRule.onAllNodesWithTag(FitnessTestTags.BottomNav).assertCountEquals(0)
+        captureRoot("food-photo-draft-native.png")
     }
 
     @Test
@@ -259,15 +741,15 @@ class FitnessFoodProfileUiTest {
 
         composeRule.onNodeWithTag(ProfileSmartRowTag).performScrollTo().performClick()
         waitForTag(SmartScreenTag)
-        composeRule.onNodeWithTag(SmartConnectionStatusTag).assertTextEquals("当前未连接")
+        composeRule.onNodeWithTag(SmartConnectionStatusTag).assertTextEquals("尚未填写")
         composeRule.onAllNodesWithText("已连接").assertCountEquals(0)
         composeRule.onNodeWithTag(SmartApiKeyTag).performTextReplacement("sk-local-ui-test")
-        composeRule.onNodeWithTag(SaveSmartKeyTag).performClick()
+        composeRule.onNodeWithTag(SaveSmartKeyTag).performScrollTo().performClick()
 
         waitUntilState { state ->
             state.aiProviders.single { it.id == FitnessRepository.OPENAI_PROVIDER_ID }.apiKeyStored
         }
-        composeRule.onNodeWithTag(SmartConnectionStatusTag).assertTextEquals("当前已连接")
+        composeRule.onNodeWithTag(SmartConnectionStatusTag).assertTextEquals("已保存，尚未验证")
         assertEquals("sk-local-ui-test", credentialStore.loadApiKey(FitnessRepository.OPENAI_PROVIDER_ID))
         assertFalse(
             credentialStore.encryptedPayloadForTest(FitnessRepository.OPENAI_PROVIDER_ID)
@@ -296,8 +778,8 @@ class FitnessFoodProfileUiTest {
         openPrimary(PrimaryTab.Profile, ProfileScreenTag)
         composeRule.onNodeWithTag(ProfileBackupRowTag).performScrollTo().performClick()
         waitForTag(BackupScreenTag)
-        composeRule.onNodeWithText("导出备份").assertIsDisplayed()
-        composeRule.onNodeWithText("从文件恢复").assertIsDisplayed()
+        composeRule.onNodeWithText("导出本机备份").assertIsDisplayed()
+        composeRule.onNodeWithText("从备份恢复").assertIsDisplayed()
         composeRule.onNodeWithTag(RequestResetTag).performScrollTo().performClick()
 
         composeRule.onNodeWithTag(ResetDialogTag).assertIsDisplayed()
@@ -314,7 +796,7 @@ class FitnessFoodProfileUiTest {
                     ?.apiKeyStored == false
         }
         waitForTag(ProfileEditTag)
-        composeRule.onNodeWithText("先完成训练设置").assertIsDisplayed()
+        composeRule.onNodeWithText("建立基础档案").assertIsDisplayed()
         assertNull(credentialStore.loadApiKey(FitnessRepository.OPENAI_PROVIDER_ID))
         assertTrue(currentState().plannedWorkouts.isEmpty())
     }
@@ -346,13 +828,38 @@ class FitnessFoodProfileUiTest {
         composeRule.onNodeWithTag(AddMealTag).performClick()
         composeRule.onNodeWithTag(ManualModeTag).performClick()
         waitForTag(ManualEditorTag)
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag(ManualModeTag).fetchSemanticsNodes().isEmpty()
+        }
     }
 
     private fun assertFoodTotals() {
         composeRule.onNodeWithTag(FoodCaloriesTotalTag).assertTextContains("650", substring = true)
         composeRule.onNodeWithTag(FoodProteinTotalTag).assertTextContains("42.5", substring = true)
         composeRule.onNodeWithTag(FoodCarbsTotalTag).assertTextContains("57", substring = true)
-        composeRule.onNodeWithTag(FoodFatTotalTag).assertTextContains("15", substring = true)
+        assertEquals(15.0, repository.nutritionSummary(currentState()).fat, 0.01)
+    }
+
+    private fun captureRoot(fileName: String) {
+        composeRule.mainClock.advanceTimeBy(400)
+        composeRule.waitForIdle()
+        val target = File(context.filesDir, fileName)
+        FileOutputStream(target).use { output ->
+            composeRule.onRoot().captureToImage().asAndroidBitmap()
+                .compress(Bitmap.CompressFormat.PNG, 100, output)
+        }
+        assertTrue(target.length() > 0L)
+    }
+
+    private fun captureSystem(fileName: String) {
+        composeRule.waitForIdle()
+        Thread.sleep(600)
+        val target = File(context.filesDir, fileName)
+        FileOutputStream(target).use { output ->
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+                .compress(Bitmap.CompressFormat.PNG, 100, output)
+        }
+        assertTrue(target.length() > 0L)
     }
 
     private fun currentState(): FitnessAppState = runBlocking { repository.appState().first() }

@@ -24,10 +24,15 @@ sealed interface AppRoute {
 
     data class PlanDetail(val planId: String) : AppRoute
     data class PlanEdit(val planId: String) : AppRoute
+    data class PlanDraft(val draftId: String) : AppRoute
     data class TrainingActive(val sessionId: String) : AppRoute
     data class WorkoutSummary(val sessionId: String) : AppRoute
     data object ProfileEdit : AppRoute
+    data object FoodManual : AppRoute
+    data object FoodPhoto : AppRoute
+    data class FoodPhotoDraft(val draftId: String) : AppRoute
     data object VenueSettings : AppRoute
+    data object EquipmentFilter : AppRoute
     data object SmartSettings : AppRoute
     data object DataBackup : AppRoute
     data object About : AppRoute
@@ -46,11 +51,17 @@ data class FitnessNavState(
             is AppRoute.ExerciseDetail -> current.origin.origin
             is AppRoute.PlanDetail,
             is AppRoute.PlanEdit,
+            is AppRoute.PlanDraft,
             -> PrimaryTab.Plan
             is AppRoute.TrainingActive -> PrimaryTab.Training
             is AppRoute.WorkoutSummary -> PrimaryTab.Home
+            AppRoute.FoodManual,
+            AppRoute.FoodPhoto,
+            is AppRoute.FoodPhotoDraft,
+            -> PrimaryTab.Food
             AppRoute.ProfileEdit,
             AppRoute.VenueSettings,
+            AppRoute.EquipmentFilter,
             AppRoute.SmartSettings,
             AppRoute.DataBackup,
             AppRoute.About,
@@ -69,17 +80,22 @@ data class FitnessNavState(
             else -> AppRoute.Primary(current.origin)
         }
         is AppRoute.ExerciseDetail -> current.origin
-        is AppRoute.PlanDetail,
-        is AppRoute.PlanEdit,
-        -> AppRoute.Primary(PrimaryTab.Plan)
+        is AppRoute.PlanDetail -> AppRoute.Primary(PrimaryTab.Plan)
+        is AppRoute.PlanEdit -> AppRoute.PlanDetail(current.planId)
+        is AppRoute.PlanDraft -> AppRoute.Primary(PrimaryTab.Plan)
         is AppRoute.TrainingActive -> AppRoute.Primary(PrimaryTab.Training)
         is AppRoute.WorkoutSummary -> AppRoute.Primary(PrimaryTab.Home)
+        AppRoute.FoodManual,
+        AppRoute.FoodPhoto,
+        -> AppRoute.Primary(PrimaryTab.Food)
+        is AppRoute.FoodPhotoDraft -> AppRoute.FoodPhoto
         AppRoute.ProfileEdit,
         AppRoute.VenueSettings,
+        AppRoute.EquipmentFilter,
         AppRoute.SmartSettings,
         AppRoute.DataBackup,
         AppRoute.About,
-        -> AppRoute.Primary(PrimaryTab.Profile)
+        -> if (current == AppRoute.EquipmentFilter) AppRoute.VenueSettings else AppRoute.Primary(PrimaryTab.Profile)
     }
 }
 

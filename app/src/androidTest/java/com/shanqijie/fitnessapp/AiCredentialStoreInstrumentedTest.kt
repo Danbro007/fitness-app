@@ -6,6 +6,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AiCredentialStoreInstrumentedTest {
@@ -34,6 +35,20 @@ class AiCredentialStoreInstrumentedTest {
         store.saveApiKey("deepseek", "sk-test-secret")
 
         store.deleteApiKey("deepseek")
+
+        assertNull(store.loadApiKey("deepseek"))
+    }
+
+    @Test
+    fun rejectsBlankKeysAndReturnsNullWhenTheIvIsMissing() {
+        assertTrue(runCatching { store.saveApiKey("deepseek", "") }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { store.saveApiKey("deepseek", "   ") }.exceptionOrNull() is IllegalArgumentException)
+
+        store.saveApiKey("deepseek", "sk-test-secret")
+        context.getSharedPreferences("ai-credential-test", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .remove("deepseek.iv")
+            .commit()
 
         assertNull(store.loadApiKey("deepseek"))
     }

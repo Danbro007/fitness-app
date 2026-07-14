@@ -67,17 +67,22 @@ private val FitnessTypography = Typography(
     ),
     bodyLarge = TextStyle(
         color = FitnessColors.Ink,
-        fontSize = 16.sp,
-        lineHeight = 24.sp,
+        fontSize = 14.sp,
+        lineHeight = 21.sp,
     ),
     bodyMedium = TextStyle(
         color = FitnessColors.Muted,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
+        fontSize = 12.sp,
+        lineHeight = 18.sp,
     ),
     labelLarge = TextStyle(
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
+        fontWeight = FontWeight.Bold,
+    ),
+    labelSmall = TextStyle(
+        fontSize = 10.sp,
+        lineHeight = 14.sp,
         fontWeight = FontWeight.Bold,
     ),
 )

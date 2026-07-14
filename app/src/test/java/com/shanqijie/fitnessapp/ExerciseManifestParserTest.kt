@@ -22,6 +22,35 @@ class ExerciseManifestParserTest {
     }
 
     @Test
+    fun manifestDefaultsOptionalPresentationFieldsAndFallsBackToSmithEquipment() {
+        val manifest = ExerciseManifestParser.parse(
+            """
+            {
+              "counts":{"datasetRecordsWithMedia":1,"localOrDownloaded":1,"failed":0},
+              "packageStrategy":{"maxPackSizeMb":1,"packCount":0,"packs":[]},
+              "files":[{
+                "exerciseId":"fallback-smith",
+                "name":"incline press",
+                "equipment":"SMITH MACHINE",
+                "mediaId":"media-1",
+                "remoteUrl":"https://example.test/exercise.gif",
+                "localPath":"gifs/fallback.gif"
+              }]
+            }
+            """.trimIndent(),
+        )
+
+        val asset = ExerciseManifestParser.findSmithBenchPress(manifest)
+        assertEquals("fallback-smith", asset.exerciseId)
+        assertEquals("", asset.bodyPart)
+        assertEquals("", asset.target)
+        assertEquals("", asset.muscleGroup)
+        assertEquals(0L, asset.bytes)
+        assertEquals("", asset.sha256)
+        assertEquals("", asset.downloadStatus)
+    }
+
+    @Test
     fun realManifestHasDownloadableGifRecords() {
         val manifestFile = File("src/main/assets/exercise-media/manifest.json")
         assertTrue("manifest should exist at ${manifestFile.absolutePath}", manifestFile.exists())

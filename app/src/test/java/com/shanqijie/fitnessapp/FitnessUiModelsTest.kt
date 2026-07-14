@@ -1,5 +1,6 @@
 package com.shanqijie.fitnessapp
 
+import com.shanqijie.fitnessapp.data.calculateAvatarInSampleSize
 import com.shanqijie.fitnessapp.domain.HomePrimaryAction
 import com.shanqijie.fitnessapp.domain.HomeSnapshot
 import com.shanqijie.fitnessapp.ui.components.GifDecoderKind
@@ -24,6 +25,18 @@ import org.junit.Test
 
 class FitnessUiModelsTest {
     @Test
+    fun avatarSamplingBoundsDecodedMemoryBeforeCropping() {
+        assertEquals(1, calculateAvatarInSampleSize(1_024, 768))
+        assertEquals(1, calculateAvatarInSampleSize(768, 1_024))
+        assertEquals(4, calculateAvatarInSampleSize(8_000, 6_000))
+        assertEquals(16, calculateAvatarInSampleSize(32_000, 24_000))
+        assertEquals(1, calculateAvatarInSampleSize(Int.MAX_VALUE, Int.MAX_VALUE, Int.MAX_VALUE))
+        assertTrue(runCatching { calculateAvatarInSampleSize(0, 100) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { calculateAvatarInSampleSize(100, 0) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { calculateAvatarInSampleSize(100, 100, 0) }.exceptionOrNull() is IllegalArgumentException)
+    }
+
+    @Test
     fun mainActivityUsesOnlyNativeFitnessRoot() {
         val source = listOf(
             File("src/main/java/com/shanqijie/fitnessapp/MainActivity.kt"),
@@ -43,7 +56,8 @@ class FitnessUiModelsTest {
         ).first(File::isFile).readText()
 
         assertTrue(source.contains("val applicationContext = LocalContext.current.applicationContext"))
-        assertTrue(source.contains("FitnessDatabase.get(applicationContext)"))
+        assertTrue(source.contains("FitnessDatabase.get(context)"))
+        assertTrue(source.contains("repositoryFactory(applicationContext)"))
         assertTrue(source.contains("repository.bootstrap()"))
         assertTrue(source.contains("FitnessAppRoot(repository = repository, modifier = modifier)"))
     }
@@ -54,6 +68,7 @@ class FitnessUiModelsTest {
             HomePrimaryAction.Start("plan-1") to ("开始训练" to AppRoute.Primary(PrimaryTab.Training)),
             HomePrimaryAction.Resume("session-1") to ("继续训练" to AppRoute.TrainingActive("session-1")),
             HomePrimaryAction.Result("session-1") to ("查看训练总结" to AppRoute.WorkoutSummary("session-1")),
+            HomePrimaryAction.CreatePlan to ("创建本周计划" to AppRoute.Primary(PrimaryTab.Plan)),
         )
 
         cases.forEach { (action, expected) ->
@@ -89,6 +104,23 @@ class FitnessUiModelsTest {
         assertEquals(1, advanced.currentExerciseIndex)
         assertEquals(TrainingPhase.Active, advanced.phase)
         assertTrue(advanced.currentExercise?.exerciseId == "0289")
+    }
+
+    @Test
+    fun trainingReducerCompletesTheSessionAfterTheLastExerciseRestEnds() {
+        val active = TrainingUiState(
+            sessionId = "session-final",
+            exercises = listOf(
+                TrainingExerciseUi(id = "session-exercise-final", exerciseId = "0748", targetSets = 1),
+            ),
+        )
+
+        val completed = active
+            .reduce(TrainingEvent.SetCompleted(restEndsAt = 60_000L))
+            .reduce(TrainingEvent.RestFinished)
+
+        assertEquals(TrainingPhase.Completed, completed.phase)
+        assertEquals(1, completed.currentExercise?.completedSets)
     }
 
     @Test
@@ -148,6 +180,65 @@ class FitnessUiModelsTest {
                 blocked.reduce(TrainingEvent.SetCompleted(restEndsAt = 120_000L)),
             )
         }
+
+        val alreadyComplete = active.copy(
+            exercises = listOf(active.exercises.single().copy(completedSets = 2)),
+        )
+        assertEquals(
+            alreadyComplete,
+            alreadyComplete.reduce(TrainingEvent.SetCompleted(restEndsAt = 120_000L)),
+        )
+
+        assertEquals(active, active.reduce(TrainingEvent.RestFinished))
+        val incompleteRest = active.copy(phase = TrainingPhase.Resting(endsAt = 60_000L))
+        assertEquals(TrainingPhase.Active, incompleteRest.reduce(TrainingEvent.RestFinished).phase)
+        assertEquals(60_000L, (incompleteRest.phase as TrainingPhase.Resting).endsAt)
+        assertEquals("session-1", active.sessionId)
+        assertEquals("session-exercise-1", active.exercises.single().id)
+    }
+
+    @Test
+    fun uiModelInvariantsRejectImpossibleStates() {
+        assertTrue(
+            runCatching {
+                com.shanqijie.fitnessapp.ui.model.HomeUiState(emptyList(), 0, 0, null)
+            }.exceptionOrNull() is IllegalArgumentException,
+        )
+        assertTrue(
+            runCatching {
+                com.shanqijie.fitnessapp.ui.model.HomeUiState(
+                    actions = listOf(
+                        com.shanqijie.fitnessapp.ui.model.HomeActionUi("a", AppRoute.Primary(PrimaryTab.Home)),
+                        com.shanqijie.fitnessapp.ui.model.HomeActionUi("b", AppRoute.Primary(PrimaryTab.Plan)),
+                    ),
+                    completedThisWeek = 0,
+                    targetThisWeek = 0,
+                    nextWorkout = null,
+                )
+            }.exceptionOrNull() is IllegalArgumentException,
+        )
+        assertTrue(runCatching { TrainingExerciseUi("id", "exercise", 0) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { TrainingExerciseUi("id", "exercise", 1, -1) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { TrainingExerciseUi("id", "exercise", 1, 2) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { TrainingUiState("session", emptyList()) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(
+            runCatching {
+                TrainingUiState(
+                    "session",
+                    listOf(TrainingExerciseUi("id", "exercise", 1)),
+                    currentExerciseIndex = 1,
+                )
+            }.exceptionOrNull() is IllegalArgumentException,
+        )
+        assertTrue(
+            runCatching {
+                TrainingUiState(
+                    "session",
+                    listOf(TrainingExerciseUi("id", "exercise", 1)),
+                    currentExerciseIndex = -1,
+                )
+            }.exceptionOrNull() is IllegalArgumentException,
+        )
     }
 
     @Test
@@ -166,6 +257,38 @@ class FitnessUiModelsTest {
 
         assertSame(first, second)
         assertEquals(1, createCount)
+    }
+
+    @Test
+    fun gifLoaderSingletonAlsoReusesTheValueAfterTwoCallersPassTheOuterCheck() {
+        val singleton = SharedInstance<Any>()
+        val start = java.util.concurrent.CountDownLatch(1)
+        val createCount = java.util.concurrent.atomic.AtomicInteger()
+        val values = java.util.Collections.synchronizedList(mutableListOf<Any>())
+        val callers = List(2) {
+            Thread {
+                start.await()
+                values += singleton.get {
+                    createCount.incrementAndGet()
+                    Any()
+                }
+            }
+        }
+
+        synchronized(singleton) {
+            callers.forEach(Thread::start)
+            start.countDown()
+            val deadline = System.nanoTime() + 2_000_000_000L
+            while (callers.any { it.state != Thread.State.BLOCKED } && System.nanoTime() < deadline) {
+                Thread.yield()
+            }
+            assertTrue(callers.all { it.state == Thread.State.BLOCKED })
+        }
+        callers.forEach { it.join(2_000L) }
+
+        assertEquals(1, createCount.get())
+        assertEquals(2, values.size)
+        assertSame(values.first(), values.last())
     }
 
     @Test

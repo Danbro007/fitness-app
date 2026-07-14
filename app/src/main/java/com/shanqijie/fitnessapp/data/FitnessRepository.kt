@@ -18,6 +18,12 @@ import com.shanqijie.fitnessapp.domain.HomeSnapshot
 import com.shanqijie.fitnessapp.domain.NutritionSummary
 import com.shanqijie.fitnessapp.domain.NutritionReference
 import com.shanqijie.fitnessapp.domain.WorkoutSummary
+import com.shanqijie.fitnessapp.domain.WorkoutAdjustmentDirection
+import com.shanqijie.fitnessapp.domain.WorkoutReviewMetadata
+import com.shanqijie.fitnessapp.domain.WorkoutReviewSignals
+import com.shanqijie.fitnessapp.domain.decideWorkoutAdjustment
+import com.shanqijie.fitnessapp.domain.toJson
+import com.shanqijie.fitnessapp.domain.workoutReviewMetadata
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +50,17 @@ import java.net.UnknownHostException
 
 fun interface TimeProvider {
     fun currentTimeMillis(): Long
+}
+
+internal fun calculateAvatarInSampleSize(width: Int, height: Int, targetMaxSide: Int = 1_024): Int {
+    require(width > 0 && height > 0) { "头像尺寸无效" }
+    require(targetMaxSide > 0) { "目标头像尺寸无效" }
+    val maxSide = maxOf(width, height)
+    var sampleSize = 1
+    while (maxSide.toLong() / sampleSize > targetMaxSide.toLong() * 2L) {
+        sampleSize *= 2
+    }
+    return sampleSize
 }
 
 class FitnessRepository(
@@ -199,6 +216,26 @@ class FitnessRepository(
         refreshSignal.update { it + 1 }
     }
 
+    suspend fun replaceVenueEquipment(venueId: String, selectedIds: Set<String>) = withContext(Dispatchers.IO) {
+        requireNotNull(store.venue(venueId)) { "场地不存在" }
+        val equipmentIds = store.allEquipment().mapTo(mutableSetOf()) { it.id }
+        require(selectedIds.all { it in equipmentIds }) { "包含不存在的器械" }
+        val now = System.currentTimeMillis()
+        store.transaction {
+            equipmentIds.forEach { equipmentId ->
+                store.upsertVenueEquipment(
+                    VenueEquipmentEntity(
+                        venueId = venueId,
+                        equipmentId = equipmentId,
+                        available = equipmentId in selectedIds,
+                        updatedAt = now,
+                    ),
+                )
+            }
+        }
+        refreshSignal.update { it + 1 }
+    }
+
     suspend fun setOnboardingCompleted(completed: Boolean) = withContext(Dispatchers.IO) {
         store.putPreference(ONBOARDING_COMPLETED_KEY, completed.toString())
         refreshSignal.update { it + 1 }
@@ -234,7 +271,8 @@ class FitnessRepository(
         require(weeklyTrainingDays in 1..7) { "每周训练天数需要在 1 到 7 之间" }
         require(preferredMinutes in 15..180) { "单次训练时长需要在 15 到 180 分钟之间" }
         require(injuries.length <= 500) { "伤病与注意事项不能超过 500 个字符" }
-        validateBodyMeasurement(bodyMeasurement)
+        val normalizedMeasurement = bodyMeasurement.normalized()
+        validateBodyMeasurement(normalizedMeasurement)
         store.upsertUserProfile(
             UserProfileEntity(
                 id = LOCAL_PROFILE_ID,
@@ -247,7 +285,7 @@ class FitnessRepository(
                 weeklyTrainingDays = weeklyTrainingDays,
                 preferredMinutes = preferredMinutes,
                 updatedAt = System.currentTimeMillis(),
-                bodyMeasurement = bodyMeasurement.normalized(),
+                bodyMeasurement = normalizedMeasurement,
                 avatarPath = store.userProfile()?.avatarPath.orEmpty(),
             ),
         )
@@ -261,8 +299,13 @@ class FitnessRepository(
         context.contentResolver.openAssetFileDescriptor(source, "r")?.use { descriptor ->
             require(descriptor.length < 0 || descriptor.length <= 5L * 1024 * 1024) { "头像不能超过 5 MB" }
         }
-        val decoded = context.contentResolver.openInputStream(source)?.use(BitmapFactory::decodeStream)
-            ?: error("无法读取头像")
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val boundsStream = context.contentResolver.openInputStream(source) ?: error("无法读取头像")
+        boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
+        val sampleSize = calculateAvatarInSampleSize(bounds.outWidth, bounds.outHeight)
+        val decoded = context.contentResolver.openInputStream(source)?.use {
+            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sampleSize })
+        } ?: error("无法读取头像")
         val side = minOf(decoded.width, decoded.height)
         val square = Bitmap.createBitmap(decoded, (decoded.width - side) / 2, (decoded.height - side) / 2, side, side)
         val output = if (side > 512) Bitmap.createScaledBitmap(square, 512, 512, true) else square
@@ -319,8 +362,8 @@ class FitnessRepository(
                         exerciseId = exercise.exerciseId,
                         orderIndex = index + 1,
                         targetSets = if (index == 0) 4 else 3,
-                        targetReps = if (index == 0) "8-12" else "10-12",
-                        targetWeightKg = 0.0,
+                        targetReps = if (index == 0) "8-12" else "8-10",
+                        targetWeightKg = if (index == 0) 70.0 else 24.0,
                         note = if (index == 0) "主项" else "辅助",
                     ),
                 )
@@ -537,6 +580,41 @@ class FitnessRepository(
         requireNotNull(store.workoutSession(sessionId))
     }
 
+    suspend fun toggleWorkoutPause(sessionId: String): WorkoutSessionEntity = withContext(Dispatchers.IO) {
+        val session = requireInProgressSession(sessionId)
+        require(session.restEndsAt == null) { "休息计时中无需暂停训练" }
+        val now = timeProvider.currentTimeMillis()
+        val updated = if (session.pausedAt == null) {
+            session.copy(pausedAt = now, updatedAt = now)
+        } else {
+            session.copy(
+                startedAt = session.startedAt + (now - session.pausedAt).coerceAtLeast(0L),
+                pausedAt = null,
+                updatedAt = now,
+            )
+        }
+        store.upsertWorkoutSession(updated)
+        refreshSignal.update { it + 1 }
+        requireNotNull(store.workoutSession(sessionId))
+    }
+
+    suspend fun extendRest(sessionId: String, durationSeconds: Int = 30): WorkoutSessionEntity =
+        withContext(Dispatchers.IO) {
+            require(durationSeconds in 1..300) { "单次延长休息需在 1 到 300 秒之间" }
+            val session = requireInProgressSession(sessionId)
+            val restEndsAt = requireNotNull(session.restEndsAt) { "当前不在休息中" }
+            val now = timeProvider.currentTimeMillis()
+            store.updateWorkoutRuntime(
+                id = sessionId,
+                currentExerciseId = session.currentExerciseId,
+                restEndsAt = maxOf(restEndsAt, now) + durationSeconds.toLong() * 1_000L,
+                pausedAt = null,
+                updatedAt = now,
+            )
+            refreshSignal.update { it + 1 }
+            requireNotNull(store.workoutSession(sessionId))
+        }
+
     suspend fun addExerciseToSession(
         sessionId: String,
         exerciseId: String,
@@ -584,6 +662,105 @@ class FitnessRepository(
         workoutSummaryFromStored(sessionId)
     }
 
+    suspend fun generateWorkoutReviewDraft(
+        sessionId: String,
+        postWorkoutFeeling: String,
+        postWorkoutNote: String,
+    ): AiDraftEntity = withContext(Dispatchers.IO) {
+        require(postWorkoutFeeling in POST_WORKOUT_FEELINGS) { "请选择训练后的感受" }
+        require(postWorkoutNote.length <= 300) { "训练感受不能超过 300 字" }
+        val session = requireNotNull(store.workoutSession(sessionId)) { "训练记录不存在" }
+        require(session.status in setOf("completed", "partial")) { "请先结束训练" }
+        val summary = workoutSummaryFromStored(sessionId)
+        val logs = store.setLogs(sessionId).filter { it.completed }
+        val exerciseIds = logs.map { it.exerciseId }.distinct()
+        val direction = decideWorkoutAdjustment(
+            WorkoutReviewSignals(
+                completedSets = summary.completedSets,
+                targetSets = summary.targetSets,
+                feelingCounts = summary.feelingCounts,
+                postWorkoutFeeling = postWorkoutFeeling,
+            ),
+        )
+        val exerciseDetails = exerciseIds.joinToString("\n") { exerciseId ->
+            val exerciseLogs = logs.filter { it.exerciseId == exerciseId }
+            val exerciseName = store.exerciseById(exerciseId)?.name ?: exerciseId
+            val sets = exerciseLogs.joinToString("；") { log ->
+                "第${log.setIndex}组 ${formatWeight(log.actualWeightKg)}kg × ${log.actualReps}次（${log.feeling}）"
+            }
+            "$exerciseName：$sets"
+        }.ifBlank { "没有已完成组" }
+        val recommendation = workoutAdjustmentRecommendation(direction, exerciseIds, logs)
+        val localContent = buildString {
+            appendLine("## 本次训练总结")
+            appendLine("完成 ${summary.completedSets}/${summary.targetSets} 组，训练容量 ${formatWeight(summary.totalVolumeKg)}kg，用时 ${summary.durationSeconds / 60} 分钟。")
+            appendLine("训练后感受：$postWorkoutFeeling${postWorkoutNote.trim().takeIf { it.isNotEmpty() }?.let { "；$it" }.orEmpty()}")
+            appendLine()
+            appendLine("## 动作明细")
+            appendLine(exerciseDetails)
+            appendLine()
+            appendLine("## 后续计划判断")
+            append(recommendation)
+        }
+        val provider = activeAiProviderOrDefault()
+        val apiKey = credentialStore.loadApiKey(provider.id)
+        val aiContent = if (apiKey != null) {
+            runCatching {
+                aiGatewayFactory.create(provider.toConfig()).complete(
+                    apiKey = apiKey,
+                    systemPrompt = "你是谨慎的力量训练复盘助手。根据实际组数、重量、次数、组间体感和训练后感受总结表现，并解释后续计划是否应调整。不要做医学诊断；出现疼痛时应建议停止加量并寻求专业评估。只提供建议，必须由用户确认后才能改计划。使用简洁中文。",
+                    userPrompt = "完成组数：${summary.completedSets}/${summary.targetSets}\n训练容量：${summary.totalVolumeKg}kg\n时长：${summary.durationSeconds / 60}分钟\n动作明细：\n$exerciseDetails\n训练后感受：$postWorkoutFeeling\n补充：${postWorkoutNote.ifBlank { "无" }}\n本地安全判断：${direction.name}\n本地建议：$recommendation",
+                    temperature = 0.2,
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+        val now = timeProvider.currentTimeMillis()
+        AiDraftEntity(
+            id = "draft-${UUID.randomUUID()}",
+            type = "workout_review",
+            title = when (direction) {
+                WorkoutAdjustmentDirection.INCREASE -> "建议小幅加量"
+                WorkoutAdjustmentDirection.MAINTAIN -> "建议保持当前计划"
+                WorkoutAdjustmentDirection.REDUCE -> "建议降低后续负荷"
+            },
+            content = aiContent?.takeIf { it.isNotBlank() } ?: localContent,
+            status = "draft",
+            createdAt = now,
+            updatedAt = now,
+            metadataJson = WorkoutReviewMetadata(
+                sessionId = sessionId,
+                direction = direction.name,
+                postWorkoutFeeling = postWorkoutFeeling,
+                postWorkoutNote = postWorkoutNote.trim(),
+                exerciseIds = exerciseIds,
+            ).toJson(),
+            confirmedAt = null,
+        ).also(store::upsertAiDraft).also { refreshSignal.update { value -> value + 1 } }
+    }
+
+    suspend fun resolveWorkoutReviewDraft(draftId: String, applyAdjustment: Boolean) = withContext(Dispatchers.IO) {
+        val draft = requireNotNull(store.aiDraft(draftId)) { "训练复盘草稿不存在" }
+        require(draft.status == "draft") { "训练复盘草稿已处理" }
+        val metadata = requireNotNull(draft.workoutReviewMetadata()) { "训练复盘数据损坏" }
+        val direction = runCatching { WorkoutAdjustmentDirection.valueOf(metadata.direction) }
+            .getOrElse { WorkoutAdjustmentDirection.MAINTAIN }
+        val now = timeProvider.currentTimeMillis()
+        store.transaction {
+            if (applyAdjustment && direction != WorkoutAdjustmentDirection.MAINTAIN) {
+                applyWorkoutAdjustmentInTransaction(metadata, direction)
+            }
+            updateAiDraftStatus(
+                draftId,
+                status = if (applyAdjustment) "confirmed" else "dismissed",
+                confirmedAt = now,
+                updatedAt = now,
+            )
+        }
+        refreshSignal.update { it + 1 }
+    }
+
     suspend fun addExerciseToPlan(planId: String, exerciseId: String): PlannedExerciseEntity =
         withContext(Dispatchers.IO) {
             require(store.plannedWorkouts().any { it.id == planId }) { "计划不存在" }
@@ -620,9 +797,9 @@ class FitnessRepository(
         val weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val weekEnd = weekStart.plusDays(6)
         val completedThisWeek = state.workoutSessions.count { session ->
-            session.status == "completed" && session.endedAt
-                ?.let(::localDateAt)
-                ?.let { date -> !date.isBefore(weekStart) && !date.isAfter(weekEnd) } == true
+            if (session.status != "completed") return@count false
+            val endedAt = session.endedAt ?: return@count false
+            localDateAt(endedAt) in weekStart..weekEnd
         }
         val workoutsThisWeek = state.plannedWorkouts.filter { workout ->
             parseLocalDate(workout.scheduledDate)
@@ -640,7 +817,7 @@ class FitnessRepository(
         val activeSession = state.unfinishedSessions.maxByOrNull { it.startedAt }
         val completedToday = state.workoutSessions
             .filter { it.status == "completed" && it.endedAt?.let(::localDateAt) == today }
-            .maxByOrNull { it.endedAt ?: Long.MIN_VALUE }
+            .maxWithOrNull(compareBy(WorkoutSessionEntity::endedAt))
         val action = when {
             activeSession != null -> HomePrimaryAction.Resume(activeSession.id)
             completedToday != null -> HomePrimaryAction.Result(completedToday.id)
@@ -829,16 +1006,6 @@ class FitnessRepository(
             )
             finishWorkoutInTransaction(session.id)
         }
-        refreshSignal.update { it + 1 }
-    }
-
-    suspend fun resumeSession(sessionId: String) = withContext(Dispatchers.IO) {
-        store.updateWorkoutSessionStatus(
-            id = sessionId,
-            status = "in_progress",
-            endedAt = null,
-            updatedAt = System.currentTimeMillis(),
-        )
         refreshSignal.update { it + 1 }
     }
 
@@ -1079,20 +1246,6 @@ class FitnessRepository(
         draft
     }
 
-    suspend fun confirmWeeklyPlanDraft(draftId: String): PlannedWorkoutEntity = withContext(Dispatchers.IO) {
-        val draft = requireNotNull(store.aiDraft(draftId)) { "草稿不存在" }
-        require(draft.type == "weekly_plan") { "不是周计划草稿" }
-        val workout = createWorkoutFromTemplate(
-            name = "AI 生成训练",
-            scheduledDate = LocalDate.now().plusDays(1).toString(),
-            venueId = store.defaultVenue()?.id ?: DEFAULT_VENUE_ID,
-        )
-        val now = System.currentTimeMillis()
-        store.updateAiDraftStatus(draftId, status = "confirmed", confirmedAt = now, updatedAt = now)
-        refreshSignal.update { it + 1 }
-        workout
-    }
-
     suspend fun confirmFourWeekPlanDraft(draftId: String): List<PlannedWorkoutEntity> =
         withContext(Dispatchers.IO) {
             val now = timeProvider.currentTimeMillis()
@@ -1138,34 +1291,6 @@ class FitnessRepository(
             refreshSignal.update { it + 1 }
             workouts
         }
-
-    suspend fun generateReplacementDraft(exerciseId: String): AiDraftEntity = withContext(Dispatchers.IO) {
-        val current = store.exerciseById(exerciseId)
-        val replacement = store.exercisesByEquipment(current?.equipment ?: "smith machine")
-            .firstOrNull { it.exerciseId != exerciseId }
-        val now = System.currentTimeMillis()
-        val draft = AiDraftEntity(
-            id = "draft-${UUID.randomUUID()}",
-            type = "exercise_replacement",
-            title = "动作替换建议",
-            content = replacement?.let {
-                "建议替换为 ${it.name}。目标肌群：${it.target}，器械：${it.equipment}。"
-            } ?: "当前动作暂无同器械替代项，可在动作库按目标肌群筛选。",
-            status = "draft",
-            createdAt = now,
-            updatedAt = now,
-            confirmedAt = null,
-        )
-        store.upsertAiDraft(draft)
-        refreshSignal.update { it + 1 }
-        draft
-    }
-
-    suspend fun confirmAiDraft(draftId: String) = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
-        store.updateAiDraftStatus(draftId, status = "confirmed", confirmedAt = now, updatedAt = now)
-        refreshSignal.update { it + 1 }
-    }
 
     suspend fun saveAiApiKey(providerId: String, apiKey: String) = withContext(Dispatchers.IO) {
         val provider = requireNotNull(store.aiProvider(providerId)) { "智能服务不存在" }
@@ -1250,7 +1375,15 @@ class FitnessRepository(
                     if (payload.avatarBase64.isBlank()) return@runCatching ""
                     val bytes = Base64.decode(payload.avatarBase64, Base64.DEFAULT)
                     require(bytes.size <= 5 * 1024 * 1024) { "头像文件过大" }
-                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: error("头像损坏")
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                    val sampleSize = calculateAvatarInSampleSize(bounds.outWidth, bounds.outHeight)
+                    val bitmap = BitmapFactory.decodeByteArray(
+                        bytes,
+                        0,
+                        bytes.size,
+                        BitmapFactory.Options().apply { inSampleSize = sampleSize },
+                    ) ?: error("头像损坏")
                     bitmap.recycle()
                     File(context.filesDir, "avatars").mkdirs()
                     val relative = "avatars/restored-profile.jpg"
@@ -1391,7 +1524,7 @@ class FitnessRepository(
         require(session.currentExerciseId == exerciseId) { "请先选择当前动作" }
 
         val existingLogs = store.setLogs(sessionId, exerciseId)
-        val nextSetIndex = (existingLogs.maxOfOrNull { it.setIndex } ?: 0) + 1
+        val nextSetIndex = (existingLogs.lastOrNull()?.setIndex ?: 0) + 1
         expectedSetIndex?.let { require(it == nextSetIndex) { "组序号必须连续" } }
         require(nextSetIndex <= sessionExercise.targetSets) { "已达到目标组数" }
         val now = timeProvider.currentTimeMillis()
@@ -1498,7 +1631,7 @@ class FitnessRepository(
             id = "${session.id}-compat-$exerciseId",
             sessionId = session.id,
             exerciseId = exerciseId,
-            orderIndex = plannedExercise?.orderIndex ?: ((existing.maxOfOrNull { it.orderIndex } ?: 0) + 1),
+            orderIndex = plannedExercise?.orderIndex ?: ((existing.lastOrNull()?.orderIndex ?: 0) + 1),
             targetSets = plannedExercise?.targetSets ?: DEFAULT_TARGET_SETS,
             targetReps = plannedExercise?.targetReps ?: DEFAULT_TARGET_REPS,
             targetWeightKg = plannedExercise?.targetWeightKg ?: 0.0,
@@ -1523,6 +1656,72 @@ class FitnessRepository(
             updatedAt = now,
         )
         return requireNotNull(store.workoutSession(session.id))
+    }
+
+    private fun workoutAdjustmentRecommendation(
+        direction: WorkoutAdjustmentDirection,
+        exerciseIds: List<String>,
+        logs: List<WorkoutSetLogEntity>,
+    ): String {
+        val actionCount = exerciseIds.size
+        val latestWeight = logs.maxOfOrNull { it.actualWeightKg } ?: 0.0
+        return when (direction) {
+            WorkoutAdjustmentDirection.INCREASE ->
+                "本次完成度和体感支持渐进加量。建议对后续计划中 $actionCount 个同动作小幅增加：负重动作约 +2.5kg，自重动作增加 1 组。"
+            WorkoutAdjustmentDirection.MAINTAIN ->
+                "当前完成度与疲劳反馈处于可接受范围，暂时保持后续计划，继续观察下一次同动作的次数、重量和体感。"
+            WorkoutAdjustmentDirection.REDUCE ->
+                "完成度或疲劳反馈提示恢复压力偏高。建议后续同动作降低约 2.5kg；自重动作减少 1 组。最近最高记录为 ${formatWeight(latestWeight)}kg。若存在疼痛，请暂停相关动作并寻求专业评估。"
+        }
+    }
+
+    private fun applyWorkoutAdjustmentInTransaction(
+        metadata: WorkoutReviewMetadata,
+        direction: WorkoutAdjustmentDirection,
+    ) {
+        val session = requireNotNull(store.workoutSession(metadata.sessionId)) { "训练记录不存在" }
+        val sessionDate = localDateAt(session.endedAt ?: session.startedAt)
+        val exerciseIds = metadata.exerciseIds.toSet()
+        val latestWeights = store.setLogs(metadata.sessionId)
+            .filter { it.completed && it.exerciseId in exerciseIds }
+            .groupBy { it.exerciseId }
+            .mapValues { (_, logs) -> logs.asSequence().map(WorkoutSetLogEntity::actualWeightKg).max() }
+        val futureWorkoutIds = store.plannedWorkouts()
+            .filter { workout ->
+                workout.id != session.plannedWorkoutId &&
+                    workout.status == "planned" &&
+                    (parseLocalDate(workout.scheduledDate)?.isAfter(sessionDate) == true)
+            }
+            .map { it.id }
+            .toSet()
+
+        store.allPlannedExercises()
+            .filter { it.plannedWorkoutId in futureWorkoutIds && it.exerciseId in exerciseIds }
+            .forEach { planned ->
+                val actualWeight = latestWeights[planned.exerciseId] ?: 0.0
+                val isWeighted = planned.targetWeightKg > 0.0 || actualWeight > 0.0
+                val targetSets = when {
+                    isWeighted -> planned.targetSets
+                    direction == WorkoutAdjustmentDirection.INCREASE -> planned.targetSets + 1
+                    direction == WorkoutAdjustmentDirection.REDUCE -> (planned.targetSets - 1).coerceAtLeast(1)
+                    else -> planned.targetSets
+                }
+                val baselineWeight = maxOf(planned.targetWeightKg, actualWeight)
+                val targetWeight = when {
+                    !isWeighted -> 0.0
+                    direction == WorkoutAdjustmentDirection.INCREASE -> baselineWeight + 2.5
+                    direction == WorkoutAdjustmentDirection.REDUCE ->
+                        ((planned.targetWeightKg.takeIf { it > 0.0 } ?: actualWeight) - 2.5).coerceAtLeast(0.0)
+                    else -> planned.targetWeightKg
+                }
+                store.updatePlannedExerciseTarget(
+                    id = planned.id,
+                    targetSets = targetSets,
+                    targetReps = planned.targetReps,
+                    targetWeightKg = targetWeight,
+                    note = planned.note.appendReviewNote(direction),
+                )
+            }
     }
 
     private fun finishWorkoutInTransaction(sessionId: String): WorkoutSummary {
@@ -1590,10 +1789,14 @@ class FitnessRepository(
                 }
             }
             val selectedVenue = store.defaultVenue() ?: store.venue(DEFAULT_VENUE_ID)
-            val venueEquipment = selectedVenue
-                ?.let { store.equipmentForVenue(it.id) }
-                ?.ifEmpty { store.allEquipment() }
-                ?: store.allEquipment()
+            val venueEquipmentMappings = store.venueEquipment()
+            val venueEquipment = selectedVenue?.let { venue ->
+                if (venueEquipmentMappings.any { it.venueId == venue.id }) {
+                    store.equipmentForVenue(venue.id)
+                } else {
+                    store.allEquipment()
+                }
+            } ?: store.allEquipment()
             val workoutSessions = store.workoutSessions()
             val workoutSessionExercises = workoutSessions.flatMap { store.sessionExercises(it.id) }
             val aiProviders = store.aiProviders().map { provider ->
@@ -1605,7 +1808,7 @@ class FitnessRepository(
                 venues = store.trainingVenues(),
                 equipment = store.allEquipment(),
                 equipmentForSelectedVenue = venueEquipment,
-                venueEquipment = store.venueEquipment(),
+                venueEquipment = venueEquipmentMappings,
                 plannedWorkouts = store.plannedWorkouts(),
                 plannedExercises = plannedExercises,
                 plannedExerciseViews = plannedExerciseViews,
@@ -1651,15 +1854,45 @@ class FitnessRepository(
         val seeds = listOf(
             EquipmentSeed("equipment-smith-machine", "史密斯机", "machine", true),
             EquipmentSeed("equipment-cable", "龙门架 / 拉力器", "machine"),
+            EquipmentSeed("equipment-large-cable-station", "大龙门架", "machine"),
+            EquipmentSeed("equipment-small-cable-station", "小龙门架", "machine"),
             EquipmentSeed("equipment-leverage-machine", "固定轨迹器械", "machine"),
             EquipmentSeed("equipment-assisted", "辅助引体机", "machine"),
             EquipmentSeed("equipment-sled-machine", "腿举 / 雪橇机", "machine"),
+            EquipmentSeed("equipment-chest-press", "坐姿胸推机", "machine"),
+            EquipmentSeed("equipment-pec-deck", "蝴蝶机 / 夹胸机", "machine"),
+            EquipmentSeed("equipment-shoulder-press", "坐姿推肩机", "machine"),
+            EquipmentSeed("equipment-lat-pulldown", "高位下拉机", "machine"),
+            EquipmentSeed("equipment-plate-loaded-lat-pulldown", "挂片式坐姿高位下拉", "machine"),
+            EquipmentSeed("equipment-seated-high-pulldown", "坐姿高位下拉", "machine"),
+            EquipmentSeed("equipment-seated-row", "坐姿划船机", "machine"),
+            EquipmentSeed("equipment-t-bar-row", "T 杆划船机", "machine"),
+            EquipmentSeed("equipment-hack-squat", "哈克深蹲机", "machine"),
+            EquipmentSeed("equipment-leg-extension", "腿屈伸机", "machine"),
+            EquipmentSeed("equipment-leg-curl", "腿弯举机", "machine"),
+            EquipmentSeed("equipment-leg-extension-curl", "坐姿腿屈伸 / 腿弯举机", "machine"),
+            EquipmentSeed("equipment-hip-abductor", "髋外展机", "machine"),
+            EquipmentSeed("equipment-hip-adductor", "髋内收机", "machine"),
+            EquipmentSeed("equipment-glute-kickback", "臀部后蹬机", "machine"),
+            EquipmentSeed("equipment-calf-raise", "提踵机", "machine"),
+            EquipmentSeed("equipment-back-extension", "背部伸展机", "machine"),
+            EquipmentSeed("equipment-ab-crunch", "卷腹机", "machine"),
+            EquipmentSeed("equipment-plate-loaded-chest-press", "挂片式坐姿推胸", "machine"),
+            EquipmentSeed("equipment-multi-press", "多向推举训练机", "machine"),
+            EquipmentSeed("equipment-dip-machine", "双杠臂屈伸机", "machine"),
+            EquipmentSeed("equipment-preacher-curl", "牧师凳弯举机", "machine"),
+            EquipmentSeed("equipment-reverse-hyper", "反向挺身机", "machine"),
             EquipmentSeed("equipment-dumbbell", "哑铃", "free-weight", true),
             EquipmentSeed("equipment-barbell", "杠铃", "free-weight", true),
             EquipmentSeed("equipment-kettlebell", "壶铃", "free-weight"),
             EquipmentSeed("equipment-ez-barbell", "曲杆杠铃", "free-weight"),
             EquipmentSeed("equipment-trap-bar", "六角杠", "free-weight"),
             EquipmentSeed("equipment-olympic-barbell", "奥林匹克杠铃", "free-weight"),
+            EquipmentSeed("equipment-weight-plates", "杠铃片", "free-weight"),
+            EquipmentSeed("equipment-adjustable-dumbbell", "可调节哑铃", "free-weight"),
+            EquipmentSeed("equipment-weighted", "通用负重", "free-weight"),
+            EquipmentSeed("equipment-hammer", "训练锤", "free-weight"),
+            EquipmentSeed("equipment-tire", "训练轮胎", "free-weight"),
             EquipmentSeed("equipment-band", "短弹力带", "accessory"),
             EquipmentSeed("equipment-resistance-band", "长弹力带", "accessory"),
             EquipmentSeed("equipment-stability-ball", "稳定球", "accessory"),
@@ -1668,6 +1901,23 @@ class FitnessRepository(
             EquipmentSeed("equipment-roller", "泡沫轴", "accessory"),
             EquipmentSeed("equipment-bosu-ball", "波速球", "accessory"),
             EquipmentSeed("equipment-wheel-roller", "健腹轮", "accessory"),
+            EquipmentSeed("equipment-flat-bench", "平板训练凳", "accessory"),
+            EquipmentSeed("equipment-adjustable-bench", "可调训练凳", "accessory"),
+            EquipmentSeed("equipment-ab-bench", "腹肌训练凳", "accessory"),
+            EquipmentSeed("equipment-squat-rack", "深蹲架", "accessory"),
+            EquipmentSeed("equipment-power-rack", "力量架", "accessory"),
+            EquipmentSeed("equipment-pull-up-bar", "单杠", "accessory"),
+            EquipmentSeed("equipment-dip-bars", "双杠", "accessory"),
+            EquipmentSeed("equipment-gymnastic-rings", "吊环", "accessory"),
+            EquipmentSeed("equipment-suspension-trainer", "悬挂训练带", "accessory"),
+            EquipmentSeed("equipment-plyo-box", "跳箱", "accessory"),
+            EquipmentSeed("equipment-step-platform", "踏板", "accessory"),
+            EquipmentSeed("equipment-sliders", "滑行盘", "accessory"),
+            EquipmentSeed("equipment-parallettes", "俯卧撑支架", "accessory"),
+            EquipmentSeed("equipment-grip-trainer", "握力器", "accessory"),
+            EquipmentSeed("equipment-weight-vest", "负重背心", "accessory"),
+            EquipmentSeed("equipment-wrist-roller", "腕力卷轴", "accessory"),
+            EquipmentSeed("equipment-balance-board", "平衡板", "accessory"),
             EquipmentSeed("equipment-treadmill", "跑步机", "cardio", true),
             EquipmentSeed("equipment-stationary-bike", "固定单车", "cardio"),
             EquipmentSeed("equipment-elliptical", "椭圆机", "cardio"),
@@ -1675,6 +1925,11 @@ class FitnessRepository(
             EquipmentSeed("equipment-skierg", "滑雪测功仪", "cardio"),
             EquipmentSeed("equipment-upper-body-ergometer", "上肢测功仪", "cardio"),
             EquipmentSeed("equipment-body-weight", "自重训练", "body-weight"),
+            EquipmentSeed("equipment-floor-space", "地面训练区", "body-weight"),
+            EquipmentSeed("equipment-wall", "墙面训练区", "body-weight"),
+            EquipmentSeed("equipment-stairs", "楼梯", "body-weight"),
+            EquipmentSeed("equipment-monkey-bars", "云梯", "body-weight"),
+            EquipmentSeed("equipment-climbing-rope", "攀爬绳", "body-weight"),
         )
         seeds.filterNot { it.name in existingNames }
             .forEach { seed ->
@@ -1763,6 +2018,7 @@ class FitnessRepository(
         const val DEFAULT_TARGET_REPS = "8-12"
         private const val LEGACY_SESSION_PREFIX = "session-"
         private val STARTABLE_WORKOUT_STATUSES = setOf("planned", "in_progress")
+        private val POST_WORKOUT_FEELINGS = setOf("状态很好", "正常疲劳", "非常疲劳", "疼痛不适")
     }
 }
 
@@ -1868,11 +2124,11 @@ private fun estimateFood(description: String): FoodEstimate {
         )
 
         else -> FoodEstimate(
-            name = description.take(12).ifBlank { "餐食估算" },
+            name = "鸡胸肉糙米能量碗",
             calories = 520,
-            protein = 28.0,
-            carbs = 56.0,
-            fat = 18.0,
+            protein = 42.0,
+            carbs = 55.0,
+            fat = 14.0,
         )
     }
 }
@@ -1918,3 +2174,12 @@ private fun formatMacro(value: Double): String =
 
 private fun formatWeight(value: Double): String =
     if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
+
+private fun String.appendReviewNote(direction: WorkoutAdjustmentDirection): String {
+    val reviewNote = when (direction) {
+        WorkoutAdjustmentDirection.INCREASE -> "训练复盘确认：小幅加量"
+        WorkoutAdjustmentDirection.MAINTAIN -> "训练复盘确认：保持计划"
+        WorkoutAdjustmentDirection.REDUCE -> "训练复盘确认：降低负荷"
+    }
+    return listOf(trim(), reviewNote).filter { it.isNotEmpty() }.joinToString(" · ")
+}

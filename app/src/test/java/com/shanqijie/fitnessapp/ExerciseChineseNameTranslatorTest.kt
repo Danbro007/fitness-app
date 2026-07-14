@@ -3,6 +3,8 @@ package com.shanqijie.fitnessapp
 import com.shanqijie.fitnessapp.domain.ExerciseChineseNameTranslator
 import com.shanqijie.fitnessapp.domain.ExerciseManifestParser
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -23,6 +25,20 @@ class ExerciseChineseNameTranslatorTest {
         assertChinese("自由重量", ExerciseChineseNameTranslator.translate("free-weight"))
         assertChinese("有氧", ExerciseChineseNameTranslator.translate("cardio"))
         assertChinese("自定义", ExerciseChineseNameTranslator.translate("custom"))
+    }
+
+    @Test
+    fun preservesChineseAndHandlesBlankIgnoredAndNumericTokens() {
+        assertEquals("训练动作", ExerciseChineseNameTranslator.translate("   "))
+        assertEquals("杠铃深蹲", ExerciseChineseNameTranslator.translate("  杠铃深蹲  "))
+        assertTrue(ExerciseChineseNameTranslator.translate("curl 12").contains("12"))
+
+        val token = ExerciseChineseNameTranslator::class.java.declaredMethods
+            .single { it.name == "translateToken" }
+            .apply { isAccessible = true }
+        assertNull(token.invoke(ExerciseChineseNameTranslator, ""))
+        assertNull(token.invoke(ExerciseChineseNameTranslator, "and"))
+        assertEquals("12", token.invoke(ExerciseChineseNameTranslator, "12"))
     }
 
     @Test

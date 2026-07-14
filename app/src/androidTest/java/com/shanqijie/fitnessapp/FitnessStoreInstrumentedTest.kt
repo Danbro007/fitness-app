@@ -1,6 +1,7 @@
 package com.shanqijie.fitnessapp
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import com.shanqijie.fitnessapp.data.AiProviderEntity
 import com.shanqijie.fitnessapp.data.BodyMeasurement
@@ -22,11 +23,82 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
 
 class FitnessStoreInstrumentedTest {
     private lateinit var context: Context
+
+    @Test
+    fun databaseSingletonHandlesFirstRepeatedAndContendedAccess() {
+        val instanceField = FitnessDatabase::class.java.getDeclaredField("instance").apply {
+            isAccessible = true
+        }
+        (instanceField.get(null) as? FitnessDatabase)?.close()
+        instanceField.set(null, null)
+        val started = CountDownLatch(2)
+        val results = Collections.synchronizedList(mutableListOf<FitnessDatabase>())
+        val workers = synchronized(FitnessDatabase.Companion) {
+            List(2) {
+                Thread {
+                    started.countDown()
+                    results += FitnessDatabase.get(context)
+                }.apply { start() }
+            }.also { started.await() }
+        }
+        workers.forEach(Thread::join)
+
+        assertEquals(2, results.size)
+        assertTrue(results[0] === results[1])
+        assertTrue(results[0] === FitnessDatabase.get(context))
+        results[0].close()
+        instanceField.set(null, null)
+
+        SQLiteDatabase.create(null).use { memoryDb ->
+            FitnessDatabase(context, "no-upgrade-${System.nanoTime()}.db").use { helper ->
+                helper.onUpgrade(memoryDb, 9, 9)
+            }
+        }
+    }
+
+    @Test
+    fun versionOneEmptyDatabaseRunsEveryHistoricalAdditiveMigration() {
+        val legacyName = "fitness-v1-${System.nanoTime()}.db"
+        context.deleteDatabase(legacyName)
+        context.openOrCreateDatabase(legacyName, Context.MODE_PRIVATE, null).use { raw ->
+            raw.version = 1
+        }
+
+        val upgraded = FitnessDatabase(context, legacyName)
+        try {
+            val database = upgraded.readableDatabase
+            assertEquals(9, database.version)
+            val tables = database.rawQuery(
+                "SELECT name FROM sqlite_master WHERE type = 'table'",
+                emptyArray(),
+            ).use { cursor ->
+                buildSet {
+                    while (cursor.moveToNext()) add(cursor.getString(0))
+                }
+            }
+            assertTrue("food_log" in tables)
+            assertTrue("ai_draft" in tables)
+            assertTrue("workout_session_exercise" in tables)
+            val foodColumns = database.rawQuery("PRAGMA table_info(food_log)", emptyArray()).use { cursor ->
+                buildSet {
+                    val nameIndex = cursor.getColumnIndexOrThrow("name")
+                    while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+                }
+            }
+            assertTrue(setOf("image_uri", "provider_id", "model").all { it in foodColumns })
+        } finally {
+            upgraded.close()
+            context.deleteDatabase(legacyName)
+        }
+    }
 
     @Test
     fun versionEightProfileMigratesToBmiAndAvatarWithoutLosingLegacyData() {
@@ -113,6 +185,18 @@ class FitnessStoreInstrumentedTest {
         assertNotNull(store.exerciseById("0748"))
         assertEquals(1, store.completedSetCount("session-1"))
         assertEquals("合适", store.setLogs("session-1").single().feeling)
+    }
+
+    @Test
+    fun emptyMediaBatchNestedTransactionAndMissingDraftAreSafe() {
+        store.upsertExerciseMedia(emptyList())
+        val result = store.transaction {
+            transaction { "nested-result" }
+        }
+
+        assertEquals("nested-result", result)
+        assertEquals(0, store.exerciseMediaCount())
+        assertNull(store.aiDraft("missing-draft"))
     }
 
     @Test

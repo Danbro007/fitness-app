@@ -3,23 +3,27 @@ package com.shanqijie.fitnessapp.ui.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +33,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,12 +46,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.shanqijie.fitnessapp.ai.AiTestResult
 import com.shanqijie.fitnessapp.ai.AiProviderCatalog
@@ -71,118 +80,77 @@ fun VenueSettingsScreen(
     equipment: List<EquipmentEntity>,
     enabledEquipmentIds: Set<String>,
     onRenameVenue: suspend (String) -> Unit,
-    onAddVenue: suspend (String) -> Unit,
-    onSetDefaultVenue: suspend (String) -> Unit,
-    onToggleEquipment: suspend (String, Boolean) -> Unit,
-    modifier: Modifier = Modifier,
+    onOpenEquipmentFilter: () -> Unit,
+    modifier: Modifier,
 ) {
-    var venueName by rememberSaveable(currentVenue?.updatedAt) { mutableStateOf(currentVenue?.name.orEmpty()) }
-    var newVenueName by rememberSaveable { mutableStateOf("") }
+    val initialVenueName = currentVenue?.name ?: ""
+    var venueName by rememberSaveable(currentVenue?.updatedAt) { mutableStateOf(initialVenueName) }
     var busy by rememberSaveable { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
     SettingsColumn(modifier.testTag(SettingsTags.VenueScreen)) {
-        FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
-            Text("当前场地", style = MaterialTheme.typography.headlineSmall)
-            OutlinedTextField(
-                value = venueName,
-                onValueChange = { venueName = it; message = null },
-                label = { Text("场地名称") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            FitnessPrimaryButton(
-                text = "保存场地名称",
-                enabled = !busy && currentVenue != null,
-                onClick = {
-                    runSettingAction(coroutineScope, { busy = it }, { message = it }) {
-                        onRenameVenue(venueName)
-                    }
-                },
-            )
-        }
-        FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
-            Text("场地列表", style = MaterialTheme.typography.headlineSmall)
-            venues.forEach { venue ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = FitnessDimensions.MinimumTouchTarget),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(venue.name, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
-                        Text(if (venue.isDefault) "默认场地" else "可设为默认", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    if (!venue.isDefault) {
-                        TextButton(
-                            onClick = {
-                                runSettingAction(coroutineScope, { busy = it }, { message = it }) {
-                                    onSetDefaultVenue(venue.id)
-                                }
-                            },
-                        ) { Text("设为默认") }
-                    }
-                }
-            }
-            OutlinedTextField(
-                value = newVenueName,
-                onValueChange = { newVenueName = it; message = null },
-                label = { Text("新场地") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedButton(
-                onClick = {
-                    runSettingAction(coroutineScope, { busy = it }, { message = it }) {
-                        onAddVenue(newVenueName)
-                        newVenueName = ""
-                    }
-                },
-                enabled = !busy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = FitnessDimensions.MinimumTouchTarget),
-            ) { Text("添加场地") }
-        }
-        FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
-            Text("可用器械", style = MaterialTheme.typography.headlineSmall)
-            equipment.groupBy { it.category }
-                .toSortedMap(compareBy(::equipmentCategoryOrder))
-                .forEach { (category, items) ->
-                    Text(equipmentCategoryLabel(category), color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
-                    items.forEach { item ->
-                        Row(
+        SettingsSoftTextField(
+            label = "当前训练场地",
+            value = venueName,
+            onValueChange = { venueName = it; message = null },
+        )
+        SettingsSectionHeader("可用器械", "已选 ${enabledEquipmentIds.size} 项")
+        equipment.sortedWith(
+            compareByDescending<EquipmentEntity> { it.id in enabledEquipmentIds }
+                .thenBy { venueEquipmentOrder(it.id) }
+                .thenBy { it.name },
+        )
+            .take(6)
+            .chunked(3)
+            .forEach { rowItems ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    rowItems.forEach { item ->
+                        val selected = item.id in enabledEquipmentIds
+                        Surface(
+                            onClick = onOpenEquipmentFilter,
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = FitnessDimensions.MinimumTouchTarget)
-                                .clickable(enabled = currentVenue != null && !busy) {
-                                    runSettingAction(coroutineScope, { busy = it }, { message = it }) {
-                                        onToggleEquipment(item.id, item.id !in enabledEquipmentIds)
-                                    }
-                                },
-                            verticalAlignment = Alignment.CenterVertically,
+                                .weight(1f)
+                                .height(90.dp)
+                                .border(
+                                    width = if (selected) 2.dp else 0.dp,
+                                    color = if (selected) FitnessColors.Orange else Color.Transparent,
+                                    shape = RoundedCornerShape(22.dp),
+                                ),
+                            shape = RoundedCornerShape(22.dp),
+                            color = FitnessColors.SurfaceStrong,
+                            shadowElevation = if (selected) 3.dp else 6.dp,
                         ) {
-                            Checkbox(
-                                checked = item.id in enabledEquipmentIds,
-                                onCheckedChange = { enabled ->
-                                    if (currentVenue != null && !busy) {
-                                        runSettingAction(coroutineScope, { busy = it }, { message = it }) {
-                                            onToggleEquipment(item.id, enabled)
-                                        }
-                                    }
-                                },
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(item.name, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
-                                Text(ExerciseChineseNameTranslator.translate(item.category), style = MaterialTheme.typography.bodyMedium)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                Text(item.name, color = FitnessColors.Ink, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                                if (selected) Text("已选择", color = FitnessColors.Muted, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
+                    repeat(3 - rowItems.size) { androidx.compose.foundation.layout.Spacer(Modifier.weight(1f)) }
                 }
+            }
+        OutlinedButton(
+            onClick = onOpenEquipmentFilter,
+            modifier = Modifier.fillMaxWidth().heightIn(min = FitnessDimensions.MinimumTouchTarget),
+            shape = RoundedCornerShape(22.dp),
+        ) {
+            Text("搜索并筛选全部器械")
         }
+        SettingsSectionHeader("排课规则", "自动约束")
+        FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+            SettingToggleRow("优先使用已选器械", "避免生成现场无法执行的动作", true)
+            SettingToggleRow("允许徒手替代", "器械占用时提供替代动作", true)
+        }
+        FitnessPrimaryButton(
+            text = "保存场地设置",
+            enabled = !busy && currentVenue != null,
+            onClick = {
+                runSettingAction(coroutineScope, { busy = it }, { message = it }) {
+                    onRenameVenue(venueName)
+                }
+            },
+        )
         message?.let { SettingsMessage(it) }
     }
 }
@@ -196,6 +164,188 @@ private fun equipmentCategoryOrder(category: String): Int = when (category) {
     else -> 5
 }
 
+@Composable
+fun EquipmentFilterScreen(
+    equipment: List<EquipmentEntity>,
+    enabledEquipmentIds: Set<String>,
+    onSave: suspend (Set<String>) -> Unit,
+    modifier: Modifier,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedIds by rememberSaveable(enabledEquipmentIds) {
+        mutableStateOf(enabledEquipmentIds.sorted())
+    }
+    var busy by rememberSaveable { mutableStateOf(false) }
+    var message by rememberSaveable { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    val normalizedQuery = query.trim()
+    val visibleEquipment = remember(equipment, normalizedQuery, selectedCategory) {
+        equipment
+            .asSequence()
+            .filter { selectedCategory == null || it.category == selectedCategory }
+            .filter { item ->
+                normalizedQuery.isBlank() ||
+                    equipmentSearchKeywords(item).any { keyword ->
+                        keyword.contains(normalizedQuery, ignoreCase = true)
+                    }
+            }
+            .sortedWith(compareBy<EquipmentEntity> { equipmentCategoryOrder(it.category) }.thenBy { it.name })
+            .toList()
+    }
+    val categories = remember(equipment) {
+        equipment.map { it.category }.distinct().sortedBy(::equipmentCategoryOrder)
+    }
+
+    SettingsColumn(modifier.testTag(SettingsTags.EquipmentFilterScreen)) {
+        androidx.compose.foundation.layout.Box(Modifier.testTag(SettingsTags.EquipmentSearch)) {
+            SettingsSoftTextField(
+                label = "搜索器械",
+                value = query,
+                onValueChange = { query = it; message = null },
+            )
+        }
+        Text("可输入器械名称或类型，例如“哑铃”“有氧”。", style = MaterialTheme.typography.bodyMedium)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            (listOf<String?>(null) + categories).chunked(3).forEach { rowCategories ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    rowCategories.forEach { category ->
+                        val selected = selectedCategory == category
+                        Surface(
+                            onClick = { selectedCategory = category },
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            color = if (selected) FitnessColors.Orange else FitnessColors.Surface,
+                            shadowElevation = 4.dp,
+                        ) {
+                            androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    category?.let(::equipmentCategoryLabel) ?: "全部",
+                                    color = FitnessColors.Ink,
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                        }
+                    }
+                    repeat(3 - rowCategories.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("${visibleEquipment.size} 种器械 · 已选 ${selectedIds.size} 种", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            Row {
+                TextButton(onClick = {
+                    selectedIds = (selectedIds + visibleEquipment.map { it.id }).distinct().sorted()
+                }) { Text("全选当前") }
+                TextButton(onClick = {
+                    val visibleIds = visibleEquipment.mapTo(mutableSetOf()) { it.id }
+                    selectedIds = selectedIds.filterNot { it in visibleIds }
+                }) { Text("清空当前") }
+            }
+        }
+        visibleEquipment.groupBy { it.category }
+            .toList()
+            .sortedBy { (category, _) -> equipmentCategoryOrder(category) }
+            .forEach { (category, items) ->
+                SettingsSectionHeader(equipmentCategoryLabel(category), "${items.count { it.id in selectedIds }} / ${items.size}")
+                items.forEach { item ->
+                    val checked = item.id in selectedIds
+                    Surface(
+                        onClick = {
+                            selectedIds = if (checked) {
+                                selectedIds - item.id
+                            } else {
+                                (selectedIds + item.id).distinct().sorted()
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 72.dp)
+                            .border(
+                                width = if (checked) 2.dp else 0.dp,
+                                color = if (checked) FitnessColors.Orange else Color.Transparent,
+                                shape = RoundedCornerShape(22.dp),
+                            ),
+                        shape = RoundedCornerShape(22.dp),
+                        color = FitnessColors.SurfaceStrong,
+                        shadowElevation = if (checked) 2.dp else 5.dp,
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                                Text(item.name, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                                Text(equipmentCategoryLabel(item.category), style = MaterialTheme.typography.bodyMedium)
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = if (checked) FitnessColors.Orange else FitnessColors.SurfaceStrong,
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .border(
+                                        width = if (checked) 0.dp else 1.5.dp,
+                                        color = if (checked) Color.Transparent else FitnessColors.Muted.copy(alpha = .55f),
+                                        shape = CircleShape,
+                                    ),
+                            ) {
+                                if (checked) {
+                                    androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Rounded.Check, contentDescription = "已选择", tint = FitnessColors.Ink, modifier = Modifier.size(20.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        FitnessPrimaryButton(
+            text = if (busy) "保存中…" else "保存器械筛选",
+            enabled = !busy,
+            onClick = {
+                runSettingAction(coroutineScope, { busy = it }, { message = it }) {
+                    onSave(selectedIds.toSet())
+                }
+            },
+        )
+        message?.let { SettingsMessage(it) }
+    }
+}
+
+private fun venueEquipmentOrder(id: String): Int = listOf(
+    "equipment-dumbbell",
+    "equipment-smith-machine",
+    "equipment-barbell",
+    "equipment-cable",
+    "equipment-treadmill",
+    "equipment-stationary-bike",
+).indexOf(id).takeIf { it >= 0 } ?: Int.MAX_VALUE
+
+@Composable
+private fun SettingsSoftTextField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
+        val shape = RoundedCornerShape(22.dp)
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = FitnessColors.Ink),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 58.dp)
+                .shadow(5.dp, shape)
+                .background(FitnessColors.SurfaceStrong, shape)
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+        )
+    }
+}
+
 private fun equipmentCategoryLabel(category: String): String = when (category) {
     "machine" -> "固定器械"
     "free-weight" -> "自由重量"
@@ -203,6 +353,26 @@ private fun equipmentCategoryLabel(category: String): String = when (category) {
     "cardio" -> "有氧器械"
     "body-weight" -> "自重训练"
     else -> "其他"
+}
+
+private fun equipmentSearchKeywords(item: EquipmentEntity): List<String> {
+    val aliases = buildList {
+        when {
+            "椭圆机" in item.name -> addAll(listOf("椭圆仪", "交叉训练机"))
+            "龙门架" in item.name || "拉力器" in item.name -> addAll(listOf("龙门", "绳索", "飞鸟", "cable"))
+            "夹胸" in item.name || "蝴蝶机" in item.name -> addAll(listOf("夹胸", "飞鸟", "蝴蝶机"))
+            "腿举" in item.name || "蹬腿" in item.name -> addAll(listOf("腿举", "蹬腿", "腿推"))
+            "高位下拉" in item.name -> addAll(listOf("高拉", "下拉", "背部"))
+            "推胸" in item.name || "胸推" in item.name -> addAll(listOf("推胸", "胸推", "卧推"))
+            "推肩" in item.name || "推举" in item.name -> addAll(listOf("推肩", "肩推", "推举"))
+            "腿屈伸" in item.name -> addAll(listOf("腿伸展", "伸腿"))
+            "腿弯举" in item.name -> addAll(listOf("腿弯曲", "屈腿"))
+            "髋外展" in item.name -> addAll(listOf("坐姿外展", "臀外展", "外展"))
+            "辅助引体" in item.name -> addAll(listOf("引体向上", "助力引体"))
+            "固定单车" in item.name -> addAll(listOf("健身车", "自行车", "单车"))
+        }
+    }
+    return listOf(item.name, equipmentCategoryLabel(item.category)) + aliases
 }
 
 @Composable
@@ -227,14 +397,27 @@ fun SmartSettingsScreen(
     var apiKey by rememberSaveable { mutableStateOf("") }
     var busy by rememberSaveable { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
+    var verifiedProviderId by rememberSaveable { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
     SettingsColumn(modifier.testTag(SettingsTags.SmartScreen)) {
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
-            Text(if (provider?.apiKeyStored == true) "当前已连接" else "当前未连接", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.testTag(SettingsTags.SmartConnectionStatus))
-            Text("训练记录、计划执行、动作库和饮食手动记录不依赖 AI 服务。", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                when {
+                    verifiedProviderId == selectedProviderId -> "已连接"
+                    provider?.apiKeyStored == true -> "已保存，尚未验证"
+                    else -> "尚未填写"
+                },
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.testTag(SettingsTags.SmartConnectionStatus),
+            )
+            Text(
+                if (provider?.apiKeyStored == true) "连接凭据已保存在本机安全存储中，可点击下方按钮验证。"
+                else "训练记录、计划执行、动作库和饮食手动记录不依赖 AI 服务。",
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
-        FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("服务配置", style = MaterialTheme.typography.headlineSmall)
                 Text(catalog.displayName, color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
@@ -248,14 +431,11 @@ fun SmartSettingsScreen(
                                 ?.takeIf { it in item.endpoints } ?: item.endpoints.first()
                             model = providers.firstOrNull { it.id == item.id }?.model ?: item.models.first()
                             message = null
-                            runSettingAction(coroutineScope, { busy = it }, { message = it }) {
-                                onSelectProvider(item.id, endpoint, model)
-                            }
                         },
                         color = if (selectedProviderId == item.id) FitnessColors.Orange else FitnessColors.SurfaceStrong,
                         shape = RoundedCornerShape(22.dp),
                         shadowElevation = 6.dp,
-                        modifier = Modifier.weight(1f).heightIn(min = 104.dp),
+                        modifier = Modifier.weight(1f).height(104.dp),
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                             Image(painterResource(providerLogo(item.id)), contentDescription = "${item.displayName} Logo", modifier = Modifier.size(38.dp).clip(CircleShape))
@@ -267,68 +447,20 @@ fun SmartSettingsScreen(
             }
             CatalogDropdown("接口地址", endpoint, catalog.endpoints) {
                 endpoint = it; message = null
-                runSettingAction(coroutineScope, { busy = it }, { message = it }) { onSelectProvider(selectedProviderId, endpoint, model) }
             }
-            OutlinedTextField(
+            Text("系统会使用所选服务商的官方地址，无需手动输入或记忆。", style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
+            SettingsSecretField(
                 value = apiKey,
-                onValueChange = { apiKey = it; message = null },
-                label = { Text("接口密钥") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                trailingIcon = {
-                    TextButton(
-                        onClick = {
-                            if (!busy) {
-                                busy = true
-                                coroutineScope.launch {
-                                    try {
-                                        onSaveApiKey(selectedProviderId, apiKey)
-                                        apiKey = ""
-                                        message = "密钥已安全保存在本机"
-                                    } catch (error: Exception) {
-                                        message = error.message ?: "保存密钥失败"
-                                    } finally {
-                                        busy = false
-                                    }
-                                }
-                            }
-                        },
-                        modifier = Modifier.testTag(SettingsTags.SaveSmartKey),
-                    ) { Text(if (busy) "保存中" else "保存") }
-                },
-                shape = RoundedCornerShape(22.dp),
-                modifier = Modifier.fillMaxWidth().testTag(SettingsTags.SmartApiKey),
+                placeholder = if (provider?.apiKeyStored == true) "密钥已保存，留空即可测试" else "请输入接口密钥",
+                onValueChange = { apiKey = it; message = null; verifiedProviderId = null },
             )
+            Text("密钥只保存在本机安全存储中。", style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
             CatalogDropdown("模型", model, catalog.models.distinct().let { options ->
                 if (model in options) options else listOf(model) + options
             }) {
                 model = it; message = null
-                runSettingAction(coroutineScope, { busy = it }, { message = it }) { onSelectProvider(selectedProviderId, endpoint, model) }
             }
-            OutlinedButton(
-                onClick = {
-                    if (!busy) {
-                        busy = true
-                        message = null
-                        coroutineScope.launch {
-                            try {
-                                val result = onTestConnection(selectedProviderId)
-                                message = result.message
-                            } catch (cancellation: CancellationException) {
-                                throw cancellation
-                            } catch (error: Exception) {
-                                message = error.message ?: "测试连接失败"
-                            } finally {
-                                busy = false
-                            }
-                        }
-                    }
-                },
-                enabled = !busy && provider?.apiKeyStored == true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = FitnessDimensions.MinimumTouchTarget),
-            ) { Text("检查连接") }
+            Text("模型选项会随服务商自动更新。", style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("数据边界", style = MaterialTheme.typography.headlineSmall)
@@ -350,7 +482,66 @@ fun SmartSettingsScreen(
                 Switch(checked = false, onCheckedChange = null)
             }
         }
+        FitnessPrimaryButton(
+            text = if (provider?.apiKeyStored == true) "重新测试连接" else "保存并测试连接",
+            enabled = !busy && (apiKey.isNotBlank() || provider?.apiKeyStored == true),
+            testTag = SettingsTags.SaveSmartKey,
+            onClick = {
+                if (!busy) {
+                    busy = true
+                    message = null
+                    coroutineScope.launch {
+                        try {
+                            onSelectProvider(selectedProviderId, endpoint, model)
+                            if (apiKey.isNotBlank()) {
+                                onSaveApiKey(selectedProviderId, apiKey)
+                                apiKey = ""
+                            }
+                            val result = onTestConnection(selectedProviderId)
+                            verifiedProviderId = selectedProviderId.takeIf { result.success }
+                            message = result.message
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (error: Exception) {
+                            message = error.message ?: "测试连接失败"
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            },
+        )
         message?.let { SettingsMessage(it) }
+    }
+}
+
+@Composable
+private fun SettingsSecretField(
+    value: String,
+    placeholder: String,
+    onValueChange: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("接口密钥", style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted, fontWeight = FontWeight.Bold)
+        val shape = RoundedCornerShape(22.dp)
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = FitnessColors.Ink),
+            decorationBox = { inner ->
+                if (value.isEmpty()) Text(placeholder, color = FitnessColors.Muted)
+                inner()
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 58.dp)
+                .shadow(5.dp, shape)
+                .background(FitnessColors.SurfaceStrong, shape)
+                .padding(horizontal = 18.dp, vertical = 17.dp)
+                .testTag(SettingsTags.SmartApiKey),
+        )
     }
 }
 
@@ -370,7 +561,7 @@ private fun CatalogDropdown(
             color = FitnessColors.SurfaceStrong,
             shadowElevation = 4.dp,
             modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-        ) { Row(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) { Text(value, maxLines = 1) } }
+        ) { Row(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) { Text(catalogValueLabel(value), maxLines = 1) } }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
                 DropdownMenuItem(
@@ -380,6 +571,12 @@ private fun CatalogDropdown(
             }
         }
     }
+}
+
+private fun catalogValueLabel(value: String): String = when (value) {
+    "https://api.openai.com/v1" -> "OpenAI 官方接口"
+    "gpt-5-mini" -> "GPT-5 mini（推荐）"
+    else -> value
 }
 
 private fun providerLogo(id: String): Int = when (id) {
@@ -448,57 +645,62 @@ fun BackupSettingsScreen(
     }
 
     SettingsColumn(modifier.testTag(SettingsTags.BackupScreen)) {
-        FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
-            Text("本地备份", style = MaterialTheme.typography.headlineSmall)
-            Text("备份包含档案、计划、训练和饮食记录，不包含明文 API Key。", style = MaterialTheme.typography.bodyMedium)
-            FitnessPrimaryButton(
-                text = if (busy) "准备中…" else "导出备份",
-                enabled = !busy,
-                onClick = {
-                    if (!busy) {
-                        busy = true
-                        message = null
-                        coroutineScope.launch {
-                            try {
-                                pendingBackup = onExportBackup()
-                                exportLauncher.launch("fitness-backup-${LocalDate.now()}.json")
-                            } catch (cancellation: CancellationException) {
-                                throw cancellation
-                            } catch (error: Exception) {
-                                message = error.message ?: "生成备份失败"
-                            } finally {
-                                busy = false
-                            }
-                        }
-                    }
-                },
-            )
-            OutlinedButton(
-                onClick = { importLauncher.launch(arrayOf("application/json", "text/*")) },
-                enabled = !busy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = FitnessDimensions.MinimumTouchTarget),
-            ) { Text("从文件恢复") }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(FitnessDimensions.ContainerRadius),
+            color = FitnessColors.Orange,
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("你的数据保存在本机", style = MaterialTheme.typography.headlineSmall)
+                Text("备份包含训练档案、计划、训练记录与饮食记录，不包含 AI 接口密钥。", color = FitnessColors.Ink)
+            }
         }
+        SettingsSectionHeader("备份操作", "JSON 文件")
+        BackupActionRow("↓", if (busy) "正在准备备份" else "导出本机备份", "最近导出：从未", !busy) {
+            if (!busy) {
+                busy = true
+                message = null
+                coroutineScope.launch {
+                    try {
+                        pendingBackup = onExportBackup()
+                        exportLauncher.launch("fitness-backup-${LocalDate.now()}.json")
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (error: Exception) {
+                        message = error.message ?: "生成备份失败"
+                    } finally {
+                        busy = false
+                    }
+                }
+            }
+        }
+        BackupActionRow("↑", "从备份恢复", "恢复前会先校验文件", !busy) {
+            importLauncher.launch(arrayOf("application/json", "text/*"))
+        }
+        SettingsSectionHeader("危险操作", "不可撤销")
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
-            Text("重置本地数据", style = MaterialTheme.typography.headlineSmall)
-            Text("会清除个人档案、训练、饮食、草稿和本机密钥，然后恢复基础计划。", style = MaterialTheme.typography.bodyMedium)
-            OutlinedButton(
+            Text("重置本机数据", style = MaterialTheme.typography.headlineSmall)
+            Text("清除个人档案、计划、训练与饮食记录，并重新进入首次设置。动作素材不会删除。", style = MaterialTheme.typography.bodyMedium)
+            Button(
                 onClick = { showResetConfirmation = true },
                 enabled = !busy,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = FitnessDimensions.MinimumTouchTarget)
+                    .height(56.dp)
                     .testTag(SettingsTags.RequestReset),
-            ) { Text("重置本地数据", color = ResetColor) }
+                shape = RoundedCornerShape(22.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF2B1D1B),
+                    contentColor = Color(0xFFFF9E92),
+                ),
+            ) { Text("重置所有本机数据", color = Color(0xFFFF9E92)) }
         }
         message?.let { SettingsMessage(it) }
     }
 
     if (showResetConfirmation) {
         AlertDialog(
-            onDismissRequest = { if (!busy) showResetConfirmation = false },
+            onDismissRequest = { if (!busy) showResetConfirmation = false }, // coverage-exempt: compiler-generated dialog callback branch; busy states are tested
             title = { Text("确认重置本地数据？") },
             text = { Text("此操作不可撤销。动作素材仍保留在本机。") },
             confirmButton = {
@@ -533,12 +735,52 @@ fun BackupSettingsScreen(
 }
 
 @Composable
-fun AboutScreen(modifier: Modifier = Modifier) {
+fun AboutScreen(modifier: Modifier) {
     SettingsColumn(modifier.testTag(SettingsTags.AboutScreen)) {
+        Spacer(Modifier.height(1.dp))
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Surface(
+                modifier = Modifier.size(128.dp),
+                shape = RoundedCornerShape(34.dp),
+                color = FitnessColors.Orange,
+                shadowElevation = 7.dp,
+            ) {
+                androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
+                    Text("iF", color = FitnessColors.Ink, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+            Text("i fitness", style = MaterialTheme.typography.headlineLarge)
+            Text(
+                "一款本地优先的个人训练助手。没有账号、没有云同步；\n你的正式记录由你确认后保存在设备中。",
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+            )
+        }
+        StaticInfoRow("✓", "隐私原则", "AI 输出不自动落库")
+        StaticInfoRow("▤", "本地数据", "SQLite · 本机备份")
+        StaticInfoRow("S", "动作素材", "1324 个本地 GIF")
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
-            Text("数据在你手里", style = MaterialTheme.typography.headlineSmall)
-            Text("训练、计划、饮食和档案默认保存在本机，无账号、无云同步。", style = MaterialTheme.typography.bodyLarge)
-            Text("AI 只用于生成建议和草稿，正式数据需要你确认。", style = MaterialTheme.typography.bodyMedium)
+            Text("版本 0.1 · 交互原型", style = MaterialTheme.typography.headlineSmall)
+            Text("本页展示未来主义新拟态视觉方向，不代表原生 Android 已完成迁移。", style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun StaticInfoRow(symbol: String, title: String, subtitle: String) {
+    Surface(modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), shape = RoundedCornerShape(23.dp), color = FitnessColors.Surface, shadowElevation = 6.dp) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(13.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = RoundedCornerShape(16.dp), color = FitnessColors.Phone, modifier = Modifier.size(44.dp)) {
+                androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) { Text(symbol, color = FitnessColors.Ink, fontWeight = FontWeight.ExtraBold) }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }
@@ -548,15 +790,78 @@ private fun SettingsColumn(
     modifier: Modifier,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(FitnessColors.Phone)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        content = content,
-    )
+    Surface(modifier = modifier.fillMaxSize(), color = FitnessColors.Phone) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, top = 0.dp, end = 20.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun SettingsSectionHeader(title: String, meta: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
+        Text(meta, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun SettingToggleRow(title: String, subtitle: String, checked: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium)
+        }
+        Switch(checked = checked, onCheckedChange = null)
+    }
+}
+
+@Composable
+private fun BackupActionRow(
+    symbol: String,
+    title: String,
+    subtitle: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
+        shape = RoundedCornerShape(23.dp),
+        color = FitnessColors.Surface,
+        shadowElevation = 6.dp,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(shape = RoundedCornerShape(16.dp), color = FitnessColors.Phone, modifier = Modifier.size(44.dp)) {
+                androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
+                    Text(symbol, color = FitnessColors.Ink, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium)
+            }
+            Text("›", color = FitnessColors.Muted, style = MaterialTheme.typography.headlineSmall)
+        }
+    }
 }
 
 private fun runSettingAction(
@@ -594,6 +899,8 @@ private fun SettingsMessage(message: String) {
 
 object SettingsTags {
     const val VenueScreen = "venue-settings"
+    const val EquipmentFilterScreen = "equipment-filter-screen"
+    const val EquipmentSearch = "equipment-search"
     const val SmartScreen = "smart-settings"
     const val SmartConnectionStatus = "smart-connection-status"
     const val SmartApiKey = "smart-api-key"

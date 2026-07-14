@@ -9,3 +9,4 @@ local.properties
 app/src/main/assets/exercise-media/gifs/*.gif
 app/src/main/assets/exercise-media/gifs/*.tmp
 !app/src/main/assets/exercise-media/gifs/.gitkeep
+.gitnexus

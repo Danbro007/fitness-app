@@ -1,11 +1,14 @@
 package com.shanqijie.fitnessapp
 
 import android.content.Context
+import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -16,17 +19,23 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.espresso.Espresso.pressBack
 import com.shanqijie.fitnessapp.data.FitnessDatabase
 import com.shanqijie.fitnessapp.data.FitnessRepository
 import com.shanqijie.fitnessapp.data.FitnessStore
+import com.shanqijie.fitnessapp.data.AiDraftEntity
 import com.shanqijie.fitnessapp.data.WorkoutSessionEntity
 import com.shanqijie.fitnessapp.domain.WorkoutSummary
+import com.shanqijie.fitnessapp.domain.WorkoutAdjustmentDirection
+import com.shanqijie.fitnessapp.domain.WorkoutReviewMetadata
+import com.shanqijie.fitnessapp.domain.toJson
 import com.shanqijie.fitnessapp.ui.FitnessAppRoot
 import com.shanqijie.fitnessapp.ui.FitnessAppRootContent
 import com.shanqijie.fitnessapp.ui.model.toHomeUiState
@@ -38,8 +47,10 @@ import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import com.shanqijie.fitnessapp.ui.training.TrainingActiveScreen
 import com.shanqijie.fitnessapp.ui.training.TrainingActiveScreenUi
 import com.shanqijie.fitnessapp.ui.training.TrainingExerciseScreenUi
+import com.shanqijie.fitnessapp.ui.training.TrainingPreparationScreen
 import com.shanqijie.fitnessapp.ui.training.WorkoutSummaryScreen
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -49,6 +60,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.io.File
+import java.io.FileOutputStream
 
 class FitnessTrainingFlowUiTest {
     @get:Rule
@@ -96,16 +109,26 @@ class FitnessTrainingFlowUiTest {
 
         waitForTag(FitnessTestTags.TrainingActive)
         composeRule.onNodeWithTag(FitnessTestTags.BottomNav).assertDoesNotExist()
-        composeRule.onNodeWithContentDescription("增加重量").performClick()
+        composeRule.onNodeWithTag("training-weight-input").performTextReplacement("9999")
+        composeRule.onNodeWithTag("training-reps-input").performTextReplacement("abc")
+        composeRule.onNodeWithTag("training-weight-input").performTextReplacement("82.5")
+        composeRule.onNodeWithTag("training-reps-input").performTextReplacement("12")
         composeRule.onNodeWithText("吃力").performClick()
         composeRule.onNodeWithTag(FitnessTestTags.CompleteSet).performClick()
 
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            runBlocking { repository.appState().first().workoutSetLogs.isNotEmpty() }
+        }
+        val recordedState = runBlocking { repository.appState().first() }
+        val recordedSession = recordedState.unfinishedSessions.single()
+        runBlocking { repository.startRest(recordedSession.id, durationSeconds = 300) }
         waitForTag(FitnessTestTags.RestPanel)
         val restingState = runBlocking { repository.appState().first() }
         val activeSession = restingState.unfinishedSessions.single()
         val recordedLog = restingState.workoutSetLogs.single { it.sessionId == activeSession.id }
         assertNotNull(activeSession.restEndsAt)
-        assertEquals(2.5, recordedLog.actualWeightKg, 0.01)
+        assertEquals(82.5, recordedLog.actualWeightKg, 0.01)
+        assertEquals(12, recordedLog.actualReps)
         assertEquals("吃力", recordedLog.feeling)
 
         composeRule.activityRule.scenario.recreate()
@@ -130,7 +153,7 @@ class FitnessTrainingFlowUiTest {
         waitForTag(FitnessTestTags.WorkoutSummary)
         composeRule.onNodeWithText("部分完成").assertIsDisplayed()
         composeRule.onNodeWithText("/ 7 组", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithText("20 kg").assertIsDisplayed()
+        composeRule.onNodeWithText("990 kg").assertIsDisplayed()
         composeRule.onNodeWithTag(FitnessTestTags.SummaryDone).performClick()
 
         waitForTag(FitnessTestTags.WeeklyProgress)
@@ -198,6 +221,30 @@ class FitnessTrainingFlowUiTest {
     }
 
     @Test
+    fun activeSnapshotWithoutRepositoryFallsBackHomeOnSystemBack() {
+        val session = runBlocking {
+            val planId = repository.appState().first().plannedWorkouts.first().id
+            repository.startWorkout(planId)
+        }
+        val state = runBlocking { repository.appState().first() }
+        val homeUiState = repository.homeSnapshot(state).toHomeUiState()
+        composeRule.setContent {
+            FitnessTheme {
+                FitnessAppRootContent(
+                    homeUiState = homeUiState,
+                    repository = null,
+                    appState = state,
+                    initialRoute = AppRoute.TrainingActive(session.id),
+                )
+            }
+        }
+
+        waitForText("无法恢复这次训练")
+        pressBack()
+        waitForTag(FitnessTestTags.HomePrimaryAction)
+    }
+
+    @Test
     fun rapidDoubleTapOnCompleteSetWritesOnlyOneLog() {
         showRealRoot()
         composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Training)).performClick()
@@ -226,7 +273,10 @@ class FitnessTrainingFlowUiTest {
                     onRecordSet = { _, _, _ -> error("保存训练组失败") },
                     onRestFinished = {},
                     onSkipRest = {},
+                    onExtendRest = {},
+                    onTogglePause = {},
                     onFinishWorkout = {},
+                    modifier = androidx.compose.ui.Modifier,
                 )
             }
         }
@@ -242,12 +292,12 @@ class FitnessTrainingFlowUiTest {
     }
 
     @Test
-    fun phoneSurfaceLabelsUseInkInsteadOfSuccessGreen() {
+    fun phoneSurfaceLabelsUseNeutralInkInsteadOfSuccessGreen() {
         showRealRoot()
         composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Training)).performClick()
-        assertTextContainsColor("TRAINING / READY", FitnessColors.Ink)
-        assertTextDoesNotContainColor("TRAINING / READY", FitnessColors.Green)
-        assertTextContainsColor("01", FitnessColors.Ink)
+        assertTextContainsColor("训练准备 · 今日", FitnessColors.Muted)
+        assertTextDoesNotContainColor("训练准备 · 今日", FitnessColors.Green)
+        assertTextContainsColor("01", FitnessColors.Muted)
         assertTextDoesNotContainColor("01", FitnessColors.Green)
 
         composeRule.runOnUiThread {
@@ -265,6 +315,10 @@ class FitnessTrainingFlowUiTest {
                         weeklyCompleted = 1,
                         weeklyTarget = 3,
                         onDone = {},
+                        reviewDraft = null,
+                        onGenerateReview = { _, _ -> },
+                        onResolveReview = { _, _ -> },
+                        modifier = androidx.compose.ui.Modifier,
                     )
                 }
             }
@@ -272,6 +326,351 @@ class FitnessTrainingFlowUiTest {
         composeRule.waitForIdle()
         assertTextContainsColor("训练已保存 · 本机", FitnessColors.Muted)
         assertTextDoesNotContainColor("训练已保存 · 本机", FitnessColors.Green)
+    }
+
+    @Test
+    fun workoutSummaryCollectsRecoveryFeedbackBeforeShowingConfirmableAiReview() {
+        val draftState = mutableStateOf<AiDraftEntity?>(null)
+        var capturedFeeling = ""
+        var adjustmentApplied = false
+        composeRule.setContent {
+            FitnessTheme {
+                WorkoutSummaryScreen(
+                    summary = WorkoutSummary(
+                        sessionId = "summary-ai-review",
+                        completedSets = 4,
+                        targetSets = 4,
+                        totalVolumeKg = 2_800.0,
+                        durationSeconds = 1_800,
+                        feelingCounts = mapOf("轻松" to 3, "合适" to 1),
+                    ),
+                    weeklyCompleted = 1,
+                    weeklyTarget = 3,
+                    reviewDraft = draftState.value,
+                    onGenerateReview = { feeling, _ ->
+                        capturedFeeling = feeling
+                        draftState.value = AiDraftEntity(
+                            id = "review-draft",
+                            type = "workout_review",
+                            title = "建议小幅加量",
+                            content = "## 总结\n完成度良好，后续同动作可小幅加量。",
+                            status = "draft",
+                            createdAt = 1L,
+                            updatedAt = 1L,
+                            metadataJson = WorkoutReviewMetadata(
+                                sessionId = "summary-ai-review",
+                                direction = WorkoutAdjustmentDirection.INCREASE.name,
+                                postWorkoutFeeling = feeling,
+                                postWorkoutNote = "",
+                                exerciseIds = listOf("0748"),
+                            ).toJson(),
+                            confirmedAt = null,
+                        )
+                    },
+                    onResolveReview = { _, apply -> adjustmentApplied = apply },
+                    onDone = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("训练后感受").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("状态很好").performClick()
+        composeRule.onNodeWithText("生成 AI 训练总结").performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) { draftState.value != null }
+        assertEquals("状态很好", capturedFeeling)
+        composeRule.onNodeWithText("AI 训练复盘").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("完成度良好，后续同动作可小幅加量。", substring = true).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("确认小幅加量").performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) { adjustmentApplied }
+    }
+
+    @Test
+    fun workoutSummaryLocksReviewActionsWhileAiWorkIsRunning() {
+        val releaseGenerate = CompletableDeferred<Unit>()
+        val releaseResolve = CompletableDeferred<Unit>()
+        val draftState = mutableStateOf<AiDraftEntity?>(null)
+        var generateStarted = false
+        var resolveStarted = false
+        composeRule.setContent {
+            FitnessTheme {
+                WorkoutSummaryScreen(
+                    summary = WorkoutSummary("summary-busy", 4, 4, 2_000.0, 1_200, mapOf("轻松" to 4)),
+                    weeklyCompleted = 1,
+                    weeklyTarget = 3,
+                    reviewDraft = draftState.value,
+                    onGenerateReview = { _, _ ->
+                        generateStarted = true
+                        releaseGenerate.await()
+                        draftState.value = AiDraftEntity(
+                            id = "busy-review",
+                            type = "workout_review",
+                            title = "建议小幅加量",
+                            content = "训练完成度良好。",
+                            status = "draft",
+                            createdAt = 1L,
+                            updatedAt = 1L,
+                            metadataJson = WorkoutReviewMetadata(
+                                sessionId = "summary-busy",
+                                direction = WorkoutAdjustmentDirection.INCREASE.name,
+                                postWorkoutFeeling = "状态很好",
+                                postWorkoutNote = "",
+                                exerciseIds = listOf("0748"),
+                            ).toJson(),
+                            confirmedAt = null,
+                        )
+                    },
+                    onResolveReview = { _, _ ->
+                        resolveStarted = true
+                        releaseResolve.await()
+                    },
+                    onDone = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("生成 AI 训练总结").performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { generateStarted }
+        composeRule.onNodeWithText("正在分析…").assertIsDisplayed().assertIsNotEnabled()
+        composeRule.runOnIdle { releaseGenerate.complete(Unit) }
+        composeRule.onNodeWithText("AI 训练复盘").performScrollTo().assertIsDisplayed()
+
+        composeRule.onNodeWithText("确认小幅加量").performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { resolveStarted }
+        composeRule.onNodeWithText("确认小幅加量").assertIsNotEnabled()
+        composeRule.onNodeWithText("保持原计划").assertIsNotEnabled()
+        composeRule.runOnIdle { releaseResolve.complete(Unit) }
+        composeRule.onNodeWithText("确认小幅加量").assertIsEnabled()
+    }
+
+    @Test
+    fun workoutSummaryKeepsUserOnThePageWhenAiReviewGenerationFails() {
+        composeRule.setContent {
+            FitnessTheme {
+                WorkoutSummaryScreen(
+                    summary = WorkoutSummary(
+                        sessionId = "summary-ai-error",
+                        completedSets = 3,
+                        targetSets = 4,
+                        totalVolumeKg = 1_800.0,
+                        durationSeconds = 1_200,
+                        feelingCounts = mapOf("合适" to 3),
+                    ),
+                    weeklyCompleted = 0,
+                    weeklyTarget = 3,
+                    onGenerateReview = { _, _ -> error("AI 服务暂时不可用") },
+                    reviewDraft = null,
+                    onResolveReview = { _, _ -> },
+                    onDone = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("生成 AI 训练总结").performScrollTo().performClick()
+        composeRule.onNodeWithText("AI 服务暂时不可用").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("生成 AI 训练总结").assertIsEnabled()
+    }
+
+    @Test
+    fun workoutSummaryReportsBothPlanAdjustmentFailuresWithoutLosingTheDraft() {
+        val draft = AiDraftEntity(
+            id = "review-error-draft",
+            type = "workout_review",
+            title = "建议降低后续负荷",
+            content = "## 总结\n本次恢复压力偏高。",
+            status = "draft",
+            createdAt = 1L,
+            updatedAt = 1L,
+            metadataJson = WorkoutReviewMetadata(
+                sessionId = "summary-review-error",
+                direction = WorkoutAdjustmentDirection.REDUCE.name,
+                postWorkoutFeeling = "非常疲劳",
+                postWorkoutNote = "最后一组动作变形",
+                exerciseIds = listOf("0748"),
+            ).toJson(),
+            confirmedAt = null,
+        )
+        composeRule.setContent {
+            FitnessTheme {
+                WorkoutSummaryScreen(
+                    summary = WorkoutSummary(
+                        sessionId = "summary-review-error",
+                        completedSets = 3,
+                        targetSets = 4,
+                        totalVolumeKg = 1_800.0,
+                        durationSeconds = 1_200,
+                        feelingCounts = mapOf("吃力" to 3),
+                    ),
+                    weeklyCompleted = 0,
+                    weeklyTarget = 3,
+                    reviewDraft = draft,
+                    onGenerateReview = { _, _ -> },
+                    onResolveReview = { _, apply ->
+                        if (apply) error("调整计划失败：本地写入异常")
+                        error("保留原计划失败：本地写入异常")
+                    },
+                    onDone = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("确认降低后续负荷").performScrollTo().performClick()
+        composeRule.onNodeWithText("调整计划失败：本地写入异常").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("保持原计划").performScrollTo().performClick()
+        composeRule.onNodeWithText("保留原计划失败：本地写入异常").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("AI 训练复盘").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun workoutSummaryCanExplicitlyConfirmMaintainingTheCurrentPlan() {
+        val draft = AiDraftEntity(
+            id = "maintain-review-draft",
+            type = "workout_review",
+            title = "建议保持当前计划",
+            content = "完成度与疲劳反馈处于可接受范围。",
+            status = "draft",
+            createdAt = 1L,
+            updatedAt = 1L,
+            metadataJson = WorkoutReviewMetadata(
+                sessionId = "summary-maintain",
+                direction = WorkoutAdjustmentDirection.MAINTAIN.name,
+                postWorkoutFeeling = "一般",
+                postWorkoutNote = "",
+                exerciseIds = listOf("0748"),
+            ).toJson(),
+            confirmedAt = null,
+        )
+        var applied: Boolean? = null
+        composeRule.setContent {
+            FitnessTheme {
+                WorkoutSummaryScreen(
+                    summary = WorkoutSummary("summary-maintain", 3, 4, 1_800.0, 1_200, mapOf("合适" to 3)),
+                    weeklyCompleted = 1,
+                    weeklyTarget = 3,
+                    reviewDraft = draft,
+                    onGenerateReview = { _, _ -> },
+                    onResolveReview = { _, apply -> applied = apply },
+                    onDone = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("确认保持当前计划").performScrollTo().performClick()
+        composeRule.runOnIdle { assertEquals(true, applied) }
+    }
+
+    @Test
+    fun workoutSummaryRendersEmptyFeelingsAndResolvedReviewStatuses() {
+        val summary = mutableStateOf(
+            WorkoutSummary("summary-resolved", 0, 1, 0.0, 0, emptyMap()),
+        )
+        val draft = mutableStateOf(
+            AiDraftEntity(
+                id = "resolved-review",
+                type = "workout_review",
+                title = "训练复盘",
+                content = "已完成复盘。",
+                status = "confirmed",
+                createdAt = 1L,
+                updatedAt = 1L,
+                metadataJson = "not-json",
+                confirmedAt = 2L,
+            ),
+        )
+        composeRule.setContent {
+            FitnessTheme {
+                WorkoutSummaryScreen(
+                    summary = summary.value,
+                    weeklyCompleted = 0,
+                    weeklyTarget = 3,
+                    reviewDraft = draft.value,
+                    onGenerateReview = { _, _ -> },
+                    onResolveReview = { _, _ -> },
+                    onDone = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("合适").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("已应用").performScrollTo().assertIsDisplayed()
+        composeRule.runOnIdle {
+            summary.value = summary.value.copy(feelingCounts = linkedMapOf("吃力" to 3, "轻松" to 1))
+            draft.value = draft.value.copy(status = "dismissed")
+        }
+        composeRule.onNodeWithText("吃力").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("保持原计划").performScrollTo().assertIsDisplayed()
+        composeRule.runOnIdle {
+            draft.value = draft.value.copy(
+                status = "draft",
+                metadataJson = WorkoutReviewMetadata(
+                    sessionId = "summary-resolved",
+                    direction = "INVALID_DIRECTION",
+                    postWorkoutFeeling = "一般",
+                    postWorkoutNote = "",
+                    exerciseIds = emptyList(),
+                ).toJson(),
+            )
+        }
+        composeRule.onNodeWithText("确认保持当前计划").performScrollTo().assertIsDisplayed()
+        composeRule.runOnIdle {
+            summary.value = summary.value.copy(feelingCounts = linkedMapOf("轻松" to 1, "吃力" to 3))
+        }
+        composeRule.onNodeWithText("吃力").performScrollTo().assertIsDisplayed()
+        composeRule.runOnIdle {
+            summary.value = summary.value.copy(feelingCounts = linkedMapOf("轻松" to 1, "吃力" to 1))
+        }
+        composeRule.onNodeWithText("轻松").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun completedTrainingShowsEnabledFinishAndAiSummaryAction() {
+        val base = sampleActiveState()
+        val completedState = base.copy(
+            exercises = base.exercises.map { it.copy(completedSets = it.targetSets) },
+        )
+        var finishRequested = false
+        composeRule.setContent {
+            FitnessTheme {
+                TrainingActiveScreen(
+                    state = completedState,
+                    onSelectExercise = {},
+                    onRecordSet = { _, _, _ -> error("不应继续记录训练组") },
+                    onRestFinished = {},
+                    onSkipRest = {},
+                    onExtendRest = {},
+                    onTogglePause = {},
+                    onFinishWorkout = { finishRequested = true },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("本动作已完成", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("全部训练组已完成").assertIsDisplayed()
+        composeRule.onNodeWithTag("training-weight-input").assertDoesNotExist()
+        composeRule.onNodeWithTag("training-reps-input").assertDoesNotExist()
+        composeRule.onNodeWithText("完成训练并查看 AI 总结").assertIsDisplayed().assertIsEnabled().performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) { finishRequested }
+    }
+
+    @Test
+    fun emptyTrainingPreparationAcceptsAnExplicitModifier() {
+        composeRule.setContent {
+            FitnessTheme {
+                TrainingPreparationScreen(
+                    state = null,
+                    onStartWorkout = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("暂无可开始训练").assertIsDisplayed()
     }
 
     @Test
@@ -286,13 +685,83 @@ class FitnessTrainingFlowUiTest {
                     onRecordSet = { _, _, _ -> },
                     onRestFinished = { restFinishedCount.intValue += 1 },
                     onSkipRest = {},
+                    onExtendRest = {},
+                    onTogglePause = {},
                     onFinishWorkout = {},
+                    modifier = androidx.compose.ui.Modifier,
                 )
             }
         }
 
         composeRule.waitUntil(timeoutMillis = 5_000) { restFinishedCount.intValue == 1 }
         assertEquals(1, restFinishedCount.intValue)
+    }
+
+    @Test
+    fun trainingTimerPauseAndRestExtensionControlsAreActionable() {
+        val now = System.currentTimeMillis()
+        val activeState = androidx.compose.runtime.mutableStateOf(
+            sampleActiveState().copy(startedAt = now - 65_000L),
+        )
+        var extensionCount = 0
+        composeRule.setContent {
+            FitnessTheme {
+                TrainingActiveScreen(
+                    state = activeState.value,
+                    onSelectExercise = {},
+                    onRecordSet = { _, _, _ -> },
+                    onRestFinished = {},
+                    onSkipRest = {},
+                    onExtendRest = { extensionCount += 1 },
+                    onTogglePause = {
+                        activeState.value = activeState.value.copy(
+                            pausedAt = if (activeState.value.pausedAt == null) System.currentTimeMillis() else null,
+                        )
+                    },
+                    onFinishWorkout = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        assertTrue(composeRule.onAllNodesWithText("00:00").fetchSemanticsNodes().isEmpty())
+        composeRule.onNodeWithContentDescription("暂停训练").performClick()
+        composeRule.onNodeWithText("训练已暂停 · 点击右上角继续").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("继续训练").performClick()
+
+        activeState.value = activeState.value.copy(restEndsAt = System.currentTimeMillis() + 30_000L)
+        composeRule.onNodeWithContentDescription("延长休息 30 秒").performClick()
+        composeRule.runOnIdle { assertEquals(1, extensionCount) }
+    }
+
+    @Test
+    fun capturesTrainingDesignStatesThroughTheRealFlow() {
+        showRealRoot()
+        composeRule.onNodeWithTag(FitnessTestTags.primaryTab(PrimaryTab.Training)).performClick()
+        waitForTag(FitnessTestTags.TrainingPrep)
+        captureScreen("training-prep-native.png")
+
+        composeRule.onNodeWithTag(FitnessTestTags.StartWorkout).performClick()
+        waitForTag(FitnessTestTags.TrainingActive)
+        captureScreen("training-active-native.png")
+        composeRule.onNodeWithTag("training-weight-input").performClick()
+        captureScreen("training-weight-input-native.png")
+        pressBack()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag(FitnessTestTags.CompleteSet).performClick()
+        waitForTag(FitnessTestTags.RestPanel)
+        captureScreen("training-rest-native.png")
+
+        composeRule.onNodeWithTag(FitnessTestTags.SkipRest).performClick()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag(FitnessTestTags.RestPanel).fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.onNodeWithTag(FitnessTestTags.RequestFinish).performClick()
+        waitForTag(FitnessTestTags.ConfirmFinish)
+        captureScreen("training-finish-dialog-native.png")
+        composeRule.onNodeWithText("继续训练").performClick()
+        composeRule.waitForIdle()
     }
 
     private fun showRealRoot() {
@@ -302,6 +771,17 @@ class FitnessTrainingFlowUiTest {
             }
         }
         waitForTag(FitnessTestTags.HomePrimaryAction)
+    }
+
+    private fun captureScreen(fileName: String) {
+        composeRule.waitForIdle()
+        Thread.sleep(600)
+        val file = File(context.filesDir, fileName)
+        FileOutputStream(file).use { output ->
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+                .compress(Bitmap.CompressFormat.PNG, 100, output)
+        }
+        assertTrue(file.length() > 0L)
     }
 
     private fun waitForTag(tag: String) {
@@ -322,6 +802,7 @@ class FitnessTrainingFlowUiTest {
         return TrainingActiveScreenUi(
             sessionId = "screen-only-session",
             planName = "界面回归训练",
+            startedAt = System.currentTimeMillis() - 65_000L,
             currentExerciseId = view.plannedExercise.exerciseId,
             restEndsAt = null,
             exercises = listOf(

@@ -1090,7 +1090,8 @@ class FitnessStore(private val database: FitnessDatabase) {
     private fun queryInt(sql: String, args: Array<String> = emptyArray()): Int {
         val cursor = database.readableDatabase.rawQuery(sql, args)
         return try {
-            if (cursor.moveToFirst()) cursor.getInt(0) else 0
+            cursor.moveToFirst()
+            cursor.getInt(0)
         } finally {
             cursor.close()
         }

@@ -1,37 +1,72 @@
-# Futuristic Neumorphism Design QA
+# Design QA
 
-- Visual source of truth: `.scratch/futuristic-neumorphism-prototype/i-fitness-未来主义新拟态交互原型.html`
-- Requirements source: `docs/superpowers/specs/2026-07-11-futuristic-neumorphism-ui-development-requirements.md`
-- Comparison viewport: 390 × 844 CSS-equivalent pixels (Pixel 8 Pro emulator at 1170 × 2532, density 480, screenshots normalized to 390 × 844)
-- Implementation captures: `.scratch/futuristic-neumorphism-android/qa/`
-- Reference captures: `output/playwright/futuristic-*-390*.png`
+- source visual truth path: `.scratch/futuristic-neumorphism-prototype/i-fitness-未来主义新拟态交互原型.html`
+- implementation screenshot path: `.scratch/run-evidence/design-qa-home/home-native.png`, `.scratch/run-evidence/design-qa-plan/`, `.scratch/run-evidence/design-qa-training/`, `.scratch/run-evidence/design-qa-food/`, `.scratch/run-evidence/design-qa-library/`, `.scratch/run-evidence/design-qa-summary/`, `.scratch/run-evidence/design-qa-settings/`, `.scratch/run-evidence/design-qa-profile/`
+- viewport: HTML 390 × 844；Android 模拟器已通过 `wm size 1170x2532` + 480dpi 校准为 390 × 844dp
+- state: 全路由与关键弹层状态
 
-## Final comparison
+**Findings**
 
-| State | Reference | Implementation | Result |
-| --- | --- | --- | --- |
-| Home | `futuristic-home-390.png` | `home.png` | Passed |
-| Plan / week | `futuristic-plan-week-390.png` | `plan-week.png` | Passed |
-| Plan / month | `futuristic-plan-month-390.png` | `plan-month.png` | Passed |
-| Plan / year | `futuristic-plan-year-390.png` | `plan-year.png` plus fresh emulator recapture | Passed |
-| Food | prototype Food state | `food.png` | Passed |
-| Profile | prototype Profile state | `profile.png` | Passed |
-| Training active / rest / summary | `futuristic-training-active-390.png`, `futuristic-training-rest-390.png`, `futuristic-summary-390.png` | native screens exercised by connected UI tests | Passed |
-| Profile edit / AI settings | `futuristic-profile-edit-390.png`, `futuristic-smart-390.png`, provider references | native screens exercised by connected UI tests | Passed |
+- 当前验收范围内无未解决的 P0/P1/P2 视觉缺陷。ExerciseDB 免费版 180p GIF 已按个人、非商业应用范围启用，来源、哈希、署名与构建参数记录见 `docs/compliance/exercisedb-personal-noncommercial-media-record.md`。
 
-## Findings and correction history
+**Required Fidelity Surfaces**
 
-1. Replaced the previous generic Material palette with the prototype tokens: warm `#F4F4EF` page, near-black `#10110F`, fluorescent `#EFFF31`, 22–34 dp radii, soft shadow cards, and the 82 dp floating navigation dock.
-2. Rebuilt the five primary destinations around the reference hierarchy instead of reskinning the old layout: oversized home hero, calendar spotlight and segmented views, food macro bento, profile avatar/stat card, and selected navigation tiles.
-3. Added the missing reference states and product behavior: week/month/year calendar persistence, provider cards and dropdowns, profile avatar handling, structured AI profile snapshot, full-screen rest timer, and workout summary.
-4. Corrected scroll and semantics regressions found by instrumentation tests after the visual restructuring.
-5. A first year-view screenshot contained a transient black capture region. The state was reopened and recaptured on the emulator; the live screen showed the expected fixed 240 dp spotlight and year grid, so no product defect remained.
+- Fonts and typography: 代码 token 已对齐 12 / 14 / 20 / 34 级别，仍需逐屏确认 PingFang/Avenir 光学字重与换行。
+- Spacing and layout rhythm: 全局 18dp 页边距与 28–34dp 圆角已建立；饮食与训练子流程已完成当前成对证据。
+- Colors and visual tokens: `#f4f4ef` / `#10110f` / `#efff31` / `#121310` 已映射。
+- Image quality and asset fidelity: 已使用本地动作 GIF，需在逐屏截图中核对裁切与清晰度。
+- Copy and content: 22 个页面/状态及 4 个关键弹层已按当前 HTML 逐屏核对；运行时日期和用户真实统计保持动态，不以演示假数据覆盖。
 
-## Verification
+**Focused Region Comparison Evidence**
 
-- `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:connectedDebugAndroidTest`
-- Result: `BUILD SUCCESSFUL`; 70 connected tests completed, 0 failed.
-- `git diff --check`: clean.
-- Severity review: no remaining P0, P1, or P2 visual findings in the checked states.
+饮食子流程已完成 390 × 844 成对证据：`food-source.png`、`meal-sheet-source.png`、`food-manual-source.png`、`food-photo-source.png`、`food-photo-draft-source.png`，对应原生图位于 `design-qa-food/`，归一化图位于 `normalized/`。
 
-final result: passed
+训练流程已完成 390 × 844 成对证据：`training-prep-source.png`、`training-active-source.png`、`training-rest-source.png`、`training-finish-dialog-source.png`，对应原生图位于 `design-qa-training/`，归一化图位于 `normalized/`。
+
+日历流程已完成 390 × 844 成对证据：`plan-week-source.png`、`plan-month-source.png`、`plan-year-source.png`、`plan-day-detail-source.png`，对应原生图位于 `design-qa-plan/`，归一化图位于 `normalized/`。
+
+档案与首次设置已完成 390 × 844 成对证据：`profile-source.png`、`theme-sheet-source.png`、`onboarding-source.png`，对应原生图位于 `design-qa-profile/`，归一化图位于 `normalized/`。
+
+**Comparison History**
+
+1. 初次严格审计：否定了“功能测试通过等于视觉完成”的旧结论；建立 22 个 HTML 页面与 4 个弹层的路由清单。
+2. 证据校正：发现旧首页组合图早于 HTML 更新，已从当前审计证据中排除。
+3. 饮食子流程修复：新增三个无底栏全屏路由和对应页面；JVM 导航测试、Lint 和 APK 构建通过。设备测试因旧模拟器属性读取超时未完成，不计为视觉通过证据。
+4. 饮食子流程视觉修复：将 Material 浮动标签描边框替换为设计稿的外置标签和无描边软阴影输入面；补齐草稿五个可编辑字段。两条核心饮食设备测试和截图证据测试通过。
+5. 首页当前 HTML 代码对齐：补齐右下荧光圆环，将旧版圆形 `0%` 改为 `0 / 7 组` 胶囊，使用两行英雄标题和完整包含的 GIF 裁切策略。首页设备测试 11/11 通过；动作图因授权构建门禁仍为 P1。
+6. 计划日历修复：标题副文案对齐当前 HTML；当日详情弹层新增状态胶囊、训练元信息、编号动作清单和真实启动训练的主按钮；深色周计划卡恢复进入计划详情的点击行为；年视图保持 HTML 的三列布局，并补齐完成/计划数、进度条和月份状态。计划证据测试、JVM、Lint 和 APK 构建通过。
+7. 训练四状态修复：生成准备、训练中、休息和结束确认的真实流程截图；移除设计稿不存在的 `SETS` 徽标，媒体可用时改为“本地动作动图”；体感选择改为三等分；休息页显示真实动作、重量和次数；结束确认从居中对话框改为设计稿的底部弹层。训练证据设备测试通过。
+8. 动作库/详情/总结首轮设备证据：新增独立系统截图测试并通过 2/2。动作库移除设计稿不存在的“找到 N 个动作”，筛选项收敛为设计稿五项并将四个设计稿动作置顶；动作详情补齐右侧保存按钮、标题副文案与三条设计稿提示；训练总结的完成状态、洞察标题和恢复建议改为当前 HTML 文案。JVM 单测与 Android 测试编译通过；修复后截图待复拍。
+9. 动作详情复拍：给二级顶部栏补齐页面背景后，首轮黑色窗口外露已消失；右侧保存图标、胸部/器械副标题、三条提示及主按钮均进入当前设备证据。
+10. 设置页首轮修复与证据：场地页改为设计稿 2×3 器械网格、固定六项摘要及外置标签软阴影输入框；AI 页补齐连接状态差异和底部保存/重测主按钮；关于页恢复设计稿版本说明；四个路由拆成独立测试生命周期，避免 `rememberSaveable` 造成错误截图。设备证据测试 6/6、JVM、Lint、APK 构建通过。
+11. 同视口校准：发现旧模拟器实际为 448×997dp，已改为设计稿精确的 390×844dp 并重新执行设备证据测试 6/6。此前不同视口下的页面密度判断全部作废，以新截图为准。
+12. 当前 HTML 第一批源图：通过本地 HTTP + 应用内浏览器采集首页、动作库、动作详情、训练总结、场地、AI、备份、关于 8 个状态。基于实际对照，将动作库卡片固定为 220dp、补齐精确动作名称和“胸部”翻译；动作详情媒体改为 300dp、徽标移至底部、提示项补齐 01/02/03 荧光编号；AI 服务配置删除设计稿不存在的大卡外壳与独立“检查连接”按钮；全局正文和标签字号下调至设计稿 10/12/13/14 级别。
+13. 完整资源源图重采：改从项目根目录提供设计稿，Material Symbols、动作 GIF 和服务商 Logo 全部返回 200，动作库源图已确认恢复真实图片。训练偏好页确认了此前最核心的排列错误：头像上传区应位于说明卡和基础资料之间；原生已移动头像卡到该位置并删除表单底部的重复上传按钮。新增当前原生训练偏好证据测试，设备证据测试现为 7/7。
+14. 训练偏好同视口收口：等待“基础资料”稳定可见后重采 `profile-edit-source.png`，黑块源图已替换。对照 390×844 归一化原生图后，定位并删除编辑页重复的 `statusBarsPadding()`，整体内容上移约 50dp；二级顶部栏改为带实色根背景的外层容器，原生截图黑顶消失；非头像章节补齐设计稿的 14dp 顶部节奏与 4dp 横向缩进。
+15. 计划子流程源图与原生图：新增 `plan-detail-source.png`、`plan-edit-source.png`、`plan-draft-source.png` 及对应 390×844 原生证据。计划详情的编辑操作移至右上角，删除设计稿不存在的底部操作；英雄卡恢复“一周 3 练 / 增肌 / 场地 / 35 分钟”和胸背腿节点，训练安排改为日期行。编辑页改为外置标签软输入框、94dp 动作行、软阴影添加按钮和“保存计划”文案。
+16. 四周草稿信息架构修复：新增独立 `AppRoute.PlanDraft`、持久化 saver、返回规则和无底栏 `PlanDraftScreen`。生成草稿后立即进入独立页面；训练日历只保留紧凑的待确认草稿入口，不再把 15 项 AI 输入长期塞在日历底部。草稿输入卡改为设计稿的 58dp 页面底色网格，并新增独立设备截图 tag，避免把路由切换中间帧误当证据。
+17. 饮食全流程成对证据：采集饮食首页、添加一餐弹层、手动记录、照片估算和照片草稿 5 张当前 HTML 源图，并在精确视口重跑原生证据。三张独立页增加全屏米白根 `Surface`，消除滚动内容结束后的透明黑底；照片草稿使用独立 screen tag，避免中间帧；默认估算值对齐 520 kcal / 42g / 55g / 14g。
+18. 饮食首页和弹层收口：热量数字显式使用浅色前景，右下营养卡按设计稿只显示碳水；证据测试加入 420 kcal 的燕麦酸奶早餐状态。添加一餐弹层标题恢复为“添加一餐”，手动卡副文案恢复“添加演示午餐”，并补回设计稿底部取消按钮。
+19. 训练流程当前源图与精确视口复拍：补齐准备、训练中、90 秒组间休息、结束确认 4 张 HTML 源图，并重跑真实原生流程得到 1170×2532 设备截图。训练中页面改为深色 edge-to-edge 系统栏，顶部和休息状态补齐系统栏安全区；结束确认弹层改为设计稿的深色容器、灰色说明和白色次按钮。设备证据测试 1/1、JVM 单测与 Debug APK 构建通过。动作图片仍受 P1 授权门禁约束。
+20. 日历四态收口：补齐周、日期详情、月、年 4 张当前 HTML 源图并重跑精确视口原生证据。月视图删除设计稿不存在的月份切换行，日期单元改为 7 列圆角状态卡；年视图删除重复年份标题；日期详情动作改为整行软卡并补齐重量与按钮箭头。设备证据测试 1/1、JVM、Lint、APK 构建通过。
+21. 档案、视觉模式和首次设置收口：补齐 3 组当前成对证据；“我的”档案英雄区由居中白卡重排为设计稿的深色左对齐档案卡和内嵌统计条；视觉模式由无响应行修复为三选项底部弹层；首次设置补齐右上荧光确认图标和荧光安全起点卡。设备证据测试 2/2、JVM、Lint、APK 构建通过。
+22. 悬浮底卡与首屏密度精修：将添加一餐、日期详情、视觉模式、结束训练确认统一为左右 18dp 留白、四角 30dp、底部悬浮的原生对话卡；逐项校准内容高度和底边，使添加一餐的标题、154dp 方式卡、取消按钮，视觉模式的三张 96dp 选择卡，以及日期详情的标题、动作卡和主按钮与 HTML 同坐标。我的页面同步将设置行收敛到 60dp，并校准英雄卡高度和章节间距。模糊灰度几何差异由添加一餐 31.58 降至 20.32、视觉模式 28.61 降至 15.99、日期详情 25.13 降至 15.04、我的 14.26 降至 9.57；组合设备回归 4/4、JVM、Lint、APK 构建通过。
+23. 全页面统一差异排名与设置页精修：将 28 张原生证据统一归一为 390×844 并重新计算模糊灰度几何差异；发现旧首页证据过期且与 HTML 的完成态不一致，重置原型后按同一“准备训练”状态复拍，首页当前差异为 16.38，英雄卡边界已对齐。设置页统一移除内容区多余的 20dp 顶部下移；备份操作行由 72dp 收敛至 64dp、危险按钮恢复深色实心、短内容页补齐全屏米白背景，备份差异由 23.25 降至 14.28；关于页恢复 128dp 居中 Logo、居中说明和 64dp 信息行，差异由 11.97 降至 7.05；场地页降至 8.71。AI 设置将描边密钥框改为外置标签软输入框，去除行内保存，补齐接口/密钥/模型说明和设计稿显示名称，功能测试仍通过。设置相关设备回归 5/5、JVM、Lint、APK 构建通过。
+24. 最终完成审计：重新计算 28 张当前证据并将差异分为“授权媒体区域”和“布局区域”。全部非媒体页面均进入低偏差区间（7.05–15.99）；其中三个较高弹层已逐坐标确认边界一致，剩余分数来自底层运行数据、系统字体栅格和背景内容差异，不再存在可定位的卡片层级或排列错误。执行完整视觉证据回归 14/14，通过首页、计划四态、计划详情/编辑/草稿、训练四态、饮食五态、动作库/详情、总结、档案/首次设置/视觉模式及四个设置页；JVM、Lint、Debug APK 与 AndroidTest APK 均通过。唯一未满足项仍是默认合规构建排除未提供授权依据的动作 GIF，因此媒体区域不能宣称一比一完成。
+25. 本地素材权利链复核：确认 `0748-trqKQv2.gif` 与 `0289-SpYC0Kp.gif` 文件确实存在，但 `MEDIA_RIGHTS.md` 明确记录“未取得或留存 Gym Visual 许可/书面授权”，`THIRD_PARTY_NOTICES.md` 同时说明上游 MIT 仅覆盖元数据、不覆盖 GIF，下载脚本的确认参数也不是许可授予。现有仓库不存在发票、书面许可、授权编号或覆盖平台/地域/期限/再分发范围的权利人记录，因此不能合法填写 `exerciseMediaLicenseReference`；本轮未绕过构建门禁。
+26. 个人非商业媒体构建与最终收口：依据 ExerciseDB 官方免费版文档记录 180p GIF 的个人、原型、教育与非商业应用范围，并为两张实际使用素材建立来源 URL、尺寸、SHA-256 与署名记录；使用显式媒体参数构建，确认 Debug APK 同时包含两张 GIF 且运行时真实显示。动作库与详情移除多余顶部偏移；训练页根 Scaffold 在活动路由切换为深色容器，真实 `MainActivity` 复拍确认状态栏、导航栏、动图与内容均符合沉浸式设计。最终设备视觉证据回归 14/14，通过 JVM 单测、Lint、Debug APK 与 AndroidTest APK 构建；当前验收范围内 P0/P1/P2 清零。
+27. 真实使用性能修复：用户点击首页“动作库”快速入口后复现系统 ANR。Bugreport 主线程栈定位到 `LibraryScreen -> SearchableExercise -> ExerciseChineseNameTranslator.translate`，旧实现为 1324 个动作的四个字段逐次排序短语表并动态编译正则，输入分发超过 5 秒。现将正则与短语规则预编译、翻译结果缓存，动作库改为仅对可见卡片惰性翻译；网格使用静态 GIF 首帧，详情与训练页继续播放动画；全路由增加 240ms 横向淡入过渡。宿主 GPU 模拟器连续滚动后 App CPU 回落至 0%，未再出现 App ANR；快速入口、返回后再次点击、动作库/详情设备回归 3/3 通过，JVM、Lint 与 Debug APK 构建通过。
+
+**Implementation Checklist**
+
+- [x] 在 390 × 844 模拟器完成饮食首页、添加弹层、手动餐食、照片估算、照片草稿的成对 QA。
+- [x] 在 390 × 844 模拟器完成训练准备、训练中、组间休息、结束确认的成对 QA。
+- [x] 在 390 × 844 模拟器完成周/月/年日历和日期详情的成对 QA。
+- [x] 在 390 × 844 模拟器完成我的首页、视觉模式弹层和首次训练设置的成对 QA。
+- [x] 以个人非商业媒体记录启用动作 GIF，并完成最终全量复拍。
+
+**Follow-up Polish**
+
+- 后续如继续精修，可针对系统字体栅格、阴影边缘和动图帧时序等 P3 光学差异迭代；不影响当前布局与功能验收。
+
+final result: pass

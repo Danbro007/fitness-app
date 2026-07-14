@@ -1,7 +1,7 @@
 ---
 name: i fitness README
 description: i fitness 本地优先 Android 健身助手的中文 GitHub 项目入口。
-version: 1.2.0
+version: 1.3.0
 last_updated: 2026-07-11
 maintained_by: shanqijie
 ---
@@ -20,6 +20,14 @@ maintained_by: shanqijie
 - 主流程已跑通：制定计划、选择动作、训练执行、组间休息、训练总结、饮食记录、AI 设置和本地备份。
 - 动作清单包含 1324 条元数据；正式构建默认排除第三方 GIF，只有提供授权凭证时才能显式启用。
 - 已在 Pixel 8 Pro 模拟器完成真实数据验收：29/29 JVM 测试、61/61 设备测试通过，无崩溃或 ANR。
+
+## 当前开发需求
+
+未来主义新拟态 UI、训练日历、可编辑体测、AI 全档案计划、三服务商配置与头像上传的开发基线见：
+
+- [`i fitness 未来主义新拟态 UI 开发需求`](./docs/superpowers/specs/2026-07-11-futuristic-neumorphism-ui-development-requirements.md)
+
+该文档区分了“浏览器原型已验证”与“原生 Android 待实现”，并提供数据迁移、代码影响范围、测试矩阵和完整验收清单。
 
 ## 功能
 

@@ -16,6 +16,9 @@ class GestureNavigationTest {
 
     @Test
     fun clampsTabNavigationAtEdges() {
+        assertEquals(0, GestureNavigation.nextIndex(currentIndex = 4, itemCount = 0, swipe = HorizontalSwipe.Left))
+        assertEquals(1, GestureNavigation.nextIndex(currentIndex = -5, itemCount = 7, swipe = HorizontalSwipe.Left))
+        assertEquals(5, GestureNavigation.nextIndex(currentIndex = 99, itemCount = 7, swipe = HorizontalSwipe.Right))
         assertEquals(1, GestureNavigation.nextIndex(currentIndex = 0, itemCount = 7, swipe = HorizontalSwipe.Left))
         assertEquals(0, GestureNavigation.nextIndex(currentIndex = 0, itemCount = 7, swipe = HorizontalSwipe.Right))
         assertEquals(5, GestureNavigation.nextIndex(currentIndex = 6, itemCount = 7, swipe = HorizontalSwipe.Right))

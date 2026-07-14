@@ -50,6 +50,8 @@ This repository does not grant a license to that media. The GIF binaries are exc
 
 The helper downloader requires the operator to explicitly state that they already have the necessary media rights. That flag is a safety acknowledgement, not a license grant.
 
+For a narrowly scoped personal, local, non-commercial build, the project may use the 180p GIF delivery exposed by the official ExerciseDB V1 Free Dataset terms, which list personal projects, prototypes and non-commercial apps as allowed uses and require AscendAPI attribution. The retained scope and verified hashes are documented in `docs/compliance/exercisedb-personal-noncommercial-media-record.md`. This record does not extend to public distribution or commercial use and does not remove the Gym Visual copyright attribution.
+
 ## Android and Kotlin libraries
 
 The runtime uses AndroidX, Jetpack Compose, Kotlin/Kotlinx, and Coil libraries. These projects are generally distributed under Apache License 2.0; their own copyright notices and license files remain authoritative. JUnit 4 is used only for tests and is distributed under the Eclipse Public License 1.0.
