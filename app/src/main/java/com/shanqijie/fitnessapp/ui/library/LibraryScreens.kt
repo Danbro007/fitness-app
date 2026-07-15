@@ -36,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -59,7 +60,10 @@ import com.shanqijie.fitnessapp.ui.components.FitnessSurfaceCard
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import com.shanqijie.fitnessapp.ui.theme.FitnessDimensions
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @Composable
@@ -72,13 +76,21 @@ fun LibraryScreen(
     var selectedFilter by rememberSaveable { mutableStateOf(ExerciseFilter.All) }
     val searchableExercises = remember(exercises) { exercises.map(::SearchableExercise) }
     val normalizedQuery = query.trim().lowercase(Locale.ROOT)
-    val filteredExercises = remember(searchableExercises, normalizedQuery, selectedFilter) {
-        searchableExercises.filter { exercise ->
-            selectedFilter.matches(exercise) &&
-                (normalizedQuery.isBlank() || exercise.searchText.contains(normalizedQuery))
-        }.sortedBy { exercise ->
-            FeaturedExerciseNames.indexOf(exercise.media.name.lowercase(Locale.ROOT))
-                .takeIf { it >= 0 } ?: Int.MAX_VALUE
+    val filteredExercises by produceState<List<SearchableExercise>>(
+        initialValue = emptyList(),
+        searchableExercises,
+        normalizedQuery,
+        selectedFilter,
+    ) {
+        if (normalizedQuery.isNotBlank()) delay(SearchDebounceMillis)
+        value = withContext(Dispatchers.Default) {
+            searchableExercises.filter { exercise ->
+                selectedFilter.matches(exercise) &&
+                    (normalizedQuery.isBlank() || exercise.searchText.contains(normalizedQuery))
+            }.sortedBy { exercise ->
+                FeaturedExerciseNames.indexOf(exercise.media.name.lowercase(Locale.ROOT))
+                    .takeIf { it >= 0 } ?: Int.MAX_VALUE
+            }
         }
     }
 
@@ -353,19 +365,19 @@ object LibraryTags {
 internal class SearchableExercise(
     val media: ExerciseMediaEntity,
 ) {
-    val name: String by lazy(LazyThreadSafetyMode.NONE) {
+    val name: String by lazy {
         ExerciseChineseNameTranslator.translate(media.name)
     }
-    val bodyPart: String by lazy(LazyThreadSafetyMode.NONE) {
+    val bodyPart: String by lazy {
         ExerciseChineseNameTranslator.translate(media.bodyPart)
     }
-    val equipment: String by lazy(LazyThreadSafetyMode.NONE) {
+    val equipment: String by lazy {
         ExerciseChineseNameTranslator.translate(media.equipment)
     }
-    val target: String by lazy(LazyThreadSafetyMode.NONE) {
+    val target: String by lazy {
         ExerciseChineseNameTranslator.translate(media.target)
     }
-    val searchText: String by lazy(LazyThreadSafetyMode.NONE) {
+    val searchText: String by lazy {
         listOf(
             media.exerciseId,
             media.name,
@@ -388,6 +400,7 @@ internal enum class ExerciseFilter(val label: String) {
     Core("核心");
 
     fun matches(exercise: SearchableExercise): Boolean {
+        if (this == All) return true
         val anatomy = listOf(
             exercise.media.bodyPart,
             exercise.media.target,
@@ -395,7 +408,7 @@ internal enum class ExerciseFilter(val label: String) {
             exercise.target,
         ).joinToString(" ").lowercase(Locale.ROOT)
         return when (this) {
-            All -> true
+            All -> true // coverage-exempt: returned before anatomy translation
             Chest -> "胸" in anatomy || "chest" in anatomy || "pector" in anatomy
             Back -> "背" in anatomy || "back" in anatomy || "lat" in anatomy
             Legs -> listOf("腿", "臀", "股", "小腿", "leg", "glute", "quad", "hamstring", "calf")
@@ -412,6 +425,8 @@ private val FeaturedExerciseNames = listOf(
     "dumbbell incline bench press",
     "lever seated fly",
 )
+
+private const val SearchDebounceMillis = 150L
 
 private val DetailErrorContainer = androidx.compose.ui.graphics.Color(0xFFFFDAD6)
 private val DetailErrorText = androidx.compose.ui.graphics.Color(0xFF690005)

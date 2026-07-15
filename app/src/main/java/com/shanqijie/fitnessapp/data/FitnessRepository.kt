@@ -3,6 +3,9 @@ package com.shanqijie.fitnessapp.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import android.net.Uri
 import android.util.Log
 import android.util.Base64
@@ -71,6 +74,8 @@ class FitnessRepository(
     private val aiGatewayFactory: AiGatewayFactory = AiGatewayFactory(::AiChatClient),
 ) {
     private val refreshSignal = MutableStateFlow(0)
+    @Volatile
+    private var exerciseCatalog: ExerciseCatalog? = null
 
     suspend fun bootstrap(): BootstrapResult = withContext(Dispatchers.IO) {
         val manifestJson = context.assets
@@ -85,6 +90,7 @@ class FitnessRepository(
                 manifest.files.map { it.toEntity(assetPackId) },
             )
         }
+        exerciseCatalog = ExerciseCatalog(store.allExercises(limit = 1_500))
 
         val now = timeProvider.currentTimeMillis()
         seedDefaultVenue(now)
@@ -307,8 +313,14 @@ class FitnessRepository(
             BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sampleSize })
         } ?: error("无法读取头像")
         val side = minOf(decoded.width, decoded.height)
-        val square = Bitmap.createBitmap(decoded, (decoded.width - side) / 2, (decoded.height - side) / 2, side, side)
-        val output = if (side > 512) Bitmap.createScaledBitmap(square, 512, 512, true) else square
+        val outputSide = minOf(side, 512)
+        val output = Bitmap.createBitmap(outputSide, outputSide, Bitmap.Config.ARGB_8888)
+        Canvas(output).drawBitmap(
+            decoded,
+            Rect((decoded.width - side) / 2, (decoded.height - side) / 2, (decoded.width + side) / 2, (decoded.height + side) / 2),
+            Rect(0, 0, outputSide, outputSide),
+            Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG),
+        )
         val avatarDir = File(context.filesDir, "avatars").apply { mkdirs() }
         val relativePath = "avatars/profile-${System.currentTimeMillis()}.jpg"
         val target = File(context.filesDir, relativePath)
@@ -318,8 +330,7 @@ class FitnessRepository(
         val oldPath = profile.avatarPath
         store.upsertUserProfile(profile.copy(avatarPath = relativePath, updatedAt = System.currentTimeMillis()))
         if (oldPath.isNotBlank() && oldPath != relativePath) File(context.filesDir, oldPath).delete()
-        if (output !== square) output.recycle()
-        if (square !== decoded) square.recycle()
+        output.recycle()
         decoded.recycle()
         refreshSignal.update { it + 1 }
     }
@@ -790,6 +801,7 @@ class FitnessRepository(
         seedDefaultVenue(now)
         seedDefaultEquipment(now)
         seedDefaultAiProviders(now)
+        clearAvatarDirectory()
         refreshSignal.update { it + 1 }
     }
 
@@ -1174,12 +1186,42 @@ class FitnessRepository(
     }
 
     suspend fun confirmFoodEstimateDraft(draftId: String): FoodLogEntity = withContext(Dispatchers.IO) {
+        confirmFoodEstimateDraftInTransaction(draftId = draftId, confirmedEstimate = null)
+    }
+
+    suspend fun confirmFoodEstimateDraft(
+        draftId: String,
+        name: String,
+        calories: Int,
+        proteinGrams: Double,
+        carbsGrams: Double,
+        fatGrams: Double,
+    ): FoodLogEntity = withContext(Dispatchers.IO) {
+        val estimate = FoodEstimate(
+            name = name.trim(),
+            calories = calories,
+            protein = proteinGrams,
+            carbs = carbsGrams,
+            fat = fatGrams,
+        )
+        require(estimate.name.isNotEmpty()) { "餐食名称不能为空" }
+        require(estimate.calories in 0..5000) { "热量不合理" }
+        require(listOf(estimate.protein, estimate.carbs, estimate.fat).all { it.isFinite() && it >= 0.0 }) {
+            "营养数据不能为负数或无效数字"
+        }
+        confirmFoodEstimateDraftInTransaction(draftId = draftId, confirmedEstimate = estimate)
+    }
+
+    private fun confirmFoodEstimateDraftInTransaction(
+        draftId: String,
+        confirmedEstimate: FoodEstimate?,
+    ): FoodLogEntity {
         val now = timeProvider.currentTimeMillis()
         val foodLog = store.transaction {
             val draft = requireNotNull(aiDraft(draftId)) { "草稿不存在" }
             require(draft.type == "food_estimate") { "不是饮食估算草稿" }
             require(draft.status == "draft") { "草稿已经确认或失效" }
-            val estimate = parseFoodEstimateDraft(draft)
+            val estimate = confirmedEstimate ?: parseFoodEstimateDraft(draft)
             val metadata = parseFoodDraftMetadata(draft.metadataJson)
             val log = FoodLogEntity(
                 id = "food-${UUID.randomUUID()}",
@@ -1202,7 +1244,7 @@ class FitnessRepository(
             log
         }
         refreshSignal.update { it + 1 }
-        foodLog
+        return foodLog
     }
 
     suspend fun generateWeeklyPlanDraft(): AiDraftEntity = withContext(Dispatchers.IO) {
@@ -1337,12 +1379,14 @@ class FitnessRepository(
     }
 
     suspend fun exportBackupJson(): String = withContext(Dispatchers.IO) {
+        val userProfile = store.userProfile()
+        val workoutSessions = store.workoutSessions()
         FitnessBackupCodec.encode(
             FitnessBackupPayload(
                 version = 4,
                 exportedAt = timeProvider.currentTimeMillis(),
-                userProfile = store.userProfile(),
-                avatarBase64 = store.userProfile()?.avatarPath?.takeIf(String::isNotBlank)
+                userProfile = userProfile,
+                avatarBase64 = userProfile?.avatarPath?.takeIf(String::isNotBlank)
                     ?.let { File(context.filesDir, it) }
                     ?.takeIf(File::isFile)
                     ?.readBytes()
@@ -1354,8 +1398,8 @@ class FitnessRepository(
                 preferences = store.preferences(),
                 plannedWorkouts = store.plannedWorkouts(),
                 plannedExercises = store.allPlannedExercises(),
-                workoutSessions = store.workoutSessions(),
-                sessionExercises = store.workoutSessions().flatMap { store.sessionExercises(it.id) },
+                workoutSessions = workoutSessions,
+                sessionExercises = store.allSessionExercises(),
                 setLogs = store.allSetLogs(),
                 foodLogs = store.foodLogs(),
                 aiDrafts = store.aiDrafts(),
@@ -1368,46 +1412,75 @@ class FitnessRepository(
     suspend fun importBackupJson(rawJson: String) = withContext(Dispatchers.IO) {
         val payload = FitnessBackupCodec.decode(rawJson)
         validateBackupPayload(payload)
-        store.transaction {
-            store.clearPersonalData()
-            val restoredProfile = payload.userProfile?.let { profile ->
-                val restoredPath = runCatching {
-                    if (payload.avatarBase64.isBlank()) return@runCatching ""
-                    val bytes = Base64.decode(payload.avatarBase64, Base64.DEFAULT)
-                    require(bytes.size <= 5 * 1024 * 1024) { "头像文件过大" }
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                    val sampleSize = calculateAvatarInSampleSize(bounds.outWidth, bounds.outHeight)
-                    val bitmap = BitmapFactory.decodeByteArray(
-                        bytes,
-                        0,
-                        bytes.size,
-                        BitmapFactory.Options().apply { inSampleSize = sampleSize },
-                    ) ?: error("头像损坏")
-                    bitmap.recycle()
-                    File(context.filesDir, "avatars").mkdirs()
-                    val relative = "avatars/restored-profile.jpg"
-                    File(context.filesDir, relative).writeBytes(bytes)
-                    relative
-                }.getOrDefault("")
-                profile.copy(avatarPath = restoredPath)
+        require(payload.userProfile != null || payload.avatarBase64.isBlank()) { "头像缺少对应用户档案" }
+        val previousAvatarPath = store.userProfile()?.avatarPath.orEmpty()
+        val restoredAvatarPath = payload.userProfile?.let { restoreAvatarFile(payload.avatarBase64) }.orEmpty()
+        try {
+            store.transaction {
+                store.clearPersonalData()
+                payload.userProfile
+                    ?.copy(avatarPath = restoredAvatarPath)
+                    ?.let(store::upsertUserProfile)
+                payload.venues.forEach(store::upsertVenue)
+                payload.equipment.forEach(store::upsertEquipment)
+                payload.venueEquipment.forEach(store::upsertVenueEquipment)
+                payload.preferences.forEach { (key, value) -> store.putPreference(key, value) }
+                payload.plannedWorkouts.forEach(store::upsertPlannedWorkout)
+                payload.plannedExercises.forEach(store::upsertPlannedExercise)
+                payload.workoutSessions.forEach(store::upsertWorkoutSession)
+                payload.sessionExercises.forEach(store::upsertSessionExercise)
+                payload.setLogs.forEach(store::insertSetLog)
+                payload.foodLogs.forEach(store::insertFoodLog)
+                payload.aiDrafts.forEach(store::upsertAiDraft)
+                payload.trainingAdjustments.forEach(store::upsertTrainingAdjustment)
+                payload.aiProviders.filter { AiProviderCatalog.entry(it.id) != null }.forEach(store::upsertAiProvider)
+                seedDefaultAiProviders(timeProvider.currentTimeMillis())
             }
-            restoredProfile?.let(store::upsertUserProfile)
-            payload.venues.forEach(store::upsertVenue)
-            payload.equipment.forEach(store::upsertEquipment)
-            payload.venueEquipment.forEach(store::upsertVenueEquipment)
-            payload.preferences.forEach { (key, value) -> store.putPreference(key, value) }
-            payload.plannedWorkouts.forEach(store::upsertPlannedWorkout)
-            payload.plannedExercises.forEach(store::upsertPlannedExercise)
-            payload.workoutSessions.forEach(store::upsertWorkoutSession)
-            payload.sessionExercises.forEach(store::upsertSessionExercise)
-            payload.setLogs.forEach(store::insertSetLog)
-            payload.foodLogs.forEach(store::insertFoodLog)
-            payload.aiDrafts.forEach(store::upsertAiDraft)
-            payload.trainingAdjustments.forEach(store::upsertTrainingAdjustment)
-            payload.aiProviders.filter { AiProviderCatalog.entry(it.id) != null }.forEach(store::upsertAiProvider)
+        } catch (error: Throwable) {
+            deleteAvatarFile(restoredAvatarPath)
+            throw error
         }
+        if (previousAvatarPath != restoredAvatarPath) deleteAvatarFile(previousAvatarPath)
         refreshSignal.update { it + 1 }
+    }
+
+    private fun restoreAvatarFile(avatarBase64: String): String {
+        if (avatarBase64.isBlank()) return ""
+        val bytes = Base64.decode(avatarBase64, Base64.DEFAULT)
+        require(bytes.size <= 5 * 1024 * 1024) { "头像文件过大" }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val sampleSize = calculateAvatarInSampleSize(bounds.outWidth, bounds.outHeight)
+        val bitmap = BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size,
+            BitmapFactory.Options().apply { inSampleSize = sampleSize },
+        ) ?: error("头像损坏")
+        bitmap.recycle()
+        val relativePath = "avatars/restored-${UUID.randomUUID()}.jpg"
+        val target = File(context.filesDir, relativePath)
+        target.parentFile?.mkdirs()
+        try {
+            target.writeBytes(bytes)
+        } catch (error: Throwable) {
+            target.delete()
+            throw error
+        }
+        return relativePath
+    }
+
+    private fun deleteAvatarFile(relativePath: String) {
+        if (relativePath.isBlank()) return
+        val avatarDirectory = File(context.filesDir, "avatars").canonicalFile
+        val target = File(context.filesDir, relativePath).canonicalFile
+        require(target.parentFile == avatarDirectory) { "头像路径无效" }
+        check(!target.exists() || target.delete()) { "无法删除旧头像" }
+    }
+
+    private fun clearAvatarDirectory() {
+        val avatarDirectory = File(context.filesDir, "avatars")
+        check(!avatarDirectory.exists() || avatarDirectory.deleteRecursively()) { "无法清除本地头像" }
     }
 
     private fun validateBackupPayload(payload: FitnessBackupPayload) {
@@ -1783,22 +1856,26 @@ class FitnessRepository(
 
     private fun currentAppState(): FitnessAppState =
         store.allPlannedExercises().let { plannedExercises ->
+            val cachedExerciseCatalog = exerciseCatalog
             val plannedExerciseViews = plannedExercises.mapNotNull { plannedExercise ->
-                store.exerciseById(plannedExercise.exerciseId)?.let { media ->
+                (cachedExerciseCatalog?.byId?.get(plannedExercise.exerciseId)
+                    ?: store.exerciseById(plannedExercise.exerciseId))?.let { media ->
                     PlannedExerciseView(plannedExercise, media)
                 }
             }
             val selectedVenue = store.defaultVenue() ?: store.venue(DEFAULT_VENUE_ID)
             val venueEquipmentMappings = store.venueEquipment()
+            val equipment = store.allEquipment()
             val venueEquipment = selectedVenue?.let { venue ->
                 if (venueEquipmentMappings.any { it.venueId == venue.id }) {
                     store.equipmentForVenue(venue.id)
                 } else {
-                    store.allEquipment()
+                    equipment
                 }
-            } ?: store.allEquipment()
+            } ?: equipment
             val workoutSessions = store.workoutSessions()
-            val workoutSessionExercises = workoutSessions.flatMap { store.sessionExercises(it.id) }
+            val workoutSessionExercises = store.allSessionExercises()
+            val preferences = store.preferences()
             val aiProviders = store.aiProviders().map { provider ->
                 provider.copy(apiKeyStored = credentialStore.loadApiKey(provider.id) != null)
             }
@@ -1806,7 +1883,7 @@ class FitnessRepository(
             FitnessAppState(
                 venue = selectedVenue,
                 venues = store.trainingVenues(),
-                equipment = store.allEquipment(),
+                equipment = equipment,
                 equipmentForSelectedVenue = venueEquipment,
                 venueEquipment = venueEquipmentMappings,
                 plannedWorkouts = store.plannedWorkouts(),
@@ -1817,14 +1894,16 @@ class FitnessRepository(
                 workoutSessionExercises = workoutSessionExercises,
                 workoutSetLogs = store.allSetLogs(),
                 userProfile = store.userProfile(),
-                onboardingCompleted = store.preference(ONBOARDING_COMPLETED_KEY)?.toBooleanStrictOrNull() ?: false,
+                onboardingCompleted = preferences[ONBOARDING_COMPLETED_KEY]?.toBooleanStrictOrNull() ?: false,
                 foodLogs = store.foodLogs(),
                 aiDrafts = store.aiDrafts(),
                 trainingAdjustments = store.trainingAdjustments(),
-                smithMachineExercises = store.exercisesByEquipment("smith machine"),
-                exercises = store.allExercises(limit = 1_500),
+                smithMachineExercises = cachedExerciseCatalog?.smithMachineExercises
+                    ?: store.exercisesByEquipment("smith machine"),
+                exercises = cachedExerciseCatalog?.exercises
+                    ?: store.allExercises(limit = 1_500),
                 aiProviders = aiProviders,
-                preferences = store.preferences(),
+                preferences = preferences,
             )
         }
 
@@ -1931,8 +2010,13 @@ class FitnessRepository(
             EquipmentSeed("equipment-monkey-bars", "云梯", "body-weight"),
             EquipmentSeed("equipment-climbing-rope", "攀爬绳", "body-weight"),
         )
-        seeds.filterNot { it.name in existingNames }
-            .forEach { seed ->
+        val missingEquipment = seeds.filterNot { it.name in existingNames }
+        val existingBindings = store.venueEquipment()
+            .filter { it.venueId == DEFAULT_VENUE_ID }
+            .mapTo(mutableSetOf()) { it.equipmentId }
+        val missingBindings = seeds.filterNot { it.id in existingBindings }
+        store.transaction {
+            missingEquipment.forEach { seed ->
                 store.upsertEquipment(
                     EquipmentEntity(
                         id = seed.id,
@@ -1943,18 +2027,16 @@ class FitnessRepository(
                     ),
                 )
             }
-        val existingBindings = store.venueEquipment()
-            .filter { it.venueId == DEFAULT_VENUE_ID }
-            .mapTo(mutableSetOf()) { it.equipmentId }
-        seeds.filterNot { it.id in existingBindings }.forEach { seed ->
-            store.upsertVenueEquipment(
-                VenueEquipmentEntity(
-                    venueId = DEFAULT_VENUE_ID,
-                    equipmentId = seed.id,
-                    available = seed.defaultAvailable,
-                    updatedAt = now,
-                ),
-            )
+            missingBindings.forEach { seed ->
+                store.upsertVenueEquipment(
+                    VenueEquipmentEntity(
+                        venueId = DEFAULT_VENUE_ID,
+                        equipmentId = seed.id,
+                        available = seed.defaultAvailable,
+                        updatedAt = now,
+                    ),
+                )
+            }
         }
     }
 
@@ -2060,6 +2142,15 @@ data class PlannedExerciseView(
     val plannedExercise: PlannedExerciseEntity,
     val media: ExerciseMediaEntity,
 )
+
+private class ExerciseCatalog(
+    val exercises: List<ExerciseMediaEntity>,
+) {
+    val byId: Map<String, ExerciseMediaEntity> = exercises.associateBy(ExerciseMediaEntity::exerciseId)
+    val smithMachineExercises: List<ExerciseMediaEntity> = exercises.filter {
+        it.equipment.equals("smith machine", ignoreCase = true)
+    }
+}
 
 private data class EquipmentSeed(
     val id: String,

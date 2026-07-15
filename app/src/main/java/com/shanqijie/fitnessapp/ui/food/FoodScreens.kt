@@ -90,6 +90,40 @@ data class FoodPhotoInput(
     val imageBase64: String,
 )
 
+data class FoodEstimateConfirmation(
+    val name: String,
+    val calories: Int,
+    val proteinGrams: Double,
+    val carbsGrams: Double,
+    val fatGrams: Double,
+)
+
+internal fun parseFoodEstimateConfirmation(
+    name: String,
+    calories: String,
+    protein: String,
+    carbs: String,
+    fat: String,
+): FoodEstimateConfirmation {
+    val trimmedName = name.trim()
+    val parsedCalories = calories.toIntOrNull()
+    val parsedProtein = protein.toDoubleOrNull()
+    val parsedCarbs = carbs.toDoubleOrNull()
+    val parsedFat = fat.toDoubleOrNull()
+    require(trimmedName.isNotEmpty()) { "请输入餐食名称" }
+    require(parsedCalories in 0..5000) { "请输入 0 到 5000 之间的热量" }
+    require(listOf(parsedProtein, parsedCarbs, parsedFat).all { it != null && it.isFinite() && it >= 0.0 }) {
+        "请完整填写有效的营养数据"
+    }
+    return FoodEstimateConfirmation(
+        name = trimmedName,
+        calories = requireNotNull(parsedCalories),
+        proteinGrams = requireNotNull(parsedProtein),
+        carbsGrams = requireNotNull(parsedCarbs),
+        fatGrams = requireNotNull(parsedFat),
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FoodScreen(
@@ -417,7 +451,7 @@ internal fun persistFoodPhotoReadPermission(
 fun FoodPhotoDraftScreen(
     draft: AiDraftEntity,
     onDiscard: () -> Unit,
-    onConfirm: suspend () -> Unit,
+    onConfirm: suspend (FoodEstimateConfirmation) -> Unit,
     modifier: Modifier,
 ) {
     var confirming by rememberSaveable { mutableStateOf(false) }
@@ -445,24 +479,32 @@ fun FoodPhotoDraftScreen(
             Text("AI 草稿", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
         }
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            MealField(name, { name = it }, "餐食名称", FoodTags.DraftName, null)
-            MealField(calories, { calories = it }, "热量 kcal", FoodTags.DraftCalories, null)
+            MealField(name, { name = it; error = null }, "餐食名称", FoodTags.DraftName, null)
+            MealField(calories, { calories = it; error = null }, "热量 kcal", FoodTags.DraftCalories, null)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MealField(protein, { protein = it }, "蛋白质 g", FoodTags.DraftProtein, null, Modifier.weight(1f))
-                MealField(carbs, { carbs = it }, "碳水 g", FoodTags.DraftCarbs, null, Modifier.weight(1f))
+                MealField(protein, { protein = it; error = null }, "蛋白质 g", FoodTags.DraftProtein, null, Modifier.weight(1f))
+                MealField(carbs, { carbs = it; error = null }, "碳水 g", FoodTags.DraftCarbs, null, Modifier.weight(1f))
             }
-            MealField(fat, { fat = it }, "脂肪 g", FoodTags.DraftFat, null)
+            MealField(fat, { fat = it; error = null }, "脂肪 g", FoodTags.DraftFat, null)
         }
         error?.let { FoodError(it) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(onClick = onDiscard, modifier = Modifier.weight(1f).height(56.dp)) { Text("放弃草稿") }
             Button(
                 onClick = {
-                    confirming = true
-                    scope.launch {
-                        try { onConfirm() } catch (cancellation: CancellationException) { throw cancellation }
-                        catch (exception: Exception) { error = exception.message ?: "确认草稿失败" }
-                        finally { confirming = false }
+                    val confirmation = runCatching {
+                        parseFoodEstimateConfirmation(name, calories, protein, carbs, fat)
+                    }.getOrElse { validationError ->
+                        error = validationError.message ?: "请检查餐食数据"
+                        null
+                    }
+                    if (confirmation != null) {
+                        confirming = true
+                        scope.launch {
+                            try { onConfirm(confirmation) } catch (cancellation: CancellationException) { throw cancellation }
+                            catch (exception: Exception) { error = exception.message ?: "确认草稿失败" }
+                            finally { confirming = false }
+                        }
                     }
                 },
                 enabled = !confirming,

@@ -248,7 +248,12 @@ fun TrainingPreparationScreen(
                         modifier = Modifier.size(62.dp).clip(RoundedCornerShape(20.dp)).background(FitnessColors.Phone),
                         contentAlignment = Alignment.Center,
                     ) {
-                        FitnessGifImage(exercise.assetPath, exercise.name, Modifier.fillMaxSize())
+                        FitnessGifImage(
+                            assetPath = exercise.assetPath,
+                            contentDescription = exercise.name,
+                            modifier = Modifier.fillMaxSize(),
+                            animated = false,
+                        )
                     }
                     Column(
                         modifier = Modifier.weight(1f),
@@ -349,16 +354,6 @@ fun TrainingActiveScreen(
     val totalTargetSets = state.exercises.sumOf { it.targetSets }.coerceAtLeast(1)
     val totalCompletedSets = state.exercises.sumOf { it.completedSets }
     val allSetsCompleted = totalCompletedSets >= totalTargetSets
-    var clockNow by remember(state.sessionId) { mutableLongStateOf(System.currentTimeMillis()) }
-
-    LaunchedEffect(state.sessionId, state.pausedAt) {
-        while (true) {
-            clockNow = System.currentTimeMillis()
-            delay(1_000)
-        }
-    }
-    val displayedNow = state.pausedAt ?: clockNow
-    val elapsedText = formatElapsedTime((displayedNow - state.startedAt).coerceAtLeast(0L))
 
     LaunchedEffect(current.exerciseId, current.completedSets, state.restEndsAt) {
         val submittedSets = submittedCompletedSets
@@ -415,7 +410,7 @@ fun TrainingActiveScreen(
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("训练用时", color = Color(0xFF8F9189), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Text(elapsedText, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    TrainingElapsedText(startedAt = state.startedAt, pausedAt = state.pausedAt)
                 }
                 Surface(
                     onClick = onTogglePause,
@@ -702,6 +697,25 @@ private tailrec fun Context.findActivity(): Activity = when (this) {
 }
 
 @Composable
+private fun TrainingElapsedText(startedAt: Long, pausedAt: Long?) {
+    var now by remember(startedAt) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(startedAt, pausedAt) {
+        if (pausedAt != null) return@LaunchedEffect
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    val displayedNow = pausedAt ?: now
+    Text(
+        text = formatElapsedTime((displayedNow - startedAt).coerceAtLeast(0L)),
+        color = Color.White,
+        fontSize = 18.sp,
+        fontWeight = FontWeight.Bold,
+    )
+}
+
+@Composable
 private fun RestPanel(
     restEndsAt: Long,
     exerciseName: String,
@@ -717,8 +731,10 @@ private fun RestPanel(
     var completionSent by remember(restEndsAt) { mutableStateOf(false) }
 
     LaunchedEffect(restEndsAt) {
-        while (now < restEndsAt) {
-            delay(250)
+        while (true) {
+            val remainingMillis = restEndsAt - now
+            if (remainingMillis <= 0L) break
+            delay(minOf(remainingMillis, 1_000L))
             now = System.currentTimeMillis()
         }
         if (!completionSent) {

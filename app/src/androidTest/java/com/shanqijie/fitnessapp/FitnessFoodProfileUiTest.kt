@@ -39,6 +39,7 @@ import com.shanqijie.fitnessapp.data.FitnessRepository
 import com.shanqijie.fitnessapp.data.FitnessStore
 import com.shanqijie.fitnessapp.ui.FitnessAppRoot
 import com.shanqijie.fitnessapp.ui.food.FoodScreen
+import com.shanqijie.fitnessapp.ui.food.FoodEstimateConfirmation
 import com.shanqijie.fitnessapp.ui.food.FoodManualScreen
 import com.shanqijie.fitnessapp.ui.food.FoodPhotoDraftScreen
 import com.shanqijie.fitnessapp.ui.food.FoodPhotoScreen
@@ -644,7 +645,7 @@ class FitnessFoodProfileUiTest {
                 FoodPhotoDraftScreen(
                     draft = draft,
                     onDiscard = {},
-                    onConfirm = { error("确认草稿失败：数据库繁忙") },
+                    onConfirm = { _ -> error("确认草稿失败：数据库繁忙") },
                     modifier = androidx.compose.ui.Modifier,
                 )
             }
@@ -658,7 +659,7 @@ class FitnessFoodProfileUiTest {
 
     @Test
     fun photoDraftUsesEditableFallbacksForMalformedAiContent() {
-        var confirmed = false
+        var confirmation: FoodEstimateConfirmation? = null
         composeRule.setContent {
             FitnessTheme {
                 FoodPhotoDraftScreen(
@@ -674,7 +675,7 @@ class FitnessFoodProfileUiTest {
                         confirmedAt = null,
                     ),
                     onDiscard = {},
-                    onConfirm = { confirmed = true },
+                    onConfirm = { confirmation = it },
                     modifier = androidx.compose.ui.Modifier,
                 )
             }
@@ -683,7 +684,48 @@ class FitnessFoodProfileUiTest {
         composeRule.onNodeWithTag("photo-draft-calories").assertTextContains("520")
         composeRule.onNodeWithTag("photo-draft-protein").assertTextContains("42")
         composeRule.onNodeWithTag(ConfirmPhotoDraftTag).performScrollTo().performClick()
-        composeRule.waitUntil(timeoutMillis = 10_000) { confirmed }
+        composeRule.waitUntil(timeoutMillis = 10_000) { confirmation != null }
+        assertEquals(520, confirmation?.calories)
+        assertEquals(42.0, confirmation?.proteinGrams)
+    }
+
+    @Test
+    fun photoDraftPassesUserEditedValuesToConfirmation() {
+        var confirmation: FoodEstimateConfirmation? = null
+        composeRule.setContent {
+            FitnessTheme {
+                FoodPhotoDraftScreen(
+                    draft = AiDraftEntity(
+                        id = "editable-food-draft",
+                        type = "food_estimate",
+                        title = "饮食估算：旧名称",
+                        content = "约 520 千卡；蛋白质 42g；碳水 55g；脂肪 14g",
+                        status = "draft",
+                        createdAt = 1L,
+                        updatedAt = 1L,
+                        metadataJson = "",
+                        confirmedAt = null,
+                    ),
+                    onDiscard = {},
+                    onConfirm = { confirmation = it },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("photo-draft-name").performTextReplacement("自定义晚餐")
+        composeRule.onNodeWithTag("photo-draft-calories").performTextReplacement("680")
+        composeRule.onNodeWithTag("photo-draft-protein").performTextReplacement("50.5")
+        composeRule.onNodeWithTag("photo-draft-carbs").performTextReplacement("72")
+        composeRule.onNodeWithTag("photo-draft-fat").performTextReplacement("18")
+        composeRule.onNodeWithTag(ConfirmPhotoDraftTag).performScrollTo().performClick()
+
+        composeRule.waitUntil(timeoutMillis = 10_000) { confirmation != null }
+        assertEquals("自定义晚餐", confirmation?.name)
+        assertEquals(680, confirmation?.calories)
+        assertEquals(50.5, confirmation?.proteinGrams)
+        assertEquals(72.0, confirmation?.carbsGrams)
+        assertEquals(18.0, confirmation?.fatGrams)
     }
 
     @Test

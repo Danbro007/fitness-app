@@ -61,6 +61,7 @@ import coil.compose.AsyncImage
 import coil.decode.Decoder
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
+import coil.memory.MemoryCache
 import com.shanqijie.fitnessapp.BuildConfig
 import com.shanqijie.fitnessapp.ui.navigation.FitnessTestTags
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
@@ -131,6 +132,11 @@ fun FitnessFloatingBottomDialog(
 private fun fitnessGifImageLoader(context: Context): ImageLoader =
     SharedGifImageLoader.get {
         ImageLoader.Builder(context.applicationContext)
+            .memoryCache {
+                MemoryCache.Builder(context.applicationContext)
+                    .maxSizePercent(0.05)
+                    .build()
+            }
             .components {
                 add(gifDecoderFactoryFor(Build.VERSION.SDK_INT))
             }
@@ -139,7 +145,13 @@ private fun fitnessGifImageLoader(context: Context): ImageLoader =
 
 private fun fitnessStaticImageLoader(context: Context): ImageLoader =
     SharedStaticImageLoader.get {
-        ImageLoader.Builder(context.applicationContext).build()
+        ImageLoader.Builder(context.applicationContext)
+            .memoryCache {
+                MemoryCache.Builder(context.applicationContext)
+                    .maxSizePercent(0.15)
+                    .build()
+            }
+            .build()
     }
 
 @Composable

@@ -134,7 +134,6 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
-val generatedAnonymousClassExcludes = (0..99).map { index -> "**/*\$${index}.class" }
 val coverageClassExcludes = listOf(
     "**/R.class",
     "**/R\$*.class",
@@ -155,7 +154,7 @@ val coverageClassExcludes = listOf(
     "**/*ComposableSingletons\$*.*",
     "**/*\$inlined\$*.*",
     "**/*\$sam\$*.*",
-) + generatedAnonymousClassExcludes
+)
 
 val debugCoverageClasses = files(
     fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) {

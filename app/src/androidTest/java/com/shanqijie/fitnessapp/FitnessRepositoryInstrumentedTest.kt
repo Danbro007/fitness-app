@@ -307,6 +307,7 @@ class FitnessRepositoryInstrumentedTest {
         assertFalse(exported.contains("bodyAge"))
         assertFalse(exported.contains("sk-"))
         repository.resetLocalData()
+        assertFalse(avatar.exists())
         repository.importBackupJson(exported)
 
         val restored = requireNotNull(store.userProfile())
@@ -1019,6 +1020,10 @@ class FitnessRepositoryInstrumentedTest {
             preferredMinutes = 50,
         )
         repository.saveAiApiKey(FitnessRepository.OPENAI_PROVIDER_ID, "sk-reset-test")
+        val avatarDir = java.io.File(context.filesDir, "avatars").apply { mkdirs() }
+        val avatar = java.io.File(avatarDir, "reset-profile.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val orphanAvatar = java.io.File(avatarDir, "reset-orphan.jpg").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        store.upsertUserProfile(requireNotNull(store.userProfile()).copy(avatarPath = "avatars/reset-profile.jpg"))
         seedExercises()
         seedPlan(
             planId = "plan-reset",
@@ -1044,6 +1049,8 @@ class FitnessRepositoryInstrumentedTest {
         assertTrue(state.plannedWorkouts.isEmpty())
         assertEquals(listOf("openai", "gemini", "qwen"), state.aiProviders.map { it.id })
         assertTrue(state.aiProviders.none { it.apiKeyStored })
+        assertFalse(avatar.exists())
+        assertFalse(orphanAvatar.exists())
     }
 
     @Test
@@ -1052,7 +1059,8 @@ class FitnessRepositoryInstrumentedTest {
 
         repository.importBackupJson(rawBackup)
 
-        assertTrue(store.aiProvider(FitnessRepository.OPENAI_PROVIDER_ID)?.apiKeyStored == true)
+        assertEquals(listOf("openai", "gemini", "qwen"), store.aiProviders().map { it.id })
+        assertFalse(store.aiProvider(FitnessRepository.OPENAI_PROVIDER_ID)?.apiKeyStored == true)
         assertNull(credentialStore.loadApiKey(FitnessRepository.OPENAI_PROVIDER_ID))
         assertFalse(
             repository.appState().first().aiProviders
@@ -1115,6 +1123,27 @@ class FitnessRepositoryInstrumentedTest {
         assertEquals(foodLog.id, store.foodLogs().single().id)
         assertTrue(repeatedError is IllegalArgumentException)
         assertEquals("confirmed", store.aiDraft(draft.id)?.status)
+    }
+
+    @Test
+    fun foodDraftConfirmationPersistsUserEditedValues() = runBlocking {
+        val draft = repository.generateFoodEstimateDraft("鸡胸肉米饭")
+
+        val foodLog = repository.confirmFoodEstimateDraft(
+            draftId = draft.id,
+            name = "自定义晚餐",
+            calories = 680,
+            proteinGrams = 50.5,
+            carbsGrams = 72.0,
+            fatGrams = 18.0,
+        )
+
+        assertEquals("自定义晚餐", foodLog.name)
+        assertEquals(680, foodLog.calories)
+        assertEquals(50.5, foodLog.proteinGrams, 0.0)
+        assertEquals(72.0, foodLog.carbsGrams, 0.0)
+        assertEquals(18.0, foodLog.fatGrams, 0.0)
+        assertEquals(foodLog, store.foodLogs().single())
     }
 
     @Test
@@ -1185,6 +1214,8 @@ class FitnessRepositoryInstrumentedTest {
         assertNull(store.workoutSession("legacy-session")?.restEndsAt)
         assertNull(store.setLogs("legacy-session").single().sessionExerciseId)
         assertTrue(store.sessionExercises("legacy-session").isEmpty())
+        assertEquals(listOf("openai", "gemini", "qwen"), store.aiProviders().map { it.id })
+        assertTrue(store.aiProviders().single { it.id == "openai" }.enabled)
 
         store.clearPersonalData()
         seedExercises()

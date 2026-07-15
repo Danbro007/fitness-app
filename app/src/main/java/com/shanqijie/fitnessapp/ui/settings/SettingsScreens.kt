@@ -196,6 +196,12 @@ fun EquipmentFilterScreen(
     val categories = remember(equipment) {
         equipment.map { it.category }.distinct().sortedBy(::equipmentCategoryOrder)
     }
+    val selectedIdSet = remember(selectedIds) { selectedIds.toSet() }
+    val visibleEquipmentGroups = remember(visibleEquipment) {
+        visibleEquipment.groupBy { it.category }
+            .toList()
+            .sortedBy { (category, _) -> equipmentCategoryOrder(category) }
+    }
 
     SettingsColumn(modifier.testTag(SettingsTags.EquipmentFilterScreen)) {
         androidx.compose.foundation.layout.Box(Modifier.testTag(SettingsTags.EquipmentSearch)) {
@@ -244,13 +250,10 @@ fun EquipmentFilterScreen(
                 }) { Text("清空当前") }
             }
         }
-        visibleEquipment.groupBy { it.category }
-            .toList()
-            .sortedBy { (category, _) -> equipmentCategoryOrder(category) }
-            .forEach { (category, items) ->
-                SettingsSectionHeader(equipmentCategoryLabel(category), "${items.count { it.id in selectedIds }} / ${items.size}")
+        visibleEquipmentGroups.forEach { (category, items) ->
+                SettingsSectionHeader(equipmentCategoryLabel(category), "${items.count { it.id in selectedIdSet }} / ${items.size}")
                 items.forEach { item ->
-                    val checked = item.id in selectedIds
+                    val checked = item.id in selectedIdSet
                     Surface(
                         onClick = {
                             selectedIds = if (checked) {
@@ -305,7 +308,7 @@ fun EquipmentFilterScreen(
             enabled = !busy,
             onClick = {
                 runSettingAction(coroutineScope, { busy = it }, { message = it }) {
-                    onSave(selectedIds.toSet())
+                    onSave(selectedIdSet)
                 }
             },
         )

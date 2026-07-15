@@ -1054,6 +1054,7 @@ private fun PlanExerciseRow(view: PlannedExerciseView) {
             FitnessGifImage(
                 assetPath = view.media.localPath,
                 contentDescription = exerciseName,
+                animated = false,
                 modifier = Modifier
                     .size(64.dp)
                     .background(FitnessColors.Phone, RoundedCornerShape(12.dp)),

@@ -503,6 +503,27 @@ class FitnessStore(private val database: FitnessDatabase) {
         }
     }
 
+    fun allSessionExercises(): List<WorkoutSessionExerciseEntity> {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT id, session_id, exercise_id, order_index, target_sets, target_reps,
+                   target_weight_kg, status
+            FROM workout_session_exercise
+            ORDER BY session_id, order_index
+            """.trimIndent(),
+            emptyArray(),
+        )
+        return try {
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(cursor.toWorkoutSessionExercise())
+                }
+            }
+        } finally {
+            cursor.close()
+        }
+    }
+
     fun updateWorkoutRuntime(
         id: String,
         currentExerciseId: String?,

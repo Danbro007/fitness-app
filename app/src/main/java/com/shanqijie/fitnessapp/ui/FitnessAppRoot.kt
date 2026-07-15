@@ -146,7 +146,8 @@ fun FitnessAppRoot(
     repository: FitnessRepository,
     modifier: Modifier = Modifier,
 ) { // coverage-exempt: compiler-generated default-argument bridge
-    val appState by repository.appState().collectAsStateWithLifecycle(initialValue = null)
+    val appStateFlow = remember(repository) { repository.appState() }
+    val appState by appStateFlow.collectAsStateWithLifecycle(initialValue = null)
     val state = appState
     if (state == null) {
         Box(
@@ -439,8 +440,15 @@ fun FitnessAppRootContent(
                     FoodPhotoDraftScreen(
                         draft = draft,
                         onDiscard = { navState = navState.selectPrimary(PrimaryTab.Food) },
-                        onConfirm = {
-                            fitnessRepository.confirmFoodEstimateDraft(draft.id)
+                        onConfirm = { confirmation ->
+                            fitnessRepository.confirmFoodEstimateDraft(
+                                draftId = draft.id,
+                                name = confirmation.name,
+                                calories = confirmation.calories,
+                                proteinGrams = confirmation.proteinGrams,
+                                carbsGrams = confirmation.carbsGrams,
+                                fatGrams = confirmation.fatGrams,
+                            )
                             navState = navState.selectPrimary(PrimaryTab.Food)
                         },
                         modifier = Modifier.padding(contentPadding),
