@@ -240,13 +240,15 @@ fun ExerciseDetailScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(260.dp)
+                    .height(216.dp)
                     .background(FitnessColors.Surface, RoundedCornerShape(FitnessDimensions.LargeRadius)),
             ) {
                 FitnessGifImage(
                     assetPath = exercise.localPath,
                     contentDescription = translatedName,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(184.dp),
                     contentScale = ContentScale.Fit,
                 )
             }
