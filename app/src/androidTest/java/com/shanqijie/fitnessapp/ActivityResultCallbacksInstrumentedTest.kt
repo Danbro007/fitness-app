@@ -20,6 +20,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.core.app.ActivityOptionsCompat
 import androidx.test.core.app.ApplicationProvider
+import com.shanqijie.fitnessapp.data.FitnessBackupCodec
 import com.shanqijie.fitnessapp.data.UserProfileEntity
 import com.shanqijie.fitnessapp.ui.food.FoodPhotoInput
 import com.shanqijie.fitnessapp.ui.food.FoodPhotoScreen
@@ -154,15 +155,20 @@ class ActivityResultCallbacksInstrumentedTest {
 
             composeRule.onNodeWithText("导出本机备份").performClick()
             composeRule.onNodeWithText("备份文件已保存").assertIsDisplayed()
-            val written = resolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-            assertEquals("{\"version\":4,\"profile\":null}", written)
+            val written = requireNotNull(resolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() })
+            val writtenPayload = FitnessBackupCodec.decode(written)
+            assertEquals(4, writtenPayload.version)
+            assertEquals(1L, writtenPayload.exportedAt)
+            assertEquals(null, writtenPayload.userProfile)
+            assertTrue(writtenPayload.plannedWorkouts.isEmpty())
+            assertTrue(writtenPayload.workoutSessions.isEmpty())
 
             composeRule.onNodeWithText("从备份恢复").performClick()
             composeRule.onNodeWithTag(SettingsTags.ImportDialog).assertIsDisplayed()
             composeRule.onNodeWithTag(SettingsTags.ConfirmImport).performClick()
             composeRule.waitUntil(timeoutMillis = 10_000) { imported.isNotBlank() }
             composeRule.onNodeWithText("本地数据已恢复，恢复前快照已保存").assertIsDisplayed()
-            assertEquals(written, imported)
+            assertEquals(writtenPayload, FitnessBackupCodec.decode(imported))
         } finally {
             resolver.delete(uri, null, null)
         }

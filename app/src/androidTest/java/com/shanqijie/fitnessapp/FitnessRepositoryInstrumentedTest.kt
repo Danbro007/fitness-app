@@ -317,7 +317,7 @@ class FitnessRepositoryInstrumentedTest {
     }
 
     @Test
-    fun confirmedImportCreatesAReadablePreRestoreSnapshotBeforeReplacingData() = runBlocking {
+    fun confirmedImportCreatesAReadablePreRestoreSnapshotBeforeReplacingData(): Unit = runBlocking {
         repository.saveUserProfile(
             displayName = "快照中的用户",
             birthYear = 1994,
@@ -352,6 +352,7 @@ class FitnessRepositoryInstrumentedTest {
         assertEquals("快照中的用户", snapshotPayload.userProfile?.displayName)
         assertNull(store.userProfile())
         snapshot.delete()
+        Unit
     }
 
     @Test
