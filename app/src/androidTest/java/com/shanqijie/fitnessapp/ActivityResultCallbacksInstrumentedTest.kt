@@ -56,7 +56,7 @@ class ActivityResultCallbacksInstrumentedTest {
             composeRule.waitUntil(timeoutMillis = 10_000) { generated != null }
             composeRule.runOnIdle {
                 assertEquals(uri.toString(), generated?.imageUri)
-                assertEquals("image/png", generated?.imageMimeType)
+                assertEquals("image/jpeg", generated?.imageMimeType)
                 assertTrue(generated?.imageBase64.orEmpty().isNotBlank())
             }
         } finally {

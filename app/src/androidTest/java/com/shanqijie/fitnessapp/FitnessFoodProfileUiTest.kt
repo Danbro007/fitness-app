@@ -949,11 +949,13 @@ class FitnessFoodProfileUiTest {
         composeRule.waitForIdle()
 
         pressBack()
+        waitForTag("dirty-back-dialog")
         composeRule.onNodeWithTag("dirty-back-dialog").assertIsDisplayed()
         composeRule.onNodeWithTag("dirty-back-continue").performClick()
         composeRule.onNodeWithTag(ManualEditorTag).assertIsDisplayed()
 
         composeRule.onNodeWithTag(FitnessTestTags.Back).performClick()
+        waitForTag("dirty-back-dialog")
         composeRule.onNodeWithTag("dirty-back-dialog").assertIsDisplayed()
         composeRule.onNodeWithTag("dirty-back-discard").performClick()
         waitForTag(FoodScreenTag)

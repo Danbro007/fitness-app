@@ -600,7 +600,10 @@ class FitnessPlanLibraryUiTest {
         listOf("进行中", "已完成", "已跳过", "本地计划").forEach { label ->
             composeRule.onAllNodesWithText(label, substring = true).onFirst().performScrollTo().assertIsDisplayed()
         }
-        composeRule.onNodeWithTag(PlanTags.NewPlan).performClick()
+        composeRule.onNodeWithTag(PlanTags.NewPlan).performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag(PlanTags.SaveNewPlan).fetchSemanticsNodes().isNotEmpty()
+        }
         composeRule.onNodeWithTag(PlanTags.SaveNewPlan).performScrollTo().performClick()
         composeRule.onAllNodesWithText("创建计划失败")[1].performScrollTo().assertIsDisplayed()
     }

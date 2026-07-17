@@ -2288,7 +2288,15 @@ class FitnessRepositoryInstrumentedTest {
         val promptMethod = FitnessRepository::class.java.declaredMethods
             .single { it.name == "buildPlanPrompt" }
             .apply { isAccessible = true }
-        val missingPrompt = promptMethod.invoke(repository, null, 3, 45, "测试场地", "无").toString()
+        val missingPrompt = promptMethod.invoke(
+            repository,
+            null,
+            3,
+            45,
+            "测试场地",
+            "无",
+            "近 28 天训练：暂无记录",
+        ).toString()
         assertTrue(missingPrompt.contains("昵称：未填写"))
         assertTrue(missingPrompt.contains("体测数据：未填写"))
         val completeProfile = UserProfileEntity(
@@ -2312,7 +2320,15 @@ class FitnessRepositoryInstrumentedTest {
                 waistHipRatio = 0.85,
             ),
         )
-        val completePrompt = promptMethod.invoke(repository, completeProfile, 4, 60, "公司", "哑铃").toString()
+        val completePrompt = promptMethod.invoke(
+            repository,
+            completeProfile,
+            4,
+            60,
+            "公司",
+            "哑铃",
+            "近 28 天训练：暂无记录",
+        ).toString()
         assertTrue(completePrompt.contains("身高：176.5 cm"))
         assertTrue(completePrompt.contains("体重：75 kg"))
         assertTrue(completePrompt.contains("伤病与注意事项：未填写"))
@@ -2420,6 +2436,15 @@ class FitnessRepositoryInstrumentedTest {
 
     @Test
     fun repositoryCompletesRemainingLocalWorkflows() = runBlocking {
+        store.upsertVenue(
+            TrainingVenueEntity(
+                id = FitnessRepository.DEFAULT_VENUE_ID,
+                name = "默认场地",
+                isDefault = false,
+                createdAt = 999L,
+                updatedAt = 999L,
+            ),
+        )
         store.upsertVenue(
             TrainingVenueEntity(
                 id = "venue-1",
@@ -2811,6 +2836,17 @@ class FitnessRepositoryInstrumentedTest {
         status: String = "planned",
         exercises: List<PlannedExerciseSeed>,
     ) {
+        if (store.venue("venue-1") == null) {
+            store.upsertVenue(
+                TrainingVenueEntity(
+                    id = "venue-1",
+                    name = "测试场地",
+                    isDefault = false,
+                    createdAt = timeProvider.currentTimeMillis(),
+                    updatedAt = timeProvider.currentTimeMillis(),
+                ),
+            )
+        }
         store.upsertPlannedWorkout(
             PlannedWorkoutEntity(
                 id = planId,
