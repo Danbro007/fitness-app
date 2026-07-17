@@ -52,4 +52,17 @@ class AiCredentialStoreInstrumentedTest {
 
         assertNull(store.loadApiKey("deepseek"))
     }
+
+    @Test
+    fun corruptedOrCrossDeviceCiphertextIsClearedWithoutBlockingStartup() {
+        val preferences = context.getSharedPreferences("ai-credential-test", android.content.Context.MODE_PRIVATE)
+        preferences.edit()
+            .putString("deepseek.payload", "not-valid-base64")
+            .putString("deepseek.iv", "also-not-valid-base64")
+            .commit()
+
+        assertNull(store.loadApiKey("deepseek"))
+        assertNull(preferences.getString("deepseek.payload", null))
+        assertNull(preferences.getString("deepseek.iv", null))
+    }
 }

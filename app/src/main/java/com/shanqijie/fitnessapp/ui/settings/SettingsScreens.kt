@@ -68,6 +68,8 @@ import com.shanqijie.fitnessapp.ai.AiTestResult
 import com.shanqijie.fitnessapp.ai.AiProviderCatalog
 import com.shanqijie.fitnessapp.data.AiProviderEntity
 import com.shanqijie.fitnessapp.data.EquipmentEntity
+import com.shanqijie.fitnessapp.data.FitnessBackupCodec
+import com.shanqijie.fitnessapp.data.FitnessBackupPreview
 import com.shanqijie.fitnessapp.data.TrainingVenueEntity
 import com.shanqijie.fitnessapp.domain.ExerciseChineseNameTranslator
 import com.shanqijie.fitnessapp.ui.components.FitnessPageHeader
@@ -82,6 +84,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun VenueSettingsScreen(
@@ -440,7 +445,7 @@ fun SmartSettingsScreen(
     var model by rememberSaveable(selectedProviderId) {
         mutableStateOf(provider?.model ?: catalog.models.first())
     }
-    var apiKey by rememberSaveable { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
     var busy by rememberSaveable { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
     var verifiedProviderId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -659,6 +664,8 @@ fun BackupSettingsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var pendingBackup by remember { mutableStateOf("") }
+    var pendingImportJson by remember { mutableStateOf("") }
+    var pendingImportPreview by remember { mutableStateOf<FitnessBackupPreview?>(null) }
     var showResetConfirmation by rememberSaveable { mutableStateOf(false) }
     var busy by rememberSaveable { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
@@ -685,12 +692,15 @@ fun BackupSettingsScreen(
         message = null
         coroutineScope.launch {
             try {
-                val rawJson = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                        ?: error("无法读取备份文件")
+                val (rawJson, preview) = withContext(Dispatchers.IO) {
+                    val declaredLength = context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+                    val json = context.contentResolver.openInputStream(uri)?.use {
+                        FitnessBackupCodec.readBounded(it, declaredLength)
+                    } ?: error("无法读取备份文件")
+                    json to FitnessBackupCodec.preview(json)
                 }
-                onImportBackup(rawJson)
-                message = "本地数据已恢复"
+                pendingImportJson = rawJson
+                pendingImportPreview = preview
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
@@ -753,6 +763,63 @@ fun BackupSettingsScreen(
             ) { Text("重置所有本机数据", color = Color(0xFFFF9E92)) }
         }
         message?.let { SettingsMessage(it) }
+    }
+
+    pendingImportPreview?.let { preview ->
+        AlertDialog(
+            onDismissRequest = {
+                if (!busy) {
+                    pendingImportJson = ""
+                    pendingImportPreview = null
+                }
+            },
+            title = { Text("确认恢复此备份？") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("备份版本：${preview.version}")
+                    Text("导出时间：${formatBackupTime(preview.exportedAt)}")
+                    Text("档案 ${preview.profileCount} · 计划 ${preview.planCount} · 训练 ${preview.sessionCount}")
+                    Text("组记录 ${preview.setCount} · 饮食 ${preview.foodCount}")
+                    Text("恢复将替换当前本机数据。确认后会先自动保存一份恢复前快照。")
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (!busy && pendingImportJson.isNotBlank()) {
+                            busy = true
+                            coroutineScope.launch {
+                                try {
+                                    onImportBackup(pendingImportJson)
+                                    pendingImportJson = ""
+                                    pendingImportPreview = null
+                                    message = "本地数据已恢复，恢复前快照已保存"
+                                } catch (cancellation: CancellationException) {
+                                    throw cancellation
+                                } catch (error: Exception) {
+                                    message = error.message ?: "恢复备份失败"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.testTag(SettingsTags.ConfirmImport),
+                ) { Text("确认恢复") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        pendingImportJson = ""
+                        pendingImportPreview = null
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.testTag(SettingsTags.CancelImport),
+                ) { Text("取消") }
+            },
+            modifier = Modifier.testTag(SettingsTags.ImportDialog),
+        )
     }
 
     if (showResetConfirmation) {
@@ -964,10 +1031,18 @@ object SettingsTags {
     const val SmartApiKey = "smart-api-key"
     const val SaveSmartKey = "save-smart-key"
     const val BackupScreen = "backup-screen"
+    const val ImportDialog = "import-dialog"
+    const val ConfirmImport = "confirm-import"
+    const val CancelImport = "cancel-import"
     const val RequestReset = "request-reset"
     const val ResetDialog = "reset-dialog"
     const val ConfirmReset = "confirm-reset"
     const val AboutScreen = "about-screen"
 }
+
+private fun formatBackupTime(epochMillis: Long): String = runCatching {
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+        .format(Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()))
+}.getOrDefault("未知")
 
 private val ResetColor = Color(0xFFB3261E)
