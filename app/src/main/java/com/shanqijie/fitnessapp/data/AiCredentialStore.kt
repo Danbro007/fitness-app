@@ -32,15 +32,23 @@ class AiCredentialStore(
 
     fun loadApiKey(providerId: String): String? {
         val payload = preferences.getString(payloadKey(providerId), null) ?: return null
-        val iv = preferences.getString(ivKey(providerId), null) ?: return null
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(
-            Cipher.DECRYPT_MODE,
-            secretKey(),
-            GCMParameterSpec(GCM_TAG_BITS, Base64.decode(iv, Base64.NO_WRAP)),
-        )
-        val decrypted = cipher.doFinal(Base64.decode(payload, Base64.NO_WRAP))
-        return decrypted.toString(Charsets.UTF_8)
+        val iv = preferences.getString(ivKey(providerId), null)
+        if (iv == null) {
+            deleteApiKey(providerId)
+            return null
+        }
+        return runCatching {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                secretKey(),
+                GCMParameterSpec(GCM_TAG_BITS, Base64.decode(iv, Base64.NO_WRAP)),
+            )
+            cipher.doFinal(Base64.decode(payload, Base64.NO_WRAP)).toString(Charsets.UTF_8)
+        }.getOrElse {
+            deleteApiKey(providerId)
+            null
+        }
     }
 
     fun deleteApiKey(providerId: String) {

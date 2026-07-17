@@ -317,6 +317,44 @@ class FitnessRepositoryInstrumentedTest {
     }
 
     @Test
+    fun confirmedImportCreatesAReadablePreRestoreSnapshotBeforeReplacingData() = runBlocking {
+        repository.saveUserProfile(
+            displayName = "快照中的用户",
+            birthYear = 1994,
+            heightCm = 176.0,
+            weightKg = 76.0,
+            goal = "增肌",
+            injuries = "",
+            weeklyTrainingDays = 4,
+            preferredMinutes = 50,
+        )
+        val incoming = FitnessBackupPayload(
+            version = 4,
+            exportedAt = 2L,
+            userProfile = null,
+            venues = emptyList(),
+            equipment = emptyList(),
+            plannedWorkouts = emptyList(),
+            plannedExercises = emptyList(),
+            workoutSessions = emptyList(),
+            setLogs = emptyList(),
+            foodLogs = emptyList(),
+            aiDrafts = emptyList(),
+            aiProviders = emptyList(),
+        )
+        val backupDirectory = java.io.File(context.filesDir, "backups")
+        val before = backupDirectory.listFiles()?.toSet().orEmpty()
+
+        repository.importBackupJson(FitnessBackupCodec.encode(incoming))
+
+        val snapshot = requireNotNull(backupDirectory.listFiles()?.toSet()?.minus(before)?.singleOrNull())
+        val snapshotPayload = FitnessBackupCodec.decode(snapshot.readText())
+        assertEquals("快照中的用户", snapshotPayload.userProfile?.displayName)
+        assertNull(store.userProfile())
+        snapshot.delete()
+    }
+
+    @Test
     fun profileAvatarIsSafelyCroppedScaledReplacedAndRequiresAProfile() = runBlocking {
         val withoutProfile = runCatching { repository.saveProfileAvatar(Uri.EMPTY) }.exceptionOrNull()
         assertTrue(withoutProfile is IllegalArgumentException)

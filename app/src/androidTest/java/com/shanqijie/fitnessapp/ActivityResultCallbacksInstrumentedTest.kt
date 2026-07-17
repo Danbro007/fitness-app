@@ -14,6 +14,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -25,6 +26,7 @@ import com.shanqijie.fitnessapp.ui.food.FoodPhotoScreen
 import com.shanqijie.fitnessapp.ui.food.persistFoodPhotoReadPermission
 import com.shanqijie.fitnessapp.ui.profile.ProfileEditScreen
 import com.shanqijie.fitnessapp.ui.settings.BackupSettingsScreen
+import com.shanqijie.fitnessapp.ui.settings.SettingsTags
 import com.shanqijie.fitnessapp.ui.theme.FitnessTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -141,7 +143,9 @@ class ActivityResultCallbacksInstrumentedTest {
         try {
             setContentWithActivityResult(uri) {
                 BackupSettingsScreen(
-                    onExportBackup = { "{\"version\":4,\"profile\":null}" },
+                    onExportBackup = {
+                        """{"version":4,"exportedAt":1,"userProfile":null,"venues":[],"equipment":[],"plannedWorkouts":[],"plannedExercises":[],"workoutSessions":[],"setLogs":[],"foodLogs":[],"aiDrafts":[],"aiProviders":[]}"""
+                    },
                     onImportBackup = { imported = it },
                     onResetLocalData = {},
                     onResetComplete = {},
@@ -154,8 +158,10 @@ class ActivityResultCallbacksInstrumentedTest {
             assertEquals("{\"version\":4,\"profile\":null}", written)
 
             composeRule.onNodeWithText("从备份恢复").performClick()
+            composeRule.onNodeWithTag(SettingsTags.ImportDialog).assertIsDisplayed()
+            composeRule.onNodeWithTag(SettingsTags.ConfirmImport).performClick()
             composeRule.waitUntil(timeoutMillis = 10_000) { imported.isNotBlank() }
-            composeRule.onNodeWithText("本地数据已恢复").assertIsDisplayed()
+            composeRule.onNodeWithText("本地数据已恢复，恢复前快照已保存").assertIsDisplayed()
             assertEquals(written, imported)
         } finally {
             resolver.delete(uri, null, null)

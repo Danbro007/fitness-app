@@ -1413,6 +1413,7 @@ class FitnessRepository(
         val payload = FitnessBackupCodec.decode(rawJson)
         validateBackupPayload(payload)
         require(payload.userProfile != null || payload.avatarBase64.isBlank()) { "头像缺少对应用户档案" }
+        createPreRestoreSnapshot()
         val previousAvatarPath = store.userProfile()?.avatarPath.orEmpty()
         val restoredAvatarPath = payload.userProfile?.let { restoreAvatarFile(payload.avatarBase64) }.orEmpty()
         try {
@@ -1440,14 +1441,31 @@ class FitnessRepository(
             deleteAvatarFile(restoredAvatarPath)
             throw error
         }
-        if (previousAvatarPath != restoredAvatarPath) deleteAvatarFile(previousAvatarPath)
+        if (previousAvatarPath != restoredAvatarPath) runCatching { deleteAvatarFile(previousAvatarPath) }
         refreshSignal.update { it + 1 }
+    }
+
+    private suspend fun createPreRestoreSnapshot() {
+        val snapshotJson = exportBackupJson()
+        FitnessBackupCodec.decode(snapshotJson)
+        val directory = File(context.filesDir, "backups").apply { mkdirs() }
+        val target = File(directory, "pre-restore-${timeProvider.currentTimeMillis()}-${UUID.randomUUID()}.json")
+        val temporary = File(directory, ".${target.name}.${UUID.randomUUID()}.tmp")
+        try {
+            temporary.outputStream().bufferedWriter(Charsets.UTF_8).use { it.write(snapshotJson) }
+            check(temporary.renameTo(target)) { "无法保存恢复前快照" }
+        } catch (error: Throwable) {
+            temporary.delete()
+            throw error
+        }
     }
 
     private fun restoreAvatarFile(avatarBase64: String): String {
         if (avatarBase64.isBlank()) return ""
+        val encodedCharacters = avatarBase64.count { !it.isWhitespace() }
+        require(encodedCharacters <= MAX_AVATAR_BASE64_CHARACTERS) { "头像文件过大" }
         val bytes = Base64.decode(avatarBase64, Base64.DEFAULT)
-        require(bytes.size <= 5 * 1024 * 1024) { "头像文件过大" }
+        require(bytes.size <= MAX_AVATAR_BYTES) { "头像文件过大" }
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         val sampleSize = calculateAvatarInSampleSize(bounds.outWidth, bounds.outHeight)
@@ -1484,52 +1502,7 @@ class FitnessRepository(
     }
 
     private fun validateBackupPayload(payload: FitnessBackupPayload) {
-        require(payload.version in 1..4) { "不支持的备份版本" }
-        requireUnique("场地 ID", payload.venues.map { it.id })
-        requireUnique("器械 ID", payload.equipment.map { it.id })
-        requireUnique("计划 ID", payload.plannedWorkouts.map { it.id })
-        requireUnique("计划动作 ID", payload.plannedExercises.map { it.id })
-        requireUnique("训练记录 ID", payload.workoutSessions.map { it.id })
-        requireUnique("训练动作 ID", payload.sessionExercises.map { it.id })
-        requireUnique("组记录 ID", payload.setLogs.map { it.id })
-        requireUnique("饮食记录 ID", payload.foodLogs.map { it.id })
-        requireUnique("智能草稿 ID", payload.aiDrafts.map { it.id })
-        requireUnique("训练调整 ID", payload.trainingAdjustments.map { it.id })
-        requireUnique("智能服务 ID", payload.aiProviders.map { it.id })
-        requireUnique(
-            "训练动作",
-            payload.sessionExercises.map { it.sessionId to it.exerciseId },
-        )
-        requireUnique(
-            "训练组序号",
-            payload.setLogs.map { Triple(it.sessionId, it.exerciseId, it.setIndex) },
-        )
-        payload.setLogs.forEach { log ->
-            require(log.setIndex > 0) { "组序号必须大于 0" }
-            require(log.actualReps >= 0) { "组次数不能为负数" }
-            require(log.actualWeightKg >= 0.0) { "组重量不能为负数" }
-            if (payload.version >= 2) require(log.feeling.isNotBlank()) { "组体感不能为空" }
-        }
-        if (payload.version >= 2) {
-            val sessionIds = payload.workoutSessions.mapTo(mutableSetOf()) { it.id }
-            val sessionExerciseById = payload.sessionExercises.associateBy { it.id }
-            payload.sessionExercises.forEach { sessionExercise ->
-                require(sessionExercise.sessionId in sessionIds) { "训练动作缺少对应训练记录" }
-                require(sessionExercise.targetSets > 0) { "训练动作目标组数必须大于 0" }
-            }
-            payload.setLogs.forEach { log ->
-                log.sessionExerciseId?.let { linkedId ->
-                    val linked = requireNotNull(sessionExerciseById[linkedId]) { "组记录缺少对应训练动作" }
-                    require(linked.sessionId == log.sessionId && linked.exerciseId == log.exerciseId) {
-                        "组记录与训练动作不匹配"
-                    }
-                }
-            }
-        }
-    }
-
-    private fun <T> requireUnique(label: String, values: List<T>) {
-        require(values.size == values.distinct().size) { "$label 重复" }
+        FitnessBackupCodec.validate(payload)
     }
 
     private fun startWorkoutInTransaction(
@@ -2100,6 +2073,8 @@ class FitnessRepository(
         const val DEFAULT_TARGET_REPS = "8-12"
         private const val LEGACY_SESSION_PREFIX = "session-"
         private val STARTABLE_WORKOUT_STATUSES = setOf("planned", "in_progress")
+        private const val MAX_AVATAR_BYTES = 5 * 1024 * 1024
+        private const val MAX_AVATAR_BASE64_CHARACTERS = ((MAX_AVATAR_BYTES + 2) / 3) * 4
         private val POST_WORKOUT_FEELINGS = setOf("状态很好", "正常疲劳", "非常疲劳", "疼痛不适")
     }
 }
