@@ -43,8 +43,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.Surface
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -68,6 +70,7 @@ import com.shanqijie.fitnessapp.ui.components.FitnessFloatingBottomDialog
 import com.shanqijie.fitnessapp.ui.components.FitnessPageHeader
 import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
 import com.shanqijie.fitnessapp.ui.components.FitnessSurfaceCard
+import com.shanqijie.fitnessapp.ui.components.UnsavedChangesDialog
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import com.shanqijie.fitnessapp.ui.theme.FitnessDimensions
 import kotlinx.coroutines.CancellationException
@@ -277,6 +280,8 @@ fun FoodScreen(
 @Composable
 fun FoodManualScreen(
     onSave: suspend (String, Int, Double, Double, Double) -> Unit,
+    onBackRequestChanged: ((() -> Unit)?) -> Unit = {},
+    onDiscardBack: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var name by rememberSaveable { mutableStateOf("鸡胸肉能量碗") }
@@ -286,7 +291,37 @@ fun FoodManualScreen(
     var fat by rememberSaveable { mutableStateOf("9") }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var saving by rememberSaveable { mutableStateOf(false) }
+    var showUnsavedDialog by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val hasUnsavedChanges = name != "鸡胸肉能量碗" || calories != "270" || protein != "23" || carbs != "28" || fat != "9"
+    val requestBack = remember(hasUnsavedChanges) {
+        { if (hasUnsavedChanges) showUnsavedDialog = true else onDiscardBack() }
+    }
+    DisposableEffect(requestBack) {
+        onBackRequestChanged(requestBack)
+        onDispose { onBackRequestChanged(null) }
+    }
+    val submit: () -> Unit = {
+        val values = listOf(calories.toDoubleOrNull(), protein.toDoubleOrNull(), carbs.toDoubleOrNull(), fat.toDoubleOrNull())
+        if (calories.toIntOrNull() !in 0..5000) {
+            error = "请输入 0 到 5000 之间的热量"
+        } else if (name.isBlank() || values.drop(1).any { it == null || it < 0 }) {
+            error = "请完整填写有效的餐食数据"
+        } else {
+            saving = true
+            scope.launch {
+                try {
+                    onSave(name.trim(), calories.toInt(), protein.toDouble(), carbs.toDouble(), fat.toDouble())
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (exception: Exception) {
+                    error = exception.message ?: "保存餐食失败"
+                } finally {
+                    saving = false
+                }
+            }
+        }
+    }
     Surface(modifier = modifier.fillMaxSize(), color = FitnessColors.Phone) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -311,29 +346,16 @@ fun FoodManualScreen(
             text = if (saving) "保存中…" else "保存这餐",
             enabled = !saving,
             testTag = FoodTags.SaveManualMeal,
-            onClick = {
-                val values = listOf(calories.toDoubleOrNull(), protein.toDoubleOrNull(), carbs.toDoubleOrNull(), fat.toDoubleOrNull())
-                if (calories.toIntOrNull() !in 0..5000) {
-                    error = "请输入 0 到 5000 之间的热量"
-                } else if (name.isBlank() || values.drop(1).any { it == null || it < 0 }) {
-                    error = "请完整填写有效的餐食数据"
-                } else {
-                    saving = true
-                    scope.launch {
-                        try {
-                            onSave(name.trim(), calories.toInt(), protein.toDouble(), carbs.toDouble(), fat.toDouble())
-                        } catch (cancellation: CancellationException) {
-                            throw cancellation
-                        } catch (exception: Exception) {
-                            error = exception.message ?: "保存餐食失败"
-                        } finally {
-                            saving = false
-                        }
-                    }
-                }
-            },
+            onClick = submit,
         )
     }
+    }
+    if (showUnsavedDialog) {
+        UnsavedChangesDialog(
+            onSave = { showUnsavedDialog = false; submit() },
+            onDiscard = { showUnsavedDialog = false; onDiscardBack() },
+            onContinueEditing = { showUnsavedDialog = false },
+        )
     }
 }
 
@@ -452,16 +474,48 @@ fun FoodPhotoDraftScreen(
     draft: AiDraftEntity,
     onDiscard: () -> Unit,
     onConfirm: suspend (FoodEstimateConfirmation) -> Unit,
+    onBackRequestChanged: ((() -> Unit)?) -> Unit = {},
+    onDiscardBack: () -> Unit = {},
     modifier: Modifier,
 ) {
     var confirming by rememberSaveable { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
-    var name by rememberSaveable(draft.id) { mutableStateOf(draft.title.removePrefix("饮食估算：")) } // coverage-exempt: compiler-generated state restoration branch
-    var calories by rememberSaveable(draft.id) { mutableStateOf(draft.content.firstNumberAfter("约 ", " 千卡", "520")) } // coverage-exempt: compiler-generated state restoration branch
-    var protein by rememberSaveable(draft.id) { mutableStateOf(draft.content.firstNumberAfter("蛋白质 ", "g", "42")) } // coverage-exempt: compiler-generated state restoration branch
-    var carbs by rememberSaveable(draft.id) { mutableStateOf(draft.content.firstNumberAfter("碳水 ", "g", "55")) } // coverage-exempt: compiler-generated state restoration branch
-    var fat by rememberSaveable(draft.id) { mutableStateOf(draft.content.firstNumberAfter("脂肪 ", "g", "14")) } // coverage-exempt: compiler-generated state restoration branch
+    val initialName = draft.title.removePrefix("饮食估算：")
+    val initialCalories = draft.content.firstNumberAfter("约 ", " 千卡", "520")
+    val initialProtein = draft.content.firstNumberAfter("蛋白质 ", "g", "42")
+    val initialCarbs = draft.content.firstNumberAfter("碳水 ", "g", "55")
+    val initialFat = draft.content.firstNumberAfter("脂肪 ", "g", "14")
+    var name by rememberSaveable(draft.id) { mutableStateOf(initialName) } // coverage-exempt: compiler-generated state restoration branch
+    var calories by rememberSaveable(draft.id) { mutableStateOf(initialCalories) } // coverage-exempt: compiler-generated state restoration branch
+    var protein by rememberSaveable(draft.id) { mutableStateOf(initialProtein) } // coverage-exempt: compiler-generated state restoration branch
+    var carbs by rememberSaveable(draft.id) { mutableStateOf(initialCarbs) } // coverage-exempt: compiler-generated state restoration branch
+    var fat by rememberSaveable(draft.id) { mutableStateOf(initialFat) } // coverage-exempt: compiler-generated state restoration branch
+    var showUnsavedDialog by rememberSaveable(draft.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val hasUnsavedChanges = name != initialName || calories != initialCalories || protein != initialProtein || carbs != initialCarbs || fat != initialFat
+    val requestBack = remember(hasUnsavedChanges) {
+        { if (hasUnsavedChanges) showUnsavedDialog = true else onDiscardBack() }
+    }
+    DisposableEffect(requestBack) {
+        onBackRequestChanged(requestBack)
+        onDispose { onBackRequestChanged(null) }
+    }
+    val submit: () -> Unit = {
+        val confirmation = runCatching {
+            parseFoodEstimateConfirmation(name, calories, protein, carbs, fat)
+        }.getOrElse { validationError ->
+            error = validationError.message ?: "请检查餐食数据"
+            null
+        }
+        if (confirmation != null) {
+            confirming = true
+            scope.launch {
+                try { onConfirm(confirmation) } catch (cancellation: CancellationException) { throw cancellation }
+                catch (exception: Exception) { error = exception.message ?: "确认草稿失败" }
+                finally { confirming = false }
+            }
+        }
+    }
     Surface(modifier = modifier.fillMaxSize(), color = FitnessColors.Phone) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -492,20 +546,7 @@ fun FoodPhotoDraftScreen(
             OutlinedButton(onClick = onDiscard, modifier = Modifier.weight(1f).height(56.dp)) { Text("放弃草稿") }
             Button(
                 onClick = {
-                    val confirmation = runCatching {
-                        parseFoodEstimateConfirmation(name, calories, protein, carbs, fat)
-                    }.getOrElse { validationError ->
-                        error = validationError.message ?: "请检查餐食数据"
-                        null
-                    }
-                    if (confirmation != null) {
-                        confirming = true
-                        scope.launch {
-                            try { onConfirm(confirmation) } catch (cancellation: CancellationException) { throw cancellation }
-                            catch (exception: Exception) { error = exception.message ?: "确认草稿失败" }
-                            finally { confirming = false }
-                        }
-                    }
+                    submit()
                 },
                 enabled = !confirming,
                 modifier = Modifier.weight(1.45f).height(56.dp).testTag(FoodTags.ConfirmPhotoDraft),
@@ -514,6 +555,13 @@ fun FoodPhotoDraftScreen(
             ) { Text(if (confirming) "确认中…" else "确认并保存", fontWeight = FontWeight.Bold) }
         }
     }
+    }
+    if (showUnsavedDialog) {
+        UnsavedChangesDialog(
+            onSave = { showUnsavedDialog = false; submit() },
+            onDiscard = { showUnsavedDialog = false; onDiscardBack() },
+            onContinueEditing = { showUnsavedDialog = false },
+        )
     }
 }
 

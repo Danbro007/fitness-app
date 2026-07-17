@@ -221,18 +221,22 @@ fun FitnessAppRootContent(
         mutableStateOf(FitnessNavState(initialRoute))
     }
     var completedSummary by remember { mutableStateOf<WorkoutSummary?>(null) }
+    var secondaryBackRequest by remember(navState.route) { mutableStateOf<(() -> Unit)?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val navigate: (AppRoute) -> Unit = { route -> navState = navState.navigateTo(route) }
     val activeRouteState = (navState.route as? AppRoute.TrainingActive)
         ?.let { route -> appState?.toTrainingActive(route.sessionId) }
     val activeRouteUnrecoverable = navState.route is AppRoute.TrainingActive &&
         (activeRouteState == null || repository == null)
-    val returnFromSecondary: () -> Unit = {
+    val returnFromSecondaryDirect: () -> Unit = {
         navState = if (activeRouteUnrecoverable) {
             navState.selectPrimary(PrimaryTab.Home)
         } else {
             navState.navigateTo(navState.backRoute())
         }
+    }
+    val returnFromSecondary: () -> Unit = {
+        secondaryBackRequest?.invoke() ?: returnFromSecondaryDirect()
     }
     BackHandler(
         enabled = navState.route !is AppRoute.Primary &&
@@ -337,18 +341,33 @@ fun FitnessAppRootContent(
                         )
                     }
                 }
-                PrimaryTab.Training -> TrainingPreparationScreen(
-                    state = appState?.toTrainingPreparation(homeUiState.nextWorkout?.id),
-                    onStartWorkout = { planId ->
-                        repository?.let { fitnessRepository ->
-                            coroutineScope.launch {
-                                val session = fitnessRepository.startWorkout(planId)
-                                navigate(AppRoute.TrainingActive(session.id))
+                PrimaryTab.Training -> {
+                    val preparation = appState?.toTrainingPreparation(homeUiState.nextWorkout?.id)
+                    val repairPlanId = homeUiState.nextWorkout?.id
+                        ?: appState?.plannedWorkouts?.firstOrNull()?.id
+                    TrainingPreparationScreen(
+                        state = preparation,
+                        onStartWorkout = { planId ->
+                            repository?.let { fitnessRepository ->
+                                coroutineScope.launch {
+                                    val session = fitnessRepository.startWorkout(planId)
+                                    navigate(AppRoute.TrainingActive(session.id))
+                                }
                             }
-                        }
-                    },
-                    modifier = Modifier.padding(contentPadding),
-                )
+                        },
+                        emptyActionLabel = if (appState?.plannedWorkouts.isNullOrEmpty()) {
+                            "创建训练计划"
+                        } else {
+                            "补充动作 / 修复计划"
+                        },
+                        onResolveEmptyState = {
+                            navState = repairPlanId
+                                ?.let { navState.navigateTo(AppRoute.PlanEdit(it)) }
+                                ?: navState.selectPrimary(PrimaryTab.Plan)
+                        },
+                        modifier = Modifier.padding(contentPadding),
+                    )
+                }
                 PrimaryTab.Food -> {
                     val currentState = appState
                     val fitnessRepository = repository
@@ -408,6 +427,8 @@ fun FitnessAppRootContent(
                             fitnessRepository.logFood(name, calories, protein, carbs, fat)
                             navState = navState.selectPrimary(PrimaryTab.Food)
                         },
+                        onBackRequestChanged = { secondaryBackRequest = it },
+                        onDiscardBack = returnFromSecondaryDirect,
                         modifier = Modifier.padding(contentPadding),
                     )
                 }
@@ -451,6 +472,8 @@ fun FitnessAppRootContent(
                             )
                             navState = navState.selectPrimary(PrimaryTab.Food)
                         },
+                        onBackRequestChanged = { secondaryBackRequest = it },
+                        onDiscardBack = returnFromSecondaryDirect,
                         modifier = Modifier.padding(contentPadding),
                     )
                 }
@@ -567,6 +590,8 @@ fun FitnessAppRootContent(
                         onOpenLibrary = {
                             navigate(AppRoute.Library(origin = PrimaryTab.Plan, planId = plan.id))
                         },
+                        onBackRequestChanged = { secondaryBackRequest = it },
+                        onDiscardBack = returnFromSecondaryDirect,
                         modifier = Modifier.padding(contentPadding),
                     )
                 }
@@ -713,6 +738,8 @@ fun FitnessAppRootContent(
                             navState = navState.selectPrimary(PrimaryTab.Profile)
                         },
                         onSaveAvatar = fitnessRepository::saveProfileAvatar,
+                        onBackRequestChanged = { secondaryBackRequest = it },
+                        onDiscardBack = returnFromSecondaryDirect,
                         modifier = Modifier.padding(contentPadding),
                     )
                 }
@@ -766,6 +793,8 @@ fun FitnessAppRootContent(
                             fitnessRepository.replaceVenueEquipment(currentVenue.id, selectedIds)
                             navState = navState.navigateTo(AppRoute.VenueSettings)
                         },
+                        onBackRequestChanged = { secondaryBackRequest = it },
+                        onDiscardBack = returnFromSecondaryDirect,
                         modifier = Modifier.padding(contentPadding),
                     )
                 }
@@ -827,18 +856,9 @@ private fun SecondaryAppBar(route: AppRoute, onBack: () -> Unit, onAction: () ->
                 Text(title, style = MaterialTheme.typography.headlineSmall)
             }
             when (route) {
-                is AppRoute.Library -> Surface(
-                    shape = CircleShape,
-                    color = FitnessColors.Surface,
-                    shadowElevation = 8.dp,
-                    modifier = Modifier.size(52.dp),
-                ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Tune, contentDescription = "筛选") } }
-                is AppRoute.ExerciseDetail -> Surface(
-                    shape = CircleShape,
-                    color = FitnessColors.Surface,
-                    shadowElevation = 8.dp,
-                    modifier = Modifier.size(52.dp),
-                ) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.BookmarkAdd, contentDescription = "保存动作") } }
+                is AppRoute.Library,
+                is AppRoute.ExerciseDetail,
+                -> Box(Modifier.size(52.dp))
                 is AppRoute.PlanDetail -> Surface(
                     onClick = onAction,
                     shape = CircleShape,

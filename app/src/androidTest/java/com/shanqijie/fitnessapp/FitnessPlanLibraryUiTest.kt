@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -292,6 +293,9 @@ class FitnessPlanLibraryUiTest {
             }
         }
 
+        composeRule.onNodeWithContentDescription("日历视图：周")
+            .assertIsSelected()
+            .assertHeightIsAtLeast(48.dp)
         composeRule.onNodeWithText("年").performClick()
         composeRule.onNodeWithText("全年概览").assertIsDisplayed()
         composeRule.onNodeWithText("${today.monthValue}月").performClick()

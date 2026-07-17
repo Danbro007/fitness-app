@@ -67,7 +67,11 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -165,6 +169,8 @@ internal fun normalizeStepperCandidate(candidate: String, decimal: Boolean, maxi
 fun TrainingPreparationScreen(
     state: TrainingPreparationScreenUi?,
     onStartWorkout: (String) -> Unit,
+    emptyActionLabel: String = "创建训练计划",
+    onResolveEmptyState: () -> Unit = {},
     modifier: Modifier,
 ) {
     Column(
@@ -270,13 +276,11 @@ fun TrainingPreparationScreen(
             }
         }
 
-        val startWorkout = state?.let { current ->
-            { onStartWorkout(current.planId) }
-        } ?: {}
         FitnessPrimaryButton(
-            text = if (state == null) "暂无可开始训练" else "开始训练",
-            onClick = startWorkout,
-            enabled = state != null,
+            text = state?.let { "开始训练" } ?: emptyActionLabel,
+            onClick = state?.let { current ->
+                { onStartWorkout(current.planId) }
+            } ?: onResolveEmptyState,
             testTag = FitnessTestTags.StartWorkout,
         )
     }
@@ -381,11 +385,25 @@ fun TrainingActiveScreen(
                 onSkipRest = onSkipRest,
                 modifier = Modifier.fillMaxSize(),
             )
+            Surface(
+                onClick = { showFinishDialog = true },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(start = 18.dp, top = 10.dp)
+                    .size(52.dp)
+                    .testTag(FitnessTestTags.RequestFinish),
+                shape = CircleShape,
+                color = Color.Transparent,
+            ) {
+                Box(
+                    modifier = Modifier.semantics { contentDescription = "结束训练" },
+                    contentAlignment = Alignment.Center,
+                ) {}
+            }
         }
-        return
-    }
-
-    Scaffold(
+    } else {
+        Scaffold(
         modifier = modifier
             .fillMaxSize()
             .testTag(FitnessTestTags.TrainingActive),
@@ -487,8 +505,8 @@ fun TrainingActiveScreen(
                 )
             }
         },
-    ) { contentPadding ->
-        Column(
+        ) { contentPadding ->
+            Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(contentPadding)
@@ -623,7 +641,15 @@ fun TrainingActiveScreen(
                     WorkoutFeelings.forEach { option ->
                         Surface(
                             onClick = { feeling = option },
-                            modifier = Modifier.weight(1f).height(46.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = FitnessDimensions.MinimumTouchTarget)
+                                .semantics {
+                                    contentDescription = "训练体感：$option"
+                                    role = Role.RadioButton
+                                    selected = feeling == option
+                                    stateDescription = if (feeling == option) "已选中" else "未选中"
+                                },
                             shape = RoundedCornerShape(18.dp),
                             color = if (feeling == option) FitnessColors.Orange else Color(0xFF2A2C28),
                             contentColor = if (feeling == option) FitnessColors.Ink else Color.White,
@@ -641,6 +667,7 @@ fun TrainingActiveScreen(
                 }
             }
             Spacer(Modifier.size(4.dp))
+            }
         }
     }
 

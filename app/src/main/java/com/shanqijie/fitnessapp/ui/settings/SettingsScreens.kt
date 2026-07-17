@@ -37,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +52,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -64,6 +73,7 @@ import com.shanqijie.fitnessapp.domain.ExerciseChineseNameTranslator
 import com.shanqijie.fitnessapp.ui.components.FitnessPageHeader
 import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
 import com.shanqijie.fitnessapp.ui.components.FitnessSurfaceCard
+import com.shanqijie.fitnessapp.ui.components.UnsavedChangesDialog
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import com.shanqijie.fitnessapp.ui.theme.FitnessDimensions
 import com.shanqijie.fitnessapp.R
@@ -169,6 +179,8 @@ fun EquipmentFilterScreen(
     equipment: List<EquipmentEntity>,
     enabledEquipmentIds: Set<String>,
     onSave: suspend (Set<String>) -> Unit,
+    onBackRequestChanged: ((() -> Unit)?) -> Unit = {},
+    onDiscardBack: () -> Unit = {},
     modifier: Modifier,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -178,6 +190,7 @@ fun EquipmentFilterScreen(
     }
     var busy by rememberSaveable { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
+    var showUnsavedDialog by rememberSaveable { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val normalizedQuery = query.trim()
     val visibleEquipment = remember(equipment, normalizedQuery, selectedCategory) {
@@ -197,6 +210,19 @@ fun EquipmentFilterScreen(
         equipment.map { it.category }.distinct().sortedBy(::equipmentCategoryOrder)
     }
     val selectedIdSet = remember(selectedIds) { selectedIds.toSet() }
+    val hasUnsavedChanges = selectedIdSet != enabledEquipmentIds
+    val requestBack = remember(hasUnsavedChanges) {
+        { if (hasUnsavedChanges) showUnsavedDialog = true else onDiscardBack() }
+    }
+    DisposableEffect(requestBack) {
+        onBackRequestChanged(requestBack)
+        onDispose { onBackRequestChanged(null) }
+    }
+    val submit: () -> Unit = {
+        runSettingAction(coroutineScope, { busy = it }, { message = it }) {
+            onSave(selectedIdSet)
+        }
+    }
     val visibleEquipmentGroups = remember(visibleEquipment) {
         visibleEquipment.groupBy { it.category }
             .toList()
@@ -219,7 +245,15 @@ fun EquipmentFilterScreen(
                         val selected = selectedCategory == category
                         Surface(
                             onClick = { selectedCategory = category },
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = FitnessDimensions.MinimumTouchTarget)
+                                .semantics {
+                                    contentDescription = "器械分类：${category?.let(::equipmentCategoryLabel) ?: "全部"}"
+                                    role = Role.RadioButton
+                                    this.selected = selected
+                                    stateDescription = if (selected) "已选中" else "未选中"
+                                },
                             shape = RoundedCornerShape(18.dp),
                             color = if (selected) FitnessColors.Orange else FitnessColors.Surface,
                             shadowElevation = 4.dp,
@@ -265,6 +299,12 @@ fun EquipmentFilterScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 72.dp)
+                            .semantics {
+                                contentDescription = item.name
+                                role = Role.Checkbox
+                                selected = checked
+                                stateDescription = if (checked) "已选中" else "未选中"
+                            }
                             .border(
                                 width = if (checked) 2.dp else 0.dp,
                                 color = if (checked) FitnessColors.Orange else Color.Transparent,
@@ -306,13 +346,16 @@ fun EquipmentFilterScreen(
         FitnessPrimaryButton(
             text = if (busy) "保存中…" else "保存器械筛选",
             enabled = !busy,
-            onClick = {
-                runSettingAction(coroutineScope, { busy = it }, { message = it }) {
-                    onSave(selectedIdSet)
-                }
-            },
+            onClick = submit,
         )
         message?.let { SettingsMessage(it) }
+    }
+    if (showUnsavedDialog) {
+        UnsavedChangesDialog(
+            onSave = { showUnsavedDialog = false; submit() },
+            onDiscard = { showUnsavedDialog = false; onDiscardBack() },
+            onContinueEditing = { showUnsavedDialog = false },
+        )
     }
 }
 
@@ -438,9 +481,20 @@ fun SmartSettingsScreen(
                         color = if (selectedProviderId == item.id) FitnessColors.Orange else FitnessColors.SurfaceStrong,
                         shape = RoundedCornerShape(22.dp),
                         shadowElevation = 6.dp,
-                        modifier = Modifier.weight(1f).height(104.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(104.dp)
+                            .semantics {
+                                contentDescription = "AI 服务商：${item.displayName}"
+                                role = Role.RadioButton
+                                selected = selectedProviderId == item.id
+                                stateDescription = if (selectedProviderId == item.id) "已选中" else "未选中"
+                            },
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
                             Image(painterResource(providerLogo(item.id)), contentDescription = "${item.displayName} Logo", modifier = Modifier.size(38.dp).clip(CircleShape))
                             Text(item.displayName, color = FitnessColors.Ink, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
                             Text(providerOwner(item.id), style = MaterialTheme.typography.labelSmall, color = FitnessColors.Muted)
@@ -895,6 +949,7 @@ private fun SettingsMessage(message: String) {
         color = FitnessColors.Ink,
         modifier = Modifier
             .fillMaxWidth()
+            .semantics { liveRegion = LiveRegionMode.Polite }
             .background(FitnessColors.Surface, RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp, vertical = 8.dp),
     )
