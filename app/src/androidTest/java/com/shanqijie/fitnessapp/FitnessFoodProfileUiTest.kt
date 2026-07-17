@@ -8,6 +8,8 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
@@ -18,14 +20,17 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.pressBack
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.platform.app.InstrumentationRegistry
 import com.shanqijie.fitnessapp.data.AiCredentialStore
 import com.shanqijie.fitnessapp.data.AiDraftEntity
@@ -278,6 +283,12 @@ class FitnessFoodProfileUiTest {
             }
         }
 
+        composeRule.onNodeWithContentDescription("器械分类：全部")
+            .assertIsSelected()
+            .assertHeightIsAtLeast(48.dp)
+        composeRule.onNodeWithContentDescription("隐藏器械")
+            .assertIsSelected()
+            .assertHeightIsAtLeast(48.dp)
         composeRule.onAllNodesWithText("有氧器械")[0].assertIsDisplayed().performClick()
         composeRule.onNodeWithText("固定单车").assertIsDisplayed()
         composeRule.onAllNodesWithText("胸推机").assertCountEquals(0)
@@ -926,6 +937,26 @@ class FitnessFoodProfileUiTest {
         composeRule.onNodeWithText("建立基础档案").assertIsDisplayed()
         assertNull(credentialStore.loadApiKey(FitnessRepository.OPENAI_PROVIDER_ID))
         assertTrue(currentState().plannedWorkouts.isEmpty())
+    }
+
+    @Test
+    fun dirtyManualMealUsesTheSameGuardForSystemAndTopBack() {
+        showRealRoot()
+        openPrimary(PrimaryTab.Food, FoodScreenTag)
+        openManualMealEditor()
+        composeRule.onNodeWithTag(ManualNameTag).performTextReplacement("未保存餐食")
+        closeSoftKeyboard()
+        composeRule.waitForIdle()
+
+        pressBack()
+        composeRule.onNodeWithTag("dirty-back-dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("dirty-back-continue").performClick()
+        composeRule.onNodeWithTag(ManualEditorTag).assertIsDisplayed()
+
+        composeRule.onNodeWithTag(FitnessTestTags.Back).performClick()
+        composeRule.onNodeWithTag("dirty-back-dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("dirty-back-discard").performClick()
+        waitForTag(FoodScreenTag)
     }
 
     private fun showRealRoot() {

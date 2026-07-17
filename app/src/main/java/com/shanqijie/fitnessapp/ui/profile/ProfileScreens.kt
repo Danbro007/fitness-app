@@ -48,8 +48,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -68,6 +70,7 @@ import com.shanqijie.fitnessapp.ui.components.FitnessPageHeader
 import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
 import com.shanqijie.fitnessapp.ui.components.FitnessSelectionChip
 import com.shanqijie.fitnessapp.ui.components.FitnessSurfaceCard
+import com.shanqijie.fitnessapp.ui.components.UnsavedChangesDialog
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import com.shanqijie.fitnessapp.ui.theme.FitnessDimensions
 import kotlinx.coroutines.CancellationException
@@ -396,6 +399,8 @@ fun ProfileEditScreen(
         bodyMeasurement: BodyMeasurement,
     ) -> Unit,
     onSaveAvatar: suspend (Uri) -> Unit = {},
+    onBackRequestChanged: ((() -> Unit)?) -> Unit = {},
+    onDiscardBack: () -> Unit = {},
     isInitialSetup: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -426,7 +431,97 @@ fun ProfileEditScreen(
     var saving by rememberSaveable { mutableStateOf(false) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var setupStep by rememberSaveable { mutableStateOf(1) }
+    var showUnsavedDialog by rememberSaveable { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val initialValues = listOf(
+        profile?.displayName ?: "",
+        profile?.birthYear?.toString() ?: if (isInitialSetup) "" else "1994",
+        profile?.heightCm?.toCompact() ?: if (isInitialSetup) "" else "176",
+        profile?.weightKg?.toCompact() ?: if (isInitialSetup) "" else "75",
+        profile?.goal ?: "保持体能",
+        profile?.injuries ?: "",
+        (profile?.weeklyTrainingDays ?: 3).toString(),
+        (profile?.preferredMinutes ?: 45).toString(),
+        savedMeasurement.measuredAt,
+        savedMeasurement.bodyType,
+        savedMeasurement.bodyFatPercentage.toInput(),
+        savedMeasurement.bodyFatMassKg.toInput(),
+        savedMeasurement.skeletalMuscleKg.toInput(),
+        savedMeasurement.bodyWaterKg.toInput(),
+        savedMeasurement.basalMetabolismKcal?.toString().orEmpty(),
+        savedMeasurement.waistHipRatio.toInput(),
+        savedMeasurement.bmi.toInput(),
+    )
+    val currentValues = listOf(
+        name, birthYear, height, weight, goal, injuries, weeklyDays, minutes, measuredAt, bodyType,
+        bodyFatPercentage, bodyFatMassKg, skeletalMuscleKg, bodyWaterKg, basalMetabolismKcal, waistHipRatio, bmi,
+    )
+    val hasUnsavedChanges = currentValues != initialValues
+    val requestBack = remember(hasUnsavedChanges, isInitialSetup) {
+        { if (!isInitialSetup && hasUnsavedChanges) showUnsavedDialog = true else onDiscardBack() }
+    }
+    DisposableEffect(requestBack) {
+        if (!isInitialSetup) onBackRequestChanged(requestBack)
+        onDispose { if (!isInitialSetup) onBackRequestChanged(null) }
+    }
+    val submit: () -> Unit = {
+        val validation = validateProfileForm(
+            ProfileFormInput(
+                name = name,
+                birthYear = birthYear,
+                height = height,
+                weight = weight,
+                weeklyDays = weeklyDays,
+                minutes = minutes,
+                measuredAt = measuredAt,
+                bodyFatPercentage = bodyFatPercentage,
+                bodyFatMassKg = bodyFatMassKg,
+                skeletalMuscleKg = skeletalMuscleKg,
+                bodyWaterKg = bodyWaterKg,
+                basalMetabolismKcal = basalMetabolismKcal,
+                waistHipRatio = waistHipRatio,
+                bmi = bmi,
+            ),
+        )
+        errorMessage = validation.errorMessage
+        if (errorMessage == null && isInitialSetup && setupStep < 3) {
+            setupStep += 1
+        } else if (validation.parsed != null) {
+            val parsed = validation.parsed
+            saving = true
+            coroutineScope.launch {
+                try {
+                    onSave(
+                        name,
+                        parsed.birthYear,
+                        parsed.heightCm,
+                        parsed.weightKg,
+                        goal,
+                        injuries,
+                        parsed.weeklyTrainingDays,
+                        parsed.preferredMinutes,
+                        BodyMeasurement(
+                            measuredAt = measuredAt,
+                            bodyType = bodyType,
+                            bodyFatPercentage = parsed.bodyFatPercentage,
+                            bodyFatMassKg = parsed.bodyFatMassKg,
+                            skeletalMuscleKg = parsed.skeletalMuscleKg,
+                            bodyWaterKg = parsed.bodyWaterKg,
+                            basalMetabolismKcal = parsed.basalMetabolismKcal,
+                            waistHipRatio = parsed.waistHipRatio,
+                            bmi = parsed.bmi,
+                        ),
+                    )
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (error: Exception) {
+                    errorMessage = error.message ?: "保存档案失败"
+                } finally {
+                    saving = false
+                }
+            }
+        }
+    }
     val avatarPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -612,64 +707,14 @@ fun ProfileEditScreen(
             },
             enabled = !saving,
             testTag = ProfileTags.Save,
-            onClick = {
-                val validation = validateProfileForm(
-                    ProfileFormInput(
-                        name = name,
-                        birthYear = birthYear,
-                        height = height,
-                        weight = weight,
-                        weeklyDays = weeklyDays,
-                        minutes = minutes,
-                        measuredAt = measuredAt,
-                        bodyFatPercentage = bodyFatPercentage,
-                        bodyFatMassKg = bodyFatMassKg,
-                        skeletalMuscleKg = skeletalMuscleKg,
-                        bodyWaterKg = bodyWaterKg,
-                        basalMetabolismKcal = basalMetabolismKcal,
-                        waistHipRatio = waistHipRatio,
-                        bmi = bmi,
-                    ),
-                )
-                errorMessage = validation.errorMessage
-                if (errorMessage == null && isInitialSetup && setupStep < 3) { // coverage-exempt: compiler-generated short-circuit branch; semantic cases are tested
-                    setupStep += 1
-                } else if (validation.parsed != null) { // coverage-exempt: compiler-generated Compose callback branch; success and failure are tested
-                    val parsed = validation.parsed
-                    saving = true
-                    coroutineScope.launch {
-                        try {
-                            onSave(
-                                name,
-                                parsed.birthYear,
-                                parsed.heightCm,
-                                parsed.weightKg,
-                                goal,
-                                injuries,
-                                parsed.weeklyTrainingDays,
-                                parsed.preferredMinutes,
-                                BodyMeasurement(
-                                    measuredAt = measuredAt,
-                                    bodyType = bodyType,
-                                    bodyFatPercentage = parsed.bodyFatPercentage,
-                                    bodyFatMassKg = parsed.bodyFatMassKg,
-                                    skeletalMuscleKg = parsed.skeletalMuscleKg,
-                                    bodyWaterKg = parsed.bodyWaterKg,
-                                    basalMetabolismKcal = parsed.basalMetabolismKcal,
-                                    waistHipRatio = parsed.waistHipRatio,
-                                    bmi = parsed.bmi,
-                                ),
-                            )
-                        } catch (cancellation: CancellationException) {
-                            throw cancellation
-                        } catch (error: Exception) {
-                            errorMessage = error.message ?: "保存档案失败"
-                        } finally {
-                            saving = false
-                        }
-                    }
-                }
-            },
+            onClick = submit,
+        )
+    }
+    if (showUnsavedDialog) {
+        UnsavedChangesDialog(
+            onSave = { showUnsavedDialog = false; submit() },
+            onDiscard = { showUnsavedDialog = false; onDiscardBack() },
+            onContinueEditing = { showUnsavedDialog = false },
         )
     }
 }

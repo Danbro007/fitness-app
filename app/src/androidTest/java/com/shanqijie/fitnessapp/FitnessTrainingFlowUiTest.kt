@@ -670,7 +670,55 @@ class FitnessTrainingFlowUiTest {
             }
         }
 
-        composeRule.onNodeWithText("暂无可开始训练").assertIsDisplayed()
+        composeRule.onNodeWithText("创建训练计划").assertIsDisplayed().assertIsEnabled()
+    }
+
+    @Test
+    fun brokenTrainingPlanOffersARepairAction() {
+        var repairRequested = false
+        composeRule.setContent {
+            FitnessTheme {
+                TrainingPreparationScreen(
+                    state = null,
+                    onStartWorkout = {},
+                    emptyActionLabel = "补充动作 / 修复计划",
+                    onResolveEmptyState = { repairRequested = true },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("补充动作 / 修复计划").assertIsEnabled().performClick()
+        composeRule.runOnIdle { assertTrue(repairRequested) }
+    }
+
+    @Test
+    fun restBackAndCloseShareTheFinishConfirmation() {
+        val activeState = sampleActiveState().copy(restEndsAt = System.currentTimeMillis() + 30_000L)
+        var finishCount = 0
+        composeRule.setContent {
+            FitnessTheme {
+                TrainingActiveScreen(
+                    state = activeState,
+                    onSelectExercise = {},
+                    onRecordSet = { _, _, _ -> },
+                    onRestFinished = {},
+                    onSkipRest = {},
+                    onExtendRest = {},
+                    onTogglePause = {},
+                    onFinishWorkout = { finishCount += 1 },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        pressBack()
+        composeRule.onNodeWithText("现在结束训练？").assertIsDisplayed()
+        composeRule.onNodeWithText("继续训练").performClick()
+        composeRule.onNodeWithTag(FitnessTestTags.RequestFinish).performClick()
+        composeRule.onNodeWithText("现在结束训练？").assertIsDisplayed()
+        composeRule.onNodeWithTag(FitnessTestTags.ConfirmFinish).performClick()
+        composeRule.runOnIdle { assertEquals(1, finishCount) }
     }
 
     @Test

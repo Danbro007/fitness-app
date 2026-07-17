@@ -43,6 +43,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -58,7 +59,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -78,6 +83,7 @@ import com.shanqijie.fitnessapp.ui.components.FitnessFloatingBottomDialog
 import com.shanqijie.fitnessapp.ui.components.FitnessPageHeader
 import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
 import com.shanqijie.fitnessapp.ui.components.FitnessSurfaceCard
+import com.shanqijie.fitnessapp.ui.components.UnsavedChangesDialog
 import com.shanqijie.fitnessapp.ui.theme.FitnessColors
 import com.shanqijie.fitnessapp.ui.theme.FitnessDimensions
 import kotlinx.coroutines.CancellationException
@@ -419,7 +425,15 @@ private fun TrainingCalendar(
                         containerColor = if (mode == item) FitnessColors.Orange else Color.Transparent,
                         contentColor = FitnessColors.Ink,
                     ),
-                    modifier = Modifier.weight(1f).height(42.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .semantics {
+                            contentDescription = "日历视图：$item"
+                            role = Role.Tab
+                            this.selected = mode == item
+                            stateDescription = if (mode == item) "已选中" else "未选中"
+                        },
                 ) { Text(item) }
             }
         }
@@ -918,14 +932,40 @@ fun PlanEditScreen(
     exercises: List<PlannedExerciseView>,
     onSave: suspend (name: String, date: String) -> Unit,
     onOpenLibrary: () -> Unit,
+    onBackRequestChanged: ((() -> Unit)?) -> Unit = {},
+    onDiscardBack: () -> Unit = {},
     modifier: Modifier,
 ) {
     var name by rememberSaveable(plan.id) { mutableStateOf(plan.name) }
     var date by rememberSaveable(plan.id) { mutableStateOf(plan.scheduledDate) }
     var saving by rememberSaveable(plan.id) { mutableStateOf(false) }
     var errorMessage by rememberSaveable(plan.id) { mutableStateOf<String?>(null) }
+    var showUnsavedDialog by rememberSaveable(plan.id) { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    val hasUnsavedChanges = name != plan.name || date != plan.scheduledDate
+    val requestBack = remember(hasUnsavedChanges) {
+        { if (hasUnsavedChanges) showUnsavedDialog = true else onDiscardBack() }
+    }
+    DisposableEffect(requestBack) {
+        onBackRequestChanged(requestBack)
+        onDispose { onBackRequestChanged(null) }
+    }
+    val submit: () -> Unit = {
+        saving = true
+        errorMessage = null
+        coroutineScope.launch {
+            try {
+                onSave(name, date)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                errorMessage = error.toPlanOperationMessage("保存计划失败")
+            } finally {
+                saving = false
+            }
+        }
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -959,7 +999,7 @@ fun PlanEditScreen(
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("动作与目标", style = MaterialTheme.typography.headlineSmall)
-            Text("拖动顺序 · 演示", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            Text("按添加顺序排列", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
         }
         exercises.sortedBy { it.plannedExercise.orderIndex }.forEach { view ->
             PlanExerciseRow(view)
@@ -984,21 +1024,14 @@ fun PlanEditScreen(
             text = if (saving) "保存中…" else "保存计划",
             enabled = !saving,
             testTag = PlanTags.SaveEdit,
-            onClick = {
-                saving = true
-                errorMessage = null
-                coroutineScope.launch {
-                    try {
-                        onSave(name, date)
-                    } catch (cancellation: CancellationException) {
-                        throw cancellation
-                    } catch (error: Exception) {
-                        errorMessage = error.toPlanOperationMessage("保存计划失败")
-                    } finally {
-                        saving = false
-                    }
-                }
-            },
+            onClick = submit,
+        )
+    }
+    if (showUnsavedDialog) {
+        UnsavedChangesDialog(
+            onSave = { showUnsavedDialog = false; submit() },
+            onDiscard = { showUnsavedDialog = false; onDiscardBack() },
+            onContinueEditing = { showUnsavedDialog = false },
         )
     }
 }
@@ -1223,7 +1256,7 @@ private fun PlanDatePickerDialog(
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(42.dp),
+                                        .heightIn(min = 48.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     if (date != null) {
@@ -1232,7 +1265,13 @@ private fun PlanDatePickerDialog(
                                             shape = CircleShape,
                                             color = if (isSelected) FitnessColors.Orange else Color.Transparent,
                                             modifier = Modifier
-                                                .size(40.dp)
+                                                .size(48.dp)
+                                                .semantics {
+                                                    contentDescription = "选择 ${date.monthValue} 月 ${date.dayOfMonth} 日"
+                                                    role = Role.RadioButton
+                                                    this.selected = isSelected
+                                                    stateDescription = if (isSelected) "已选中" else "未选中"
+                                                }
                                                 .testTag(PlanTags.datePickerDay(date.toString())),
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
