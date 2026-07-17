@@ -882,6 +882,28 @@ class FitnessStore(private val database: FitnessDatabase) {
         insertFoodLog(entity)
     }
 
+    fun foodLog(id: String): FoodLogEntity? {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT id, logged_date, name, calories, protein_grams, carbs_grams,
+                   fat_grams, source, image_note, image_uri, provider_id, model,
+                   confirmed, created_at
+            FROM food_log
+            WHERE id = ?
+            LIMIT 1
+            """.trimIndent(),
+            arrayOf(id),
+        )
+        return try {
+            if (cursor.moveToFirst()) cursor.toFoodLog() else null
+        } finally {
+            cursor.close()
+        }
+    }
+
+    fun deleteFoodLog(id: String): Int =
+        database.writableDatabase.delete("food_log", "id = ?", arrayOf(id))
+
     fun foodLogs(): List<FoodLogEntity> {
         val cursor = database.readableDatabase.rawQuery(
             """

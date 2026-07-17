@@ -50,6 +50,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.security.MessageDigest
 
 fun interface TimeProvider {
     fun currentTimeMillis(): Long
@@ -78,19 +79,37 @@ class FitnessRepository(
     private var exerciseCatalog: ExerciseCatalog? = null
 
     suspend fun bootstrap(): BootstrapResult = withContext(Dispatchers.IO) {
-        val manifestJson = context.assets
-            .open("exercise-media/manifest.json")
-            .bufferedReader()
-            .use { it.readText() }
-        val manifest = ExerciseManifestParser.parse(manifestJson)
-        val assetPackId = manifest.packageStrategy.packs.firstOrNull()?.id ?: "exercise-gifs-pack-001"
+        val manifestPath = "exercise-media/manifest.json"
+        val manifestHash = context.assets.open(manifestPath).use(::sha256)
+        val cachedSmithBench = store.exerciseById(SMITH_BENCH_PRESS_ID)
+            ?: store.exerciseByName("smith bench press")
+        val cacheIsCurrent = store.exerciseMediaCount() > 0 &&
+            cachedSmithBench != null &&
+            store.preference(EXERCISE_MANIFEST_HASH_KEY) == manifestHash
+        val manifest = if (cacheIsCurrent) {
+            null
+        } else {
+            val manifestJson = context.assets.open(manifestPath).bufferedReader().use { it.readText() }
+            ExerciseManifestParser.parse(manifestJson)
+        }
+        val assetPackId = manifest?.packageStrategy?.packs?.firstOrNull()?.id
+            ?: store.preference(EXERCISE_ASSET_PACK_ID_KEY)
+            ?: "exercise-gifs-pack-001"
 
-        if (store.exerciseMediaCount() == 0) {
+        if (manifest != null) {
             store.upsertExerciseMedia(
                 manifest.files.map { it.toEntity(assetPackId) },
             )
+            store.putPreference(EXERCISE_MANIFEST_HASH_KEY, manifestHash)
+            store.putPreference(EXERCISE_MANIFEST_TOTAL_KEY, manifest.counts.localOrDownloaded.toString())
+            store.putPreference(EXERCISE_MANIFEST_FAILED_KEY, manifest.counts.failed.toString())
+            store.putPreference(EXERCISE_ASSET_PACK_ID_KEY, assetPackId)
+            store.putPreference(
+                EXERCISE_ASSET_PACK_SIZE_KEY,
+                (manifest.packageStrategy.packs.firstOrNull()?.sizeMb ?: 0.0).toString(),
+            )
         }
-        exerciseCatalog = ExerciseCatalog(store.allExercises(limit = 1_500))
+        exerciseCatalog = null
 
         val now = timeProvider.currentTimeMillis()
         seedDefaultVenue(now)
@@ -99,23 +118,45 @@ class FitnessRepository(
 
         val smithBench = store.exerciseById(SMITH_BENCH_PRESS_ID)
             ?: store.exerciseByName("smith bench press")
-            ?: ExerciseManifestParser.findSmithBenchPress(manifest).toEntity(assetPackId)
+            ?: requireNotNull(manifest) { "动作目录缓存缺少史密斯机卧推动作" }
+                .let(ExerciseManifestParser::findSmithBenchPress)
+                .toEntity(assetPackId)
         val smithCount = store.exercisesByEquipment("smith machine").size
+        val totalGifCount = manifest?.counts?.localOrDownloaded
+            ?: store.preference(EXERCISE_MANIFEST_TOTAL_KEY)?.toIntOrNull()
+            ?: store.exerciseMediaCount()
+        val failedGifCount = manifest?.counts?.failed
+            ?: store.preference(EXERCISE_MANIFEST_FAILED_KEY)?.toIntOrNull()
+            ?: 0
+        val assetPackSizeMb = manifest?.packageStrategy?.packs?.firstOrNull()?.sizeMb
+            ?: store.preference(EXERCISE_ASSET_PACK_SIZE_KEY)?.toDoubleOrNull()
+            ?: 0.0
         Log.i(
             "FitnessApp",
-            "bootstrap gifs=${manifest.counts.localOrDownloaded}, failed=${manifest.counts.failed}, " +
+            "bootstrap gifs=$totalGifCount, failed=$failedGifCount, manifestCache=$cacheIsCurrent, " +
                 "smithMachine=$smithCount, smithBench=${smithBench.localPath}",
         )
 
         BootstrapResult(
-            totalGifCount = manifest.counts.localOrDownloaded,
-            failedGifCount = manifest.counts.failed,
+            totalGifCount = totalGifCount,
+            failedGifCount = failedGifCount,
             assetPackId = assetPackId,
-            assetPackSizeMb = manifest.packageStrategy.packs.firstOrNull()?.sizeMb ?: 0.0,
+            assetPackSizeMb = assetPackSizeMb,
             smithMachineExerciseCount = smithCount,
             smithBenchPress = smithBench,
             sessionId = DEFAULT_SESSION_ID,
         )
+    }
+
+    private fun sha256(input: java.io.InputStream): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(32 * 1024)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+        return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
     }
 
     fun appState(): Flow<FitnessAppState> =
@@ -1123,6 +1164,54 @@ class FitnessRepository(
         foodLog
     }
 
+    suspend fun updateFoodLog(
+        id: String,
+        name: String,
+        calories: Int,
+        proteinGrams: Double,
+        carbsGrams: Double,
+        fatGrams: Double,
+    ): FoodLogEntity = withContext(Dispatchers.IO) {
+        val current = requireNotNull(store.foodLog(id)) { "餐食记录不存在" }
+        val trimmedName = name.trim()
+        require(trimmedName.isNotEmpty()) { "餐食名称不能为空" }
+        require(calories in 0..5000) { "热量不合理" }
+        require(listOf(proteinGrams, carbsGrams, fatGrams).all { it.isFinite() && it >= 0.0 }) {
+            "营养数据不能为负数或无效数字"
+        }
+        current.copy(
+            name = trimmedName,
+            calories = calories,
+            proteinGrams = proteinGrams,
+            carbsGrams = carbsGrams,
+            fatGrams = fatGrams,
+        ).also(store::upsertFoodLog).also { refreshSignal.update { signal -> signal + 1 } }
+    }
+
+    suspend fun deleteFoodLog(id: String): FoodLogEntity = withContext(Dispatchers.IO) {
+        val current = requireNotNull(store.foodLog(id)) { "餐食记录不存在" }
+        check(store.deleteFoodLog(id) == 1) { "删除餐食记录失败" }
+        refreshSignal.update { it + 1 }
+        current
+    }
+
+    suspend fun restoreFoodLog(foodLog: FoodLogEntity) = withContext(Dispatchers.IO) {
+        require(store.foodLog(foodLog.id) == null) { "餐食记录已经存在" }
+        store.upsertFoodLog(foodLog)
+        refreshSignal.update { it + 1 }
+    }
+
+    suspend fun discardFoodEstimateDraft(draftId: String) = withContext(Dispatchers.IO) {
+        val now = timeProvider.currentTimeMillis()
+        store.transaction {
+            val draft = requireNotNull(aiDraft(draftId)) { "草稿不存在" }
+            require(draft.type == "food_estimate") { "不是饮食估算草稿" }
+            require(draft.status == "draft") { "草稿已经确认或失效" }
+            updateAiDraftStatus(draft.id, status = "discarded", confirmedAt = null, updatedAt = now)
+        }
+        refreshSignal.update { it + 1 }
+    }
+
     suspend fun generateFoodEstimateDraft(
         description: String,
         imageUri: String = "",
@@ -2095,6 +2184,11 @@ class FitnessRepository(
         const val LOCAL_PROFILE_ID = "profile-local"
         const val ONBOARDING_COMPLETED_KEY = "onboarding_completed"
         const val CALENDAR_MODE_KEY = "calendar_mode"
+        private const val EXERCISE_MANIFEST_HASH_KEY = "exercise_manifest_hash"
+        private const val EXERCISE_MANIFEST_TOTAL_KEY = "exercise_manifest_total"
+        private const val EXERCISE_MANIFEST_FAILED_KEY = "exercise_manifest_failed"
+        private const val EXERCISE_ASSET_PACK_ID_KEY = "exercise_asset_pack_id"
+        private const val EXERCISE_ASSET_PACK_SIZE_KEY = "exercise_asset_pack_size_mb"
         const val DEFAULT_REST_SECONDS = 90
         const val DEFAULT_TARGET_SETS = 3
         const val DEFAULT_TARGET_REPS = "8-12"

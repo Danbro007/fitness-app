@@ -367,6 +367,18 @@ fun FitnessAppRootContent(
                             onOpenManual = { navigate(AppRoute.FoodManual) },
                             onOpenPhoto = { navigate(AppRoute.FoodPhoto) },
                             onOpenDraft = { draftId -> navigate(AppRoute.FoodPhotoDraft(draftId)) },
+                            onUpdateFood = { id, confirmation ->
+                                fitnessRepository.updateFoodLog(
+                                    id = id,
+                                    name = confirmation.name,
+                                    calories = confirmation.calories,
+                                    proteinGrams = confirmation.proteinGrams,
+                                    carbsGrams = confirmation.carbsGrams,
+                                    fatGrams = confirmation.fatGrams,
+                                )
+                            },
+                            onDeleteFood = fitnessRepository::deleteFoodLog,
+                            onRestoreFood = fitnessRepository::restoreFoodLog,
                             modifier = Modifier.padding(contentPadding),
                         )
                     }
@@ -439,7 +451,12 @@ fun FitnessAppRootContent(
                 } else {
                     FoodPhotoDraftScreen(
                         draft = draft,
-                        onDiscard = { navState = navState.selectPrimary(PrimaryTab.Food) },
+                        onDiscard = {
+                            coroutineScope.launch {
+                                fitnessRepository.discardFoodEstimateDraft(draft.id)
+                                navState = navState.selectPrimary(PrimaryTab.Food)
+                            }
+                        },
                         onConfirm = { confirmation ->
                             fitnessRepository.confirmFoodEstimateDraft(
                                 draftId = draft.id,

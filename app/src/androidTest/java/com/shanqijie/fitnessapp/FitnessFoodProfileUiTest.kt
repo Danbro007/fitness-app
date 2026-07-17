@@ -43,6 +43,7 @@ import com.shanqijie.fitnessapp.ui.food.FoodEstimateConfirmation
 import com.shanqijie.fitnessapp.ui.food.FoodManualScreen
 import com.shanqijie.fitnessapp.ui.food.FoodPhotoDraftScreen
 import com.shanqijie.fitnessapp.ui.food.FoodPhotoScreen
+import com.shanqijie.fitnessapp.ui.food.FoodTags
 import com.shanqijie.fitnessapp.ui.navigation.FitnessTestTags
 import com.shanqijie.fitnessapp.ui.navigation.PrimaryTab
 import com.shanqijie.fitnessapp.ui.profile.ProfileEditScreen
@@ -332,6 +333,90 @@ class FitnessFoodProfileUiTest {
         composeRule.onNodeWithText("已确认今日").performScrollTo().assertIsDisplayed()
         composeRule.onAllNodesWithText("未确认今日").assertCountEquals(0)
         composeRule.onAllNodesWithText("已确认昨日").assertCountEquals(0)
+    }
+
+    @Test
+    fun confirmedFoodCanBeEditedDeletedAndUndoneWithConfirmation() {
+        val original = FoodLogEntity(
+            id = "editable-food",
+            loggedDate = java.time.LocalDate.now().toString(),
+            name = "原餐食",
+            calories = 500,
+            proteinGrams = 30.0,
+            carbsGrams = 50.0,
+            fatGrams = 15.0,
+            source = "manual",
+            imageNote = "",
+            confirmed = true,
+            createdAt = 1L,
+        )
+        val logs = mutableStateOf(listOf(original))
+        composeRule.setContent {
+            FitnessTheme {
+                FoodScreen(
+                    summary = NutritionSummary(500, 30.0, 50.0, 15.0),
+                    foodLogs = logs.value,
+                    activeDraft = null,
+                    onOpenManual = {},
+                    onOpenPhoto = {},
+                    onOpenDraft = {},
+                    onUpdateFood = { id, confirmation ->
+                        logs.value = logs.value.map { log ->
+                            if (log.id == id) {
+                                log.copy(name = confirmation.name, calories = confirmation.calories)
+                            } else {
+                                log
+                            }
+                        }
+                    },
+                    onDeleteFood = { id -> logs.value = logs.value.filterNot { it.id == id } },
+                    onRestoreFood = { restored -> logs.value = logs.value + restored },
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(FoodTags.edit(original.id)).performScrollTo().performClick()
+        composeRule.onNodeWithTag(FoodTags.EditName, useUnmergedTree = true).performTextReplacement("修改后餐食")
+        composeRule.onNodeWithTag(FoodTags.EditCalories, useUnmergedTree = true).performTextReplacement("620")
+        composeRule.onNodeWithTag(FoodTags.SaveEdit).performClick()
+        composeRule.waitUntil(5_000) { logs.value.singleOrNull()?.name == "修改后餐食" }
+
+        composeRule.onNodeWithTag(FoodTags.delete(original.id)).performScrollTo().performClick()
+        composeRule.onNodeWithTag(FoodTags.ConfirmDelete).performClick()
+        composeRule.waitUntil(5_000) { logs.value.isEmpty() }
+        composeRule.onNodeWithTag(FoodTags.DeleteUndo).assertIsDisplayed()
+        composeRule.onNodeWithText("撤销删除").performClick()
+        composeRule.waitUntil(5_000) { logs.value.singleOrNull()?.name == "修改后餐食" }
+    }
+
+    @Test
+    fun discardingFoodDraftRequiresConfirmation() {
+        var discarded = false
+        composeRule.setContent {
+            FitnessTheme {
+                FoodPhotoDraftScreen(
+                    draft = AiDraftEntity(
+                        id = "discard-draft",
+                        type = "food_estimate",
+                        title = "饮食估算：午餐",
+                        content = "约 500 千卡 · 蛋白质 30g · 碳水 50g · 脂肪 15g",
+                        status = "draft",
+                        createdAt = 1L,
+                        updatedAt = 1L,
+                        confirmedAt = null,
+                    ),
+                    onDiscard = { discarded = true },
+                    onConfirm = {},
+                    modifier = androidx.compose.ui.Modifier,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(FoodTags.DiscardDraft).performClick()
+        assertFalse(discarded)
+        composeRule.onNodeWithTag(FoodTags.ConfirmDiscardDraft).performClick()
+        assertTrue(discarded)
     }
 
     @Test

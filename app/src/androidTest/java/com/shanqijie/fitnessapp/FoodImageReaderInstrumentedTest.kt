@@ -3,6 +3,7 @@ package com.shanqijie.fitnessapp
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.net.Uri
 import android.provider.MediaStore
@@ -25,8 +26,13 @@ class FoodImageReaderInstrumentedTest {
         try {
             val payload = context.readFoodPhoto(valid)
             assertEquals(valid.toString(), payload.imageUri)
-            assertEquals("image/png", payload.imageMimeType)
-            assertTrue(Base64.decode(payload.imageBase64, Base64.NO_WRAP).isNotEmpty())
+            assertEquals("image/jpeg", payload.imageMimeType)
+            val requestBytes = Base64.decode(payload.imageBase64, Base64.NO_WRAP)
+            assertTrue(requestBytes.isNotEmpty())
+            assertTrue(requestBytes.size <= 2 * 1024 * 1024)
+            val requestBitmap = BitmapFactory.decodeByteArray(requestBytes, 0, requestBytes.size)
+            assertTrue(maxOf(requestBitmap.width, requestBitmap.height) <= 1_600)
+            requestBitmap.recycle()
 
             val invalidError = runCatching { context.readFoodPhoto(invalid) }.exceptionOrNull()
             assertTrue(invalidError is IllegalArgumentException)

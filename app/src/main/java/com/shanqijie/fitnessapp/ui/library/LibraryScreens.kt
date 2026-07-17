@@ -34,6 +34,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -63,6 +64,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
@@ -75,6 +77,14 @@ fun LibraryScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var selectedFilter by rememberSaveable { mutableStateOf(ExerciseFilter.All) }
     val searchableExercises = remember(exercises) { exercises.map(::SearchableExercise) }
+    LaunchedEffect(searchableExercises) {
+        withContext(Dispatchers.Default) {
+            searchableExercises.chunked(SearchPrewarmChunkSize).forEach { chunk ->
+                chunk.forEach(SearchableExercise::prewarm)
+                yield()
+            }
+        }
+    }
     val normalizedQuery = query.trim().lowercase(Locale.ROOT)
     val filteredExercises by produceState<List<SearchableExercise>>(
         initialValue = emptyList(),
@@ -390,6 +400,10 @@ internal class SearchableExercise(
             target,
         ).joinToString(" ").lowercase(Locale.ROOT)
     }
+
+    fun prewarm() {
+        searchText
+    }
 }
 
 internal enum class ExerciseFilter(val label: String) {
@@ -427,6 +441,7 @@ private val FeaturedExerciseNames = listOf(
 )
 
 private const val SearchDebounceMillis = 150L
+private const val SearchPrewarmChunkSize = 64
 
 private val DetailErrorContainer = androidx.compose.ui.graphics.Color(0xFFFFDAD6)
 private val DetailErrorText = androidx.compose.ui.graphics.Color(0xFF690005)

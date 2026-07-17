@@ -2,6 +2,7 @@ package com.shanqijie.fitnessapp.ui.food
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
@@ -28,23 +29,28 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -133,9 +139,17 @@ fun FoodScreen(
     onOpenManual: () -> Unit,
     onOpenPhoto: () -> Unit,
     onOpenDraft: (String) -> Unit,
+    onUpdateFood: suspend (String, FoodEstimateConfirmation) -> Unit = { _, _ -> },
+    onDeleteFood: suspend (String) -> Unit = {},
+    onRestoreFood: suspend (FoodLogEntity) -> Unit = {},
     modifier: Modifier,
 ) {
     var showAddSheet by rememberSaveable { mutableStateOf(false) }
+    var editingLog by remember { mutableStateOf<FoodLogEntity?>(null) }
+    var deleteCandidate by remember { mutableStateOf<FoodLogEntity?>(null) }
+    var recentlyDeleted by remember { mutableStateOf<FoodLogEntity?>(null) }
+    var actionError by rememberSaveable { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     val todayLogs = foodLogs
         .asSequence()
         .filter { it.confirmed && it.loggedDate == LocalDate.now().toString() }
@@ -169,6 +183,22 @@ fun FoodScreen(
         )
 
         FoodMacroHero(summary)
+
+        recentlyDeleted?.let { deleted ->
+            FitnessSurfaceCard(modifier = Modifier.fillMaxWidth().testTag(FoodTags.DeleteUndo)) {
+                Text("已删除“${deleted.name}”", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            runCatching { onRestoreFood(deleted) }
+                                .onSuccess { recentlyDeleted = null }
+                                .onFailure { actionError = it.message ?: "撤销删除失败" }
+                        }
+                    },
+                ) { Text("撤销删除") }
+            }
+        }
+        actionError?.let { FoodError(it) }
 
         activeDraft?.let { draft ->
             Column(modifier = Modifier.fillMaxWidth().testTag(FoodTags.PhotoDraft), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -205,7 +235,13 @@ fun FoodScreen(
                     Text("从上方唯一入口添加今天的第一餐。", style = MaterialTheme.typography.bodyMedium)
                 }
             } else {
-                todayLogs.forEach { log -> FoodTimelineRow(log) }
+                todayLogs.forEach { log ->
+                    FoodTimelineRow(
+                        log = log,
+                        onEdit = { editingLog = log },
+                        onDelete = { deleteCandidate = log },
+                    )
+                }
             }
         }
         FitnessPrimaryButton(
@@ -271,6 +307,38 @@ fun FoodScreen(
                 ) { Box(contentAlignment = Alignment.Center) { Text("取消", fontWeight = FontWeight.Bold) } }
             }
         }
+    }
+
+    editingLog?.let { log ->
+        FoodLogEditDialog(
+            log = log,
+            onDismiss = { editingLog = null },
+            onSave = { confirmation ->
+                onUpdateFood(log.id, confirmation)
+                editingLog = null
+            },
+        )
+    }
+    deleteCandidate?.let { log ->
+        AlertDialog(
+            onDismissRequest = { deleteCandidate = null },
+            title = { Text("删除这条餐食记录？") },
+            text = { Text("删除后会立即重算当天营养；你仍可在当前页面撤销。") },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag(FoodTags.ConfirmDelete),
+                    onClick = {
+                        deleteCandidate = null
+                        scope.launch {
+                            runCatching { onDeleteFood(log.id) }
+                                .onSuccess { recentlyDeleted = log }
+                                .onFailure { actionError = it.message ?: "删除餐食失败" }
+                        }
+                    },
+                ) { Text("删除") }
+            },
+            dismissButton = { TextButton(onClick = { deleteCandidate = null }) { Text("取消") } },
+        )
     }
 }
 
@@ -461,6 +529,7 @@ fun FoodPhotoDraftScreen(
     var protein by rememberSaveable(draft.id) { mutableStateOf(draft.content.firstNumberAfter("蛋白质 ", "g", "42")) } // coverage-exempt: compiler-generated state restoration branch
     var carbs by rememberSaveable(draft.id) { mutableStateOf(draft.content.firstNumberAfter("碳水 ", "g", "55")) } // coverage-exempt: compiler-generated state restoration branch
     var fat by rememberSaveable(draft.id) { mutableStateOf(draft.content.firstNumberAfter("脂肪 ", "g", "14")) } // coverage-exempt: compiler-generated state restoration branch
+    var showDiscardConfirmation by rememberSaveable(draft.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     Surface(modifier = modifier.fillMaxSize(), color = FitnessColors.Phone) {
     Column(
@@ -489,7 +558,10 @@ fun FoodPhotoDraftScreen(
         }
         error?.let { FoodError(it) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = onDiscard, modifier = Modifier.weight(1f).height(56.dp)) { Text("放弃草稿") }
+            OutlinedButton(
+                onClick = { showDiscardConfirmation = true },
+                modifier = Modifier.weight(1f).height(56.dp).testTag(FoodTags.DiscardDraft),
+            ) { Text("放弃草稿") }
             Button(
                 onClick = {
                     val confirmation = runCatching {
@@ -515,6 +587,85 @@ fun FoodPhotoDraftScreen(
         }
     }
     }
+    if (showDiscardConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDiscardConfirmation = false },
+            title = { Text("放弃这份草稿？") },
+            text = { Text("放弃后草稿会失效，不会再次出现在饮食首页。") },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag(FoodTags.ConfirmDiscardDraft),
+                    onClick = {
+                        showDiscardConfirmation = false
+                        onDiscard()
+                    },
+                ) { Text("确认放弃") }
+            },
+            dismissButton = { TextButton(onClick = { showDiscardConfirmation = false }) { Text("继续编辑") } },
+        )
+    }
+}
+
+@Composable
+private fun FoodLogEditDialog(
+    log: FoodLogEntity,
+    onDismiss: () -> Unit,
+    onSave: suspend (FoodEstimateConfirmation) -> Unit,
+) {
+    var name by rememberSaveable(log.id) { mutableStateOf(log.name) }
+    var calories by rememberSaveable(log.id) { mutableStateOf(log.calories.toString()) }
+    var protein by rememberSaveable(log.id) { mutableStateOf(log.proteinGrams.toMacro()) }
+    var carbs by rememberSaveable(log.id) { mutableStateOf(log.carbsGrams.toMacro()) }
+    var fat by rememberSaveable(log.id) { mutableStateOf(log.fatGrams.toMacro()) }
+    var saving by rememberSaveable(log.id) { mutableStateOf(false) }
+    var error by rememberSaveable(log.id) { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    AlertDialog(
+        modifier = Modifier.testTag(FoodTags.EditDialog),
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text("编辑餐食记录") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                MealField(name, { name = it; error = null }, "餐食名称", FoodTags.EditName, null)
+                MealField(calories, { calories = it; error = null }, "热量 kcal", FoodTags.EditCalories, null)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MealField(protein, { protein = it; error = null }, "蛋白质 g", FoodTags.EditProtein, null, Modifier.weight(1f))
+                    MealField(carbs, { carbs = it; error = null }, "碳水 g", FoodTags.EditCarbs, null, Modifier.weight(1f))
+                }
+                MealField(fat, { fat = it; error = null }, "脂肪 g", FoodTags.EditFat, null)
+                error?.let { FoodError(it) }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !saving,
+                modifier = Modifier.testTag(FoodTags.SaveEdit),
+                onClick = {
+                    val confirmation = runCatching {
+                        parseFoodEstimateConfirmation(name, calories, protein, carbs, fat)
+                    }.getOrElse {
+                        error = it.message ?: "请检查餐食数据"
+                        null
+                    }
+                    if (confirmation != null) {
+                        saving = true
+                        scope.launch {
+                            try {
+                                onSave(confirmation)
+                            } catch (cancellation: CancellationException) {
+                                throw cancellation
+                            } catch (exception: Exception) {
+                                error = exception.message ?: "保存修改失败"
+                            } finally {
+                                saving = false
+                            }
+                        }
+                    }
+                },
+            ) { Text(if (saving) "保存中…" else "保存") }
+        },
+        dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 @Composable
@@ -660,7 +811,11 @@ private fun SoftMultilineField(
 }
 
 @Composable
-private fun FoodTimelineRow(log: FoodLogEntity) {
+private fun FoodTimelineRow(
+    log: FoodLogEntity,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -685,7 +840,17 @@ private fun FoodTimelineRow(log: FoodLogEntity) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-            Text("${log.calories} kcal", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+            Column(horizontalAlignment = Alignment.End) {
+                Text("${log.calories} kcal", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                Row {
+                    IconButton(onClick = onEdit, modifier = Modifier.testTag(FoodTags.edit(log.id))) {
+                        Icon(Icons.Rounded.Edit, contentDescription = "编辑${log.name}")
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.testTag(FoodTags.delete(log.id))) {
+                        Icon(Icons.Rounded.Delete, contentDescription = "删除${log.name}")
+                    }
+                }
+            }
         }
     }
 }
@@ -727,6 +892,17 @@ object FoodTags {
     const val DraftCarbs = "photo-draft-carbs"
     const val DraftFat = "photo-draft-fat"
     const val ConfirmPhotoDraft = "confirm-photo-draft"
+    const val DiscardDraft = "discard-food-draft"
+    const val ConfirmDiscardDraft = "confirm-discard-food-draft"
+    const val EditDialog = "food-log-edit-dialog"
+    const val EditName = "food-log-edit-name"
+    const val EditCalories = "food-log-edit-calories"
+    const val EditProtein = "food-log-edit-protein"
+    const val EditCarbs = "food-log-edit-carbs"
+    const val EditFat = "food-log-edit-fat"
+    const val SaveEdit = "food-log-save-edit"
+    const val ConfirmDelete = "food-log-confirm-delete"
+    const val DeleteUndo = "food-log-delete-undo"
     const val TotalCalories = "food-total-calories"
     const val TotalProtein = "food-total-protein"
     const val TotalCarbs = "food-total-carbs"
@@ -734,6 +910,8 @@ object FoodTags {
     const val NutritionReference = "nutrition-reference"
 
     fun log(id: String): String = "food-log-$id"
+    fun edit(id: String): String = "food-log-edit-$id"
+    fun delete(id: String): String = "food-log-delete-$id"
 }
 
 internal data class FoodImagePayload(
@@ -755,14 +933,60 @@ internal suspend fun Context.readFoodPhoto(uri: Uri): FoodImagePayload = withCon
     require(width.toLong() * height.toLong() <= MaxFoodPhotoPixels) { "照片像素过高，请选择较小的图片" }
     val declaredLength = contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
     require(declaredLength < 0 || declaredLength <= MaxFoodPhotoBytes) { "照片文件过大，请选择 12 MB 以内的图片" }
-    val bytes = requireNotNull(contentResolver.openInputStream(uri)?.use { it.readBytesLimited(MaxFoodPhotoBytes) }) {
-        "无法读取选中的照片"
-    }
+    val sampleSize = calculateFoodPhotoInSampleSize(width, height)
+    val bitmap = requireNotNull(
+        contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = sampleSize })
+        },
+    ) { "无法解码选中的照片" }
+    val bytes = bitmap.useAndCompressFoodPhoto()
     FoodImagePayload(
         imageUri = uri.toString(),
-        imageMimeType = contentResolver.getType(uri) ?: "image/jpeg",
+        imageMimeType = "image/jpeg",
         imageBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP),
     )
+}
+
+internal fun calculateFoodPhotoInSampleSize(
+    width: Int,
+    height: Int,
+    targetMaxSide: Int = MaxFoodPhotoRequestDimension,
+): Int {
+    require(width > 0 && height > 0) { "照片尺寸无效" }
+    var sampleSize = 1
+    while (maxOf(width, height).toLong() / sampleSize > targetMaxSide.toLong() * 2L) {
+        sampleSize *= 2
+    }
+    return sampleSize
+}
+
+private fun Bitmap.useAndCompressFoodPhoto(): ByteArray {
+    val scaled = if (maxOf(width, height) > MaxFoodPhotoRequestDimension) {
+        val scale = MaxFoodPhotoRequestDimension.toDouble() / maxOf(width, height).toDouble()
+        Bitmap.createScaledBitmap(
+            this,
+            (width * scale).toInt().coerceAtLeast(1),
+            (height * scale).toInt().coerceAtLeast(1),
+            true,
+        )
+    } else {
+        this
+    }
+    return try {
+        var quality = InitialFoodPhotoJpegQuality
+        var encoded: ByteArray
+        do {
+            val output = ByteArrayOutputStream()
+            check(scaled.compress(Bitmap.CompressFormat.JPEG, quality, output)) { "无法压缩选中的照片" }
+            encoded = output.toByteArray()
+            quality -= FoodPhotoJpegQualityStep
+        } while (encoded.size > MaxFoodPhotoRequestBytes && quality >= MinimumFoodPhotoJpegQuality)
+        require(encoded.size <= MaxFoodPhotoRequestBytes) { "照片压缩后仍然过大，请选择内容更简单的图片" }
+        encoded
+    } finally {
+        if (scaled !== this) scaled.recycle()
+        recycle()
+    }
 }
 
 private fun InputStream.readBytesLimited(maxBytes: Long): ByteArray {
@@ -782,6 +1006,11 @@ private fun InputStream.readBytesLimited(maxBytes: Long): ByteArray {
 private const val MaxFoodPhotoBytes = 12L * 1024L * 1024L
 private const val MaxFoodPhotoDimension = 12_000
 private const val MaxFoodPhotoPixels = 48_000_000L
+private const val MaxFoodPhotoRequestDimension = 1_600
+private const val MaxFoodPhotoRequestBytes = 2 * 1024 * 1024
+private const val InitialFoodPhotoJpegQuality = 88
+private const val MinimumFoodPhotoJpegQuality = 58
+private const val FoodPhotoJpegQualityStep = 10
 private const val DefaultFoodPhotoBufferSize = 8 * 1024
 
 private fun Double.toMacro(): String =

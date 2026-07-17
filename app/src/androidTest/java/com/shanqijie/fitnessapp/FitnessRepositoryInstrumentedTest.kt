@@ -1147,6 +1147,28 @@ class FitnessRepositoryInstrumentedTest {
     }
 
     @Test
+    fun foodDraftDiscardAndConfirmedLogCrudStayInSQLiteAndBackup() = runBlocking {
+        val draft = repository.generateFoodEstimateDraft("鸡胸肉米饭")
+
+        repository.discardFoodEstimateDraft(draft.id)
+
+        assertEquals("discarded", store.aiDraft(draft.id)?.status)
+        assertNull(store.aiDraft(draft.id)?.confirmedAt)
+        val original = repository.logFood("午餐", 500, 35.0, 55.0, 15.0)
+        val updated = repository.updateFoodLog(original.id, "训练后午餐", 620, 45.0, 70.0, 16.0)
+        assertEquals("训练后午餐", store.foodLog(original.id)?.name)
+        assertEquals(620, updated.calories)
+        val deleted = repository.deleteFoodLog(original.id)
+        assertNull(store.foodLog(original.id))
+        repository.restoreFoodLog(deleted)
+        assertEquals(updated, store.foodLog(original.id))
+
+        val backup = FitnessBackupCodec.decode(repository.exportBackupJson())
+        assertEquals(updated, backup.foodLogs.single { it.id == original.id })
+        assertEquals("discarded", backup.aiDrafts.single { it.id == draft.id }.status)
+    }
+
+    @Test
     fun foodDraftConfirmationRollsBackLogWhenDraftStatusWriteFails() = runBlocking {
         val draft = repository.generateFoodEstimateDraft("鸡胸肉米饭")
         db.writableDatabase.execSQL(
