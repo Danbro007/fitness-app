@@ -71,6 +71,9 @@ import com.shanqijie.fitnessapp.data.PlannedExerciseView
 import com.shanqijie.fitnessapp.data.WorkoutSessionEntity
 import com.shanqijie.fitnessapp.data.WorkoutSetLogEntity
 import com.shanqijie.fitnessapp.data.UserProfileEntity
+import com.shanqijie.fitnessapp.data.isWeeklyPlanDraftStale
+import com.shanqijie.fitnessapp.data.weeklyPlanDraftInputItems
+import com.shanqijie.fitnessapp.data.weeklyPlanDraftSchedule
 import com.shanqijie.fitnessapp.domain.ExerciseChineseNameTranslator
 import com.shanqijie.fitnessapp.domain.toReadableAiText
 import com.shanqijie.fitnessapp.ui.components.FitnessGifImage
@@ -661,8 +664,12 @@ fun PlanDraftScreen(
     var busy by rememberSaveable(draft.id) { mutableStateOf(false) }
     var errorMessage by rememberSaveable(draft.id) { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
-    val days = userProfile?.weeklyTrainingDays ?: 3
-    val minutes = userProfile?.preferredMinutes ?: 35
+    val snapshotItems = remember(draft.metadataJson) { weeklyPlanDraftInputItems(draft) }
+    val displayedInputItems = snapshotItems.ifEmpty { userProfile.aiInputItems() }
+    val snapshotSchedule = remember(draft.metadataJson) { weeklyPlanDraftSchedule(draft) }
+    val days = snapshotSchedule?.first ?: userProfile?.weeklyTrainingDays ?: 3
+    val minutes = snapshotSchedule?.second ?: userProfile?.preferredMinutes ?: 35
+    val stale = draft.metadataJson.isNotBlank() && isWeeklyPlanDraftStale(draft, userProfile)
 
     Column(
         modifier = modifier
@@ -690,9 +697,14 @@ fun PlanDraftScreen(
         }
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 8.dp, end = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("本次 AI 输入", style = MaterialTheme.typography.headlineSmall)
-            Text("15 项 · 发送前可见", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            Text("生成时快照 · 不可变", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
         }
-        userProfile.aiInputItems().chunked(2).forEach { items ->
+        if (stale) {
+            FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+                Text("当前档案已变化，这份草稿可能过期。请核对生成时快照，或重新生成。", color = FitnessColors.Orange)
+            }
+        }
+        displayedInputItems.chunked(2).forEach { items ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items.forEach { (label, value) -> AiInputCard(label, value, Modifier.weight(1f)) }
                 if (items.size == 1) Spacer(Modifier.weight(1f))

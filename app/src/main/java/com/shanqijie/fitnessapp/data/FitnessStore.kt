@@ -544,6 +544,30 @@ class FitnessStore(private val database: FitnessDatabase) {
         )
     }
 
+    fun updateWorkoutRuntimeIfInProgress(
+        id: String,
+        expectedUpdatedAt: Long,
+        currentExerciseId: String?,
+        restEndsAt: Long?,
+        pausedAt: Long?,
+        startedAt: Long? = null,
+        updatedAt: Long,
+    ): Boolean {
+        val values = ContentValues().apply {
+            put("current_exercise_id", currentExerciseId)
+            put("rest_ends_at", restEndsAt)
+            put("paused_at", pausedAt)
+            startedAt?.let { put("started_at", it) }
+            put("updated_at", updatedAt)
+        }
+        return database.writableDatabase.update(
+            "workout_session",
+            values,
+            "id = ? AND status = ? AND updated_at = ? AND ended_at IS NULL",
+            arrayOf(id, "in_progress", expectedUpdatedAt.toString()),
+        ) == 1
+    }
+
     fun updateSessionExerciseStatus(id: String, status: String) {
         database.writableDatabase.update(
             "workout_session_exercise",
@@ -740,6 +764,27 @@ class FitnessStore(private val database: FitnessDatabase) {
                 while (cursor.moveToNext()) {
                     add(cursor.toWorkoutSetLog())
                 }
+            }
+        } finally {
+            cursor.close()
+        }
+    }
+
+    fun recentSetLogs(sinceEpochMillis: Long, limit: Int = 500): List<WorkoutSetLogEntity> {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT id, session_id, exercise_id, session_exercise_id, set_index, actual_reps, actual_weight_kg,
+                   feeling, completed, completed_at
+            FROM workout_set_log
+            WHERE completed_at >= ?
+            ORDER BY completed_at DESC
+            LIMIT ?
+            """.trimIndent(),
+            arrayOf(sinceEpochMillis.toString(), limit.coerceIn(1, 5_000).toString()),
+        )
+        return try {
+            buildList {
+                while (cursor.moveToNext()) add(cursor.toWorkoutSetLog())
             }
         } finally {
             cursor.close()

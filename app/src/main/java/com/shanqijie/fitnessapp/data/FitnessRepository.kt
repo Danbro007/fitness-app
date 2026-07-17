@@ -30,9 +30,13 @@ import com.shanqijie.fitnessapp.domain.workoutReviewMetadata
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -74,6 +78,11 @@ class FitnessRepository(
     private val aiGatewayFactory: AiGatewayFactory = AiGatewayFactory(::AiChatClient),
 ) {
     private val refreshSignal = MutableStateFlow(0)
+    private val workoutRefreshSignal = MutableStateFlow(null as String? to 0)
+    @Volatile
+    private var cachedAppState: FitnessAppState? = null
+    @Volatile
+    private var cachedRefreshVersion: Int = -1
     @Volatile
     private var exerciseCatalog: ExerciseCatalog? = null
 
@@ -119,29 +128,43 @@ class FitnessRepository(
     }
 
     fun appState(): Flow<FitnessAppState> =
-        refreshSignal.map {
-            withContext(Dispatchers.IO) { currentAppState() }
-        }
+        combine(refreshSignal, workoutRefreshSignal) { refreshVersion, workoutRefresh -> refreshVersion to workoutRefresh.first }
+            .map { (refreshVersion, sessionId) ->
+                withContext(Dispatchers.IO) {
+                    if (refreshVersion != cachedRefreshVersion || sessionId == null || cachedAppState == null) {
+                        currentAppState().also {
+                            cachedAppState = it
+                            cachedRefreshVersion = refreshVersion
+                        }
+                    } else {
+                        currentWorkoutState(requireNotNull(cachedAppState), sessionId).also { cachedAppState = it }
+                    }
+                }
+            }
 
     fun completedSetCount(sessionId: String): Flow<Int> =
-        refreshSignal.map {
+        combine(refreshSignal, workoutRefreshSignal) { _, _ -> Unit }.map {
             withContext(Dispatchers.IO) { store.completedSetCount(sessionId) }
         }
 
     fun setLogs(sessionId: String): Flow<List<WorkoutSetLogEntity>> =
-        refreshSignal.map {
+        combine(refreshSignal, workoutRefreshSignal) { _, _ -> Unit }.map {
             withContext(Dispatchers.IO) { store.setLogs(sessionId) }
         }
 
     fun completedSetCount(sessionId: String, exerciseId: String): Flow<Int> =
-        refreshSignal.map {
+        combine(refreshSignal, workoutRefreshSignal) { _, _ -> Unit }.map {
             withContext(Dispatchers.IO) { store.completedSetCount(sessionId, exerciseId) }
         }
 
     fun exerciseLogs(sessionId: String, exerciseId: String): Flow<List<WorkoutSetLogEntity>> =
-        refreshSignal.map {
+        combine(refreshSignal, workoutRefreshSignal) { _, _ -> Unit }.map {
             withContext(Dispatchers.IO) { store.setLogs(sessionId, exerciseId) }
         }
+
+    private fun notifyWorkoutChanged(sessionId: String) {
+        workoutRefreshSignal.update { sessionId to (it.second + 1) }
+    }
 
     fun sessionIdFor(plannedWorkoutId: String, exerciseId: String): String =
         "$LEGACY_SESSION_PREFIX$plannedWorkoutId"
@@ -519,7 +542,7 @@ class FitnessRepository(
                 restSeconds = restSeconds,
             )
         }
-        refreshSignal.update { it + 1 }
+        notifyWorkoutChanged(sessionId)
         log
     }
 
@@ -541,89 +564,78 @@ class FitnessRepository(
                 restSeconds = restSeconds,
             )
         }
-        refreshSignal.update { it + 1 }
+        notifyWorkoutChanged(sessionId)
         log
     }
 
     suspend fun selectWorkoutExercise(sessionId: String, exerciseId: String): WorkoutSessionEntity =
         withContext(Dispatchers.IO) {
-            val session = requireInProgressSession(sessionId)
-            require(store.sessionExercises(sessionId).any { it.exerciseId == exerciseId }) { "动作不属于本次训练" }
-            val now = timeProvider.currentTimeMillis()
-            store.updateWorkoutRuntime(
-                id = sessionId,
-                currentExerciseId = exerciseId,
-                restEndsAt = session.restEndsAt,
-                pausedAt = session.pausedAt,
-                updatedAt = now,
-            )
-            refreshSignal.update { it + 1 }
-            requireNotNull(store.workoutSession(sessionId))
+            val updated = store.transaction {
+                val session = requireInProgressSession(sessionId)
+                require(store.sessionExercises(sessionId).any { it.exerciseId == exerciseId }) { "动作不属于本次训练" }
+                updateRuntimeOrReject(session, currentExerciseId = exerciseId)
+            }
+            notifyWorkoutChanged(sessionId)
+            updated
         }
 
     suspend fun startRest(sessionId: String, durationSeconds: Int = DEFAULT_REST_SECONDS): WorkoutSessionEntity =
         withContext(Dispatchers.IO) {
-            val session = requireInProgressSession(sessionId)
             require(durationSeconds >= 0) { "休息时长不能为负数" }
-            val now = timeProvider.currentTimeMillis()
-            store.updateWorkoutRuntime(
-                id = sessionId,
-                currentExerciseId = session.currentExerciseId,
-                restEndsAt = now + durationSeconds.toLong() * 1_000L,
-                pausedAt = null,
-                updatedAt = now,
-            )
-            refreshSignal.update { it + 1 }
-            requireNotNull(store.workoutSession(sessionId))
+            val updated = store.transaction {
+                val session = requireInProgressSession(sessionId)
+                val now = timeProvider.currentTimeMillis()
+                updateRuntimeOrReject(
+                    session,
+                    restEndsAt = now + durationSeconds.toLong() * 1_000L,
+                    pausedAt = null,
+                    now = now,
+                )
+            }
+            notifyWorkoutChanged(sessionId)
+            updated
         }
 
     suspend fun skipRest(sessionId: String): WorkoutSessionEntity = withContext(Dispatchers.IO) {
-        val session = requireInProgressSession(sessionId)
-        val now = timeProvider.currentTimeMillis()
-        store.updateWorkoutRuntime(
-            id = sessionId,
-            currentExerciseId = session.currentExerciseId,
-            restEndsAt = null,
-            pausedAt = null,
-            updatedAt = now,
-        )
-        refreshSignal.update { it + 1 }
-        requireNotNull(store.workoutSession(sessionId))
+        val updated = store.transaction {
+            updateRuntimeOrReject(requireInProgressSession(sessionId), restEndsAt = null, pausedAt = null)
+        }
+        notifyWorkoutChanged(sessionId)
+        updated
     }
 
     suspend fun toggleWorkoutPause(sessionId: String): WorkoutSessionEntity = withContext(Dispatchers.IO) {
-        val session = requireInProgressSession(sessionId)
-        require(session.restEndsAt == null) { "休息计时中无需暂停训练" }
-        val now = timeProvider.currentTimeMillis()
-        val updated = if (session.pausedAt == null) {
-            session.copy(pausedAt = now, updatedAt = now)
-        } else {
-            session.copy(
-                startedAt = session.startedAt + (now - session.pausedAt).coerceAtLeast(0L),
-                pausedAt = null,
-                updatedAt = now,
+        val updated = store.transaction {
+            val session = requireInProgressSession(sessionId)
+            require(session.restEndsAt == null) { "休息计时中无需暂停训练" }
+            val now = timeProvider.currentTimeMillis()
+            updateRuntimeOrReject(
+                session = session,
+                pausedAt = if (session.pausedAt == null) now else null,
+                startedAt = session.pausedAt?.let { session.startedAt + (now - it).coerceAtLeast(0L) },
+                now = now,
             )
         }
-        store.upsertWorkoutSession(updated)
-        refreshSignal.update { it + 1 }
-        requireNotNull(store.workoutSession(sessionId))
+        notifyWorkoutChanged(sessionId)
+        updated
     }
 
     suspend fun extendRest(sessionId: String, durationSeconds: Int = 30): WorkoutSessionEntity =
         withContext(Dispatchers.IO) {
             require(durationSeconds in 1..300) { "单次延长休息需在 1 到 300 秒之间" }
-            val session = requireInProgressSession(sessionId)
-            val restEndsAt = requireNotNull(session.restEndsAt) { "当前不在休息中" }
-            val now = timeProvider.currentTimeMillis()
-            store.updateWorkoutRuntime(
-                id = sessionId,
-                currentExerciseId = session.currentExerciseId,
-                restEndsAt = maxOf(restEndsAt, now) + durationSeconds.toLong() * 1_000L,
-                pausedAt = null,
-                updatedAt = now,
-            )
-            refreshSignal.update { it + 1 }
-            requireNotNull(store.workoutSession(sessionId))
+            val updated = store.transaction {
+                val session = requireInProgressSession(sessionId)
+                val restEndsAt = requireNotNull(session.restEndsAt) { "当前不在休息中" }
+                val now = timeProvider.currentTimeMillis()
+                updateRuntimeOrReject(
+                    session,
+                    restEndsAt = maxOf(restEndsAt, now) + durationSeconds.toLong() * 1_000L,
+                    pausedAt = null,
+                    now = now,
+                )
+            }
+            notifyWorkoutChanged(sessionId)
+            updated
         }
 
     suspend fun addExerciseToSession(
@@ -633,33 +645,28 @@ class FitnessRepository(
         targetReps: String = DEFAULT_TARGET_REPS,
         targetWeightKg: Double = 0.0,
     ): WorkoutSessionExerciseEntity = withContext(Dispatchers.IO) {
-        val session = requireInProgressSession(sessionId)
-        requireNotNull(store.exerciseById(exerciseId)) { "动作不存在" }
         require(targetSets in 1..20) { "目标组数需要在 1 到 20 之间" }
         require(targetReps.isNotBlank()) { "目标次数不能为空" }
         require(targetWeightKg >= 0.0) { "目标重量不能为负数" }
-
-        val existingExercises = store.sessionExercises(sessionId)
-        val exercise = existingExercises.firstOrNull { it.exerciseId == exerciseId }
-            ?: WorkoutSessionExerciseEntity(
-                id = "$sessionId-library-${UUID.randomUUID()}",
-                sessionId = sessionId,
-                exerciseId = exerciseId,
-                orderIndex = (existingExercises.maxOfOrNull { it.orderIndex } ?: 0) + 1,
-                targetSets = targetSets,
-                targetReps = targetReps.trim(),
-                targetWeightKg = targetWeightKg,
-                status = "pending",
-            ).also(store::upsertSessionExercise)
-        val now = timeProvider.currentTimeMillis()
-        store.updateWorkoutRuntime(
-            id = sessionId,
-            currentExerciseId = exerciseId,
-            restEndsAt = session.restEndsAt,
-            pausedAt = session.pausedAt,
-            updatedAt = now,
-        )
-        refreshSignal.update { it + 1 }
+        val exercise = store.transaction {
+            val session = requireInProgressSession(sessionId)
+            requireNotNull(store.exerciseById(exerciseId)) { "动作不存在" }
+            val existingExercises = store.sessionExercises(sessionId)
+            val selected = existingExercises.firstOrNull { it.exerciseId == exerciseId }
+                ?: WorkoutSessionExerciseEntity(
+                    id = "$sessionId-library-${UUID.randomUUID()}",
+                    sessionId = sessionId,
+                    exerciseId = exerciseId,
+                    orderIndex = (existingExercises.maxOfOrNull { it.orderIndex } ?: 0) + 1,
+                    targetSets = targetSets,
+                    targetReps = targetReps.trim(),
+                    targetWeightKg = targetWeightKg,
+                    status = "pending",
+                ).also(store::upsertSessionExercise)
+            updateRuntimeOrReject(session, currentExerciseId = exerciseId)
+            selected
+        }
+        notifyWorkoutChanged(sessionId)
         exercise
     }
 
@@ -893,6 +900,7 @@ class FitnessRepository(
         minutes: Int,
         venueName: String,
         equipment: String,
+        recentHistory: String = "近 28 天训练：暂无记录",
     ): String = buildString {
         appendLine("昵称：${profile?.displayName ?: "未填写"}")
         appendLine("出生年：${profile?.birthYear ?: "未填写"}")
@@ -904,8 +912,49 @@ class FitnessRepository(
         appendLine(profile?.bodyMeasurement?.toPlanContext() ?: "体测数据：未填写")
         appendLine("伤病与注意事项：${profile?.injuries?.ifBlank { "未填写" } ?: "未填写"}")
         appendLine("场地：$venueName")
-        append("可用器械：$equipment")
+        appendLine("可用器械：$equipment")
+        appendLine(recentHistory)
+        appendLine("只返回 JSON，不要 Markdown。格式：{\"trainingDays\":[{\"dayOffset\":1,\"name\":\"上肢\",\"exercises\":[{\"exerciseId\":\"动作 ID\",\"targetSets\":3,\"targetReps\":\"8-12\",\"targetWeightKg\":0.0,\"note\":\"器械与伤病约束说明\"}]}]}")
+        append("trainingDays 数量必须恰好为 $days；dayOffset 取 1 到 7；只能使用提供的可用动作 ID。")
     }
+
+    private fun recentTrainingHistory(now: Long): RecentTrainingHistory {
+        val since = now - PLAN_HISTORY_WINDOW_MILLIS
+        val sessions = store.workoutSessions()
+            .filter { it.startedAt >= since && it.status in setOf("completed", "partial") }
+            .sortedByDescending(WorkoutSessionEntity::startedAt)
+        val summaries = sessions.map { session ->
+            val logs = store.setLogs(session.id).filter(WorkoutSetLogEntity::completed)
+            RecentTrainingSession(
+                completedAt = session.endedAt ?: session.updatedAt,
+                status = session.status,
+                completedSets = logs.size,
+                exercises = logs.groupBy(WorkoutSetLogEntity::exerciseId).map { (exerciseId, exerciseLogs) ->
+                    RecentExerciseSummary(
+                        exerciseId = exerciseId,
+                        maxWeightKg = exerciseLogs.maxOfOrNull(WorkoutSetLogEntity::actualWeightKg) ?: 0.0,
+                        repetitions = exerciseLogs.sumOf(WorkoutSetLogEntity::actualReps),
+                        feelings = exerciseLogs.map(WorkoutSetLogEntity::feeling).distinct(),
+                    )
+                },
+            )
+        }
+        return RecentTrainingHistory(
+            windowStart = since,
+            sessionCount = summaries.size,
+            sessions = summaries,
+        )
+    }
+
+    private fun RecentTrainingHistory.toPromptText(): String = buildString {
+        appendLine("近 28 天训练频率：$sessionCount 次")
+        sessions.take(12).forEach { session ->
+            val details = session.exercises.joinToString("；") { exercise ->
+                "${exercise.exerciseId} 最高${formatWeight(exercise.maxWeightKg)}kg/共${exercise.repetitions}次/体感${exercise.feelings.joinToString("、").ifBlank { "未记录" }}"
+            }
+            appendLine("- ${localDateAt(session.completedAt)} ${session.status} ${session.completedSets}组：$details")
+        }
+    }.trim()
 
     internal fun buildPlanPromptForTesting(profile: UserProfileEntity): String =
         buildPlanPrompt(
@@ -939,7 +988,7 @@ class FitnessRepository(
         weightKg: Double,
         feeling: String,
     ) = withContext(Dispatchers.IO) {
-        store.transaction {
+        val resolvedSessionId = store.transaction {
             val session = compatibilitySessionInTransaction(
                 requestedSessionId = sessionId,
                 plannedWorkoutId = null,
@@ -956,8 +1005,9 @@ class FitnessRepository(
                 restSeconds = DEFAULT_REST_SECONDS,
                 expectedSetIndex = setIndex,
             )
+            selected.id
         }
-        refreshSignal.update { it + 1 }
+        notifyWorkoutChanged(resolvedSessionId)
     }
 
     suspend fun skipExercise(
@@ -969,7 +1019,7 @@ class FitnessRepository(
         reason: String,
     ) = withContext(Dispatchers.IO) {
         val trimmedReason = reason.trim().ifEmpty { "跳过" }
-        store.transaction {
+        val resolvedSessionId = store.transaction {
             val session = compatibilitySessionInTransaction(
                 requestedSessionId = sessionId,
                 plannedWorkoutId = plannedWorkoutId,
@@ -999,8 +1049,9 @@ class FitnessRepository(
                 ),
             )
             store.updateSessionExerciseStatus(sessionExercise.id, status = "skipped")
+            selected.id
         }
-        refreshSignal.update { it + 1 }
+        notifyWorkoutChanged(resolvedSessionId)
     }
 
     suspend fun finishWorkoutSession(
@@ -1023,7 +1074,10 @@ class FitnessRepository(
 
     suspend fun generateTrainingAdjustment(exerciseId: String): TrainingAdjustmentEntity = withContext(Dispatchers.IO) {
         val exercise = store.exerciseById(exerciseId)
-        val recentLogs = store.allSetLogs()
+        val recentLogs = store.recentSetLogs(
+            sinceEpochMillis = timeProvider.currentTimeMillis() - APP_STATE_HISTORY_WINDOW_MILLIS,
+            limit = APP_STATE_SET_LOG_LIMIT,
+        )
             .filter { it.exerciseId == exerciseId && it.completed }
             .sortedByDescending { it.completedAt }
         val latest = recentLogs.firstOrNull()
@@ -1247,6 +1301,91 @@ class FitnessRepository(
         return foodLog
     }
 
+    private fun parseWeeklyPlan(
+        rawContent: String,
+        expectedDays: Int,
+        candidates: List<ExerciseMediaEntity>,
+    ): WeeklyPlanDefinition {
+        val json = rawContent.trim()
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+        val plan = repositoryJson.decodeFromString<WeeklyPlanDefinition>(json)
+        val allowedIds = candidates.map(ExerciseMediaEntity::exerciseId).toSet()
+        require(plan.trainingDays.size == expectedDays) { "AI 返回的训练频率不一致" }
+        require(plan.trainingDays.map(WeeklyPlanDay::dayOffset).distinct().size == expectedDays) { "AI 返回了重复训练日" }
+        plan.trainingDays.forEach { day ->
+            require(day.dayOffset in 1..7) { "训练日超出一周范围" }
+            require(day.name.isNotBlank()) { "训练日名称为空" }
+            require(day.exercises.isNotEmpty()) { "训练日没有动作" }
+            day.exercises.forEach { exercise ->
+                require(exercise.exerciseId in allowedIds) { "AI 返回了不可用动作" }
+                require(exercise.targetSets in 1..20) { "动作组数无效" }
+                require(exercise.targetReps.isNotBlank()) { "动作次数为空" }
+                require(exercise.targetWeightKg >= 0.0) { "动作重量无效" }
+            }
+        }
+        return plan.copy(trainingDays = plan.trainingDays.sortedBy(WeeklyPlanDay::dayOffset))
+    }
+
+    private fun fallbackWeeklyPlan(
+        days: Int,
+        candidates: List<ExerciseMediaEntity>,
+        snapshot: WeeklyPlanInputSnapshot,
+    ): WeeklyPlanDefinition {
+        val offsets = when (days) {
+            1 -> listOf(1)
+            2 -> listOf(1, 4)
+            3 -> listOf(1, 3, 5)
+            4 -> listOf(1, 2, 4, 6)
+            5 -> listOf(1, 2, 3, 5, 6)
+            else -> (1..7).take(days.coerceIn(1, 7))
+        }
+        val exerciseCount = minOf(3, candidates.size)
+        return WeeklyPlanDefinition(
+            trainingDays = offsets.mapIndexed { dayIndex, offset ->
+                val selected = List(exerciseCount) { index -> candidates[(dayIndex + index) % candidates.size] }
+                WeeklyPlanDay(
+                    dayOffset = offset,
+                    name = "${snapshot.goal.ifBlank { "综合" }}训练 ${dayIndex + 1}",
+                    exercises = selected.mapIndexed { index, exercise ->
+                        WeeklyPlanExercise(
+                            exerciseId = exercise.exerciseId,
+                            targetSets = if (index == 0) 4 else 3,
+                            targetReps = if (index == 0) "8-12" else "10-12",
+                            targetWeightKg = 0.0,
+                            note = listOf(
+                                if (index == 0) "主项" else "辅助",
+                                "器械：${exercise.equipment}",
+                                snapshot.injuries.takeIf(String::isNotBlank)?.let { "注意：$it" },
+                            ).filterNotNull().joinToString(" · "),
+                        )
+                    },
+                )
+            },
+        )
+    }
+
+    private fun WeeklyPlanDefinition.toReadableContent(snapshot: WeeklyPlanInputSnapshot): String = buildString {
+        appendLine("${snapshot.goal} · 每周 ${snapshot.weeklyTrainingDays} 天 · 每次 ${snapshot.preferredMinutes} 分钟")
+        appendLine("场地：${snapshot.venueName}；器械：${snapshot.equipment.joinToString("、")}")
+        appendLine(snapshot.bodyMeasurement.toPlanContext())
+        if (snapshot.injuries.isNotBlank()) appendLine("伤病与注意事项：${snapshot.injuries}")
+        trainingDays.forEach { day ->
+            appendLine("第 ${day.dayOffset} 天｜${day.name}")
+            day.exercises.forEach { exercise ->
+                val name = store.exerciseById(exercise.exerciseId)?.name ?: exercise.exerciseId
+                appendLine("- $name：${exercise.targetSets} 组 × ${exercise.targetReps}，${formatWeight(exercise.targetWeightKg)}kg；${exercise.note}")
+            }
+        }
+        append("确认前不会写入正式计划。")
+    }
+
+    private fun parseWeeklyPlanMetadata(draft: AiDraftEntity): WeeklyPlanDraftMetadata =
+        runCatching { repositoryJson.decodeFromString<WeeklyPlanDraftMetadata>(draft.metadataJson) }
+            .getOrElse { throw IllegalArgumentException("草稿结构损坏，请重新生成", it) }
+
     suspend fun generateWeeklyPlanDraft(): AiDraftEntity = withContext(Dispatchers.IO) {
         val profile = requireNotNull(store.userProfile()) { "请先补全训练偏好与体测档案" }
         val venue = store.defaultVenue()
@@ -1255,37 +1394,90 @@ class FitnessRepository(
             ?.joinToString("、")
             ?.ifEmpty { null }
             ?: store.equipmentNamesForVenue().joinToString("、").ifEmpty { "自重" }
-        val now = System.currentTimeMillis()
-        val days = profile?.weeklyTrainingDays ?: 3
-        val minutes = profile?.preferredMinutes ?: 45
+        val now = timeProvider.currentTimeMillis()
+        val days = profile.weeklyTrainingDays
+        val minutes = profile.preferredMinutes
+        val recentHistory = recentTrainingHistory(now)
+        val allCandidates = (defaultTemplateExercises() + store.allExercises(limit = 80))
+            .distinctBy(ExerciseMediaEntity::exerciseId)
+        val candidates = allCandidates.filter { exerciseMatchesAvailableEquipment(it, equipment) }
+            .ifEmpty { defaultTemplateExercises().ifEmpty { allCandidates } }
+        require(candidates.isNotEmpty()) { "没有可用于生成计划的动作" }
+        val snapshot = WeeklyPlanInputSnapshot(
+            generatedAt = now,
+            profileUpdatedAt = profile.updatedAt,
+            displayName = profile.displayName,
+            birthYear = profile.birthYear,
+            heightCm = profile.heightCm,
+            weightKg = profile.weightKg,
+            goal = profile.goal,
+            injuries = profile.injuries,
+            weeklyTrainingDays = days,
+            preferredMinutes = minutes,
+            bodyMeasurement = profile.bodyMeasurement,
+            venueId = venue?.id ?: DEFAULT_VENUE_ID,
+            venueName = venue?.name ?: "默认场地",
+            equipment = equipment.split('、').map(String::trim).filter(String::isNotEmpty),
+            recentHistory = recentHistory,
+        )
         val provider = activeAiProviderOrDefault()
         val apiKey = credentialStore.loadApiKey(provider.id)
-        val aiContent = if (apiKey != null) {
+        val aiPlan = if (apiKey != null) {
             runCatching {
-                aiGatewayFactory.create(provider.toConfig()).complete(
+                val raw = aiGatewayFactory.create(provider.toConfig()).complete(
                     apiKey = apiKey,
-                    systemPrompt = "你是健身计划助手。请基于用户目标、体测数据、场地和器械生成一周训练草稿。不要作医学诊断；如有伤病须优先保守安排。结果必须提醒用户确认后再保存。",
-                    userPrompt = buildPlanPrompt(profile, days, minutes, venue?.name ?: "默认场地", equipment),
+                    systemPrompt = "你是健身计划助手。生成结构化一周训练模板。不要作医学诊断；伤病时保守安排。只能返回符合用户消息 schema 的 JSON，且动作 ID 必须来自允许列表。",
+                    userPrompt = buildPlanPrompt(
+                        profile = profile,
+                        days = days,
+                        minutes = minutes,
+                        venueName = snapshot.venueName,
+                        equipment = "$equipment\n可用动作 ID：${candidates.joinToString("、") { "${it.exerciseId}(${it.name}/${it.equipment})" }}",
+                        recentHistory = recentHistory.toPromptText(),
+                    ),
                     temperature = 0.2,
                 )
+                parseWeeklyPlan(raw, days, candidates)
             }.getOrNull()
         } else {
             null
         }
+        val plan = aiPlan ?: fallbackWeeklyPlan(days, defaultTemplateExercises().ifEmpty { candidates }, snapshot)
+        val metadata = WeeklyPlanDraftMetadata(
+            schemaVersion = WEEKLY_PLAN_SCHEMA_VERSION,
+            inputSnapshot = snapshot,
+            plan = plan,
+        )
         val draft = AiDraftEntity(
             id = "draft-${UUID.randomUUID()}",
             type = "weekly_plan",
             title = "周计划草稿：$days 天",
-            content = aiContent?.takeIf { it.isNotBlank() }
-                ?: "按 ${profile?.goal ?: "增肌减脂"} 目标，建议每周 $days 天、每次 $minutes 分钟。\n${profile?.bodyMeasurement?.toPlanContext() ?: "未填写体测数据"}\n场地：${venue?.name ?: "默认场地"}\n可用器械：$equipment\n确认后会新建一节本地训练计划。",
+            content = plan.toReadableContent(snapshot),
             status = "draft",
             createdAt = now,
             updatedAt = now,
+            metadataJson = repositoryJson.encodeToString(metadata),
             confirmedAt = null,
         )
         store.upsertAiDraft(draft)
         refreshSignal.update { it + 1 }
         draft
+    }
+
+    private fun exerciseMatchesAvailableEquipment(exercise: ExerciseMediaEntity, equipmentText: String): Boolean {
+        val normalizedExercise = exercise.equipment.lowercase()
+        val normalizedAvailable = equipmentText.lowercase()
+        val aliases = mapOf(
+            "smith machine" to listOf("smith machine", "史密斯"),
+            "dumbbell" to listOf("dumbbell", "哑铃"),
+            "barbell" to listOf("barbell", "杠铃"),
+            "body weight" to listOf("body weight", "bodyweight", "自重"),
+            "cable" to listOf("cable", "绳索", "拉力器", "高位下拉"),
+            "treadmill" to listOf("treadmill", "跑步机"),
+        )
+        val acceptedNames = aliases.entries.firstOrNull { (key) -> key in normalizedExercise }?.value
+            ?: listOf(normalizedExercise)
+        return acceptedNames.any { it in normalizedAvailable }
     }
 
     suspend fun confirmFourWeekPlanDraft(draftId: String): List<PlannedWorkoutEntity> =
@@ -1295,40 +1487,45 @@ class FitnessRepository(
                 val draft = requireNotNull(aiDraft(draftId)) { "草稿不存在" }
                 require(draft.type == "weekly_plan") { "不是周计划草稿" }
                 require(draft.status == "draft") { "草稿已经确认或失效" }
-                val template = defaultTemplateExercises()
-                require(template.isNotEmpty()) { "没有可用的动作模板" }
-                val venueId = defaultVenue()?.id ?: DEFAULT_VENUE_ID
+                val metadata = parseWeeklyPlanMetadata(draft)
+                require(metadata.schemaVersion == WEEKLY_PLAN_SCHEMA_VERSION) { "草稿版本不受支持，请重新生成" }
+                require(metadata.plan.trainingDays.size == metadata.inputSnapshot.weeklyTrainingDays) { "草稿训练频率不一致" }
+                val venueId = metadata.inputSnapshot.venueId
                 val startDate = localDateAt(now).plusDays(1)
-                val generated = (0 until 4).map { week ->
-                    PlannedWorkoutEntity(
-                        id = "planned-four-week-${UUID.randomUUID()}",
-                        name = "AI 生成训练 第 ${week + 1} 周",
-                        scheduledDate = startDate.plusDays(week * 7L).toString(),
-                        venueId = venueId,
-                        status = "planned",
-                        createdAt = now,
-                        updatedAt = now,
-                    )
+                val generated = (0 until 4).flatMap { week ->
+                    metadata.plan.trainingDays.mapIndexed { dayIndex, day ->
+                        val workout = PlannedWorkoutEntity(
+                            id = "planned-four-week-${UUID.randomUUID()}",
+                            name = "第 ${week + 1} 周 · ${day.name}",
+                            scheduledDate = startDate.plusDays(week * 7L + day.dayOffset - 1L).toString(),
+                            venueId = venueId,
+                            status = "planned",
+                            createdAt = now,
+                            updatedAt = now,
+                        )
+                        workout to day.copy(dayOffset = dayIndex + 1)
+                    }
                 }
-                generated.forEach { workout ->
+                generated.forEach { (workout, day) ->
                     upsertPlannedWorkout(workout)
-                    template.forEachIndexed { index, exercise ->
+                    day.exercises.forEachIndexed { index, exercise ->
+                        requireNotNull(store.exerciseById(exercise.exerciseId)) { "草稿动作已不可用：${exercise.exerciseId}" }
                         upsertPlannedExercise(
                             PlannedExerciseEntity(
                                 id = "${workout.id}-${exercise.exerciseId}-${index + 1}",
                                 plannedWorkoutId = workout.id,
                                 exerciseId = exercise.exerciseId,
                                 orderIndex = index + 1,
-                                targetSets = if (index == 0) 4 else 3,
-                                targetReps = if (index == 0) "8-12" else "10-12",
-                            targetWeightKg = 0.0,
-                                note = if (index == 0) "主项" else "辅助",
+                                targetSets = exercise.targetSets,
+                                targetReps = exercise.targetReps,
+                                targetWeightKg = exercise.targetWeightKg,
+                                note = exercise.note,
                             ),
                         )
                     }
                 }
                 updateAiDraftStatus(draftId, status = "confirmed", confirmedAt = now, updatedAt = now)
-                generated
+                generated.map { it.first }
             }
             refreshSignal.update { it + 1 }
             workouts
@@ -1834,6 +2031,27 @@ class FitnessRepository(
         return session
     }
 
+    private fun updateRuntimeOrReject(
+        session: WorkoutSessionEntity,
+        currentExerciseId: String? = session.currentExerciseId,
+        restEndsAt: Long? = session.restEndsAt,
+        pausedAt: Long? = session.pausedAt,
+        startedAt: Long? = null,
+        now: Long = timeProvider.currentTimeMillis(),
+    ): WorkoutSessionEntity {
+        val updated = store.updateWorkoutRuntimeIfInProgress(
+            id = session.id,
+            expectedUpdatedAt = session.updatedAt,
+            currentExerciseId = currentExerciseId,
+            restEndsAt = restEndsAt,
+            pausedAt = pausedAt,
+            startedAt = startedAt,
+            updatedAt = now,
+        )
+        require(updated) { "训练状态已变化，请刷新后重试" }
+        return requireNotNull(store.workoutSession(session.id))
+    }
+
     private fun workoutSummaryFromStored(sessionId: String): WorkoutSummary {
         val session = requireNotNull(store.workoutSession(sessionId)) { "训练记录不存在" }
         val logs = store.setLogs(sessionId).filter { it.completed }
@@ -1892,7 +2110,10 @@ class FitnessRepository(
                 workoutSessions = workoutSessions,
                 unfinishedSessions = workoutSessions.filter { it.status == "in_progress" },
                 workoutSessionExercises = workoutSessionExercises,
-                workoutSetLogs = store.allSetLogs(),
+                workoutSetLogs = store.recentSetLogs(
+                    sinceEpochMillis = timeProvider.currentTimeMillis() - APP_STATE_HISTORY_WINDOW_MILLIS,
+                    limit = APP_STATE_SET_LOG_LIMIT,
+                ),
                 userProfile = store.userProfile(),
                 onboardingCompleted = preferences[ONBOARDING_COMPLETED_KEY]?.toBooleanStrictOrNull() ?: false,
                 foodLogs = store.foodLogs(),
@@ -1906,6 +2127,21 @@ class FitnessRepository(
                 preferences = preferences,
             )
         }
+
+    private fun currentWorkoutState(previous: FitnessAppState, sessionId: String): FitnessAppState {
+        val sessions = store.workoutSessions()
+        val sessionLogs = store.setLogs(sessionId)
+        val retainedLogs = previous.workoutSetLogs.filterNot { it.sessionId == sessionId }
+        val sessionExercises = store.sessionExercises(sessionId)
+        return previous.copy(
+            workoutSessions = sessions,
+            unfinishedSessions = sessions.filter { it.status == "in_progress" },
+            workoutSessionExercises = previous.workoutSessionExercises.filterNot { it.sessionId == sessionId } + sessionExercises,
+            workoutSetLogs = (sessionLogs + retainedLogs)
+                .sortedByDescending(WorkoutSetLogEntity::completedAt)
+                .take(APP_STATE_SET_LOG_LIMIT),
+        )
+    }
 
     private fun defaultTemplateExercises(): List<ExerciseMediaEntity> =
         listOfNotNull(
@@ -2099,6 +2335,10 @@ class FitnessRepository(
         const val DEFAULT_TARGET_SETS = 3
         const val DEFAULT_TARGET_REPS = "8-12"
         private const val LEGACY_SESSION_PREFIX = "session-"
+        private const val APP_STATE_SET_LOG_LIMIT = 500
+        private const val APP_STATE_HISTORY_WINDOW_MILLIS = 180L * 24L * 60L * 60L * 1_000L
+        private const val PLAN_HISTORY_WINDOW_MILLIS = 28L * 24L * 60L * 60L * 1_000L
+        private const val WEEKLY_PLAN_SCHEMA_VERSION = 1
         private val STARTABLE_WORKOUT_STATUSES = setOf("planned", "in_progress")
         private val POST_WORKOUT_FEELINGS = setOf("状态很好", "正常疲劳", "非常疲劳", "疼痛不适")
     }
@@ -2158,6 +2398,114 @@ private data class EquipmentSeed(
     val category: String,
     val defaultAvailable: Boolean = false,
 )
+
+@Serializable
+private data class WeeklyPlanDraftMetadata(
+    val schemaVersion: Int,
+    val inputSnapshot: WeeklyPlanInputSnapshot,
+    val plan: WeeklyPlanDefinition,
+)
+
+@Serializable
+private data class WeeklyPlanInputSnapshot(
+    val generatedAt: Long,
+    val profileUpdatedAt: Long,
+    val displayName: String,
+    val birthYear: Int,
+    val heightCm: Double,
+    val weightKg: Double,
+    val goal: String,
+    val injuries: String,
+    val weeklyTrainingDays: Int,
+    val preferredMinutes: Int,
+    val bodyMeasurement: BodyMeasurement,
+    val venueId: String,
+    val venueName: String,
+    val equipment: List<String>,
+    val recentHistory: RecentTrainingHistory,
+)
+
+@Serializable
+private data class RecentTrainingHistory(
+    val windowStart: Long,
+    val sessionCount: Int,
+    val sessions: List<RecentTrainingSession>,
+)
+
+@Serializable
+private data class RecentTrainingSession(
+    val completedAt: Long,
+    val status: String,
+    val completedSets: Int,
+    val exercises: List<RecentExerciseSummary>,
+)
+
+@Serializable
+private data class RecentExerciseSummary(
+    val exerciseId: String,
+    val maxWeightKg: Double,
+    val repetitions: Int,
+    val feelings: List<String>,
+)
+
+@Serializable
+private data class WeeklyPlanDefinition(
+    val trainingDays: List<WeeklyPlanDay>,
+)
+
+@Serializable
+private data class WeeklyPlanDay(
+    val dayOffset: Int,
+    val name: String,
+    val exercises: List<WeeklyPlanExercise>,
+)
+
+@Serializable
+private data class WeeklyPlanExercise(
+    val exerciseId: String,
+    val targetSets: Int,
+    val targetReps: String,
+    val targetWeightKg: Double,
+    val note: String,
+)
+
+internal fun weeklyPlanDraftInputItems(draft: AiDraftEntity): List<Pair<String, String>> {
+    val snapshot = runCatching {
+        repositoryJson.decodeFromString<WeeklyPlanDraftMetadata>(draft.metadataJson).inputSnapshot
+    }.getOrNull() ?: return emptyList()
+    val measurement = snapshot.bodyMeasurement
+    return listOf(
+        "昵称" to snapshot.displayName,
+        "出生年" to snapshot.birthYear.toString(),
+        "身高" to "${formatWeight(snapshot.heightCm)} cm",
+        "体重" to "${formatWeight(snapshot.weightKg)} kg",
+        "训练目标" to snapshot.goal,
+        "每周频率" to "${snapshot.weeklyTrainingDays} 天",
+        "单次时长" to "${snapshot.preferredMinutes} 分钟",
+        "体脂率" to (measurement.bodyFatPercentage?.let { "${formatWeight(it)}%" } ?: "未填写"),
+        "体脂肪" to (measurement.bodyFatMassKg?.let { "${formatWeight(it)} kg" } ?: "未填写"),
+        "BMI" to (measurement.bmi?.let(::formatWeight) ?: "未填写"),
+        "骨骼肌" to (measurement.skeletalMuscleKg?.let { "${formatWeight(it)} kg" } ?: "未填写"),
+        "身体水分" to (measurement.bodyWaterKg?.let { "${formatWeight(it)} kg" } ?: "未填写"),
+        "基础代谢" to (measurement.basalMetabolismKcal?.let { "$it kcal" } ?: "未填写"),
+        "腰臀比" to (measurement.waistHipRatio?.let(::formatWeight) ?: "未填写"),
+        "伤病与注意事项" to snapshot.injuries.ifBlank { "未填写" },
+        "场地" to snapshot.venueName,
+        "器械" to snapshot.equipment.joinToString("、").ifBlank { "自重" },
+        "近 28 天训练" to "${snapshot.recentHistory.sessionCount} 次",
+    )
+}
+
+internal fun isWeeklyPlanDraftStale(draft: AiDraftEntity, profile: UserProfileEntity?): Boolean {
+    val snapshotUpdatedAt = runCatching {
+        repositoryJson.decodeFromString<WeeklyPlanDraftMetadata>(draft.metadataJson).inputSnapshot.profileUpdatedAt
+    }.getOrNull() ?: return true
+    return profile == null || profile.updatedAt != snapshotUpdatedAt
+}
+
+internal fun weeklyPlanDraftSchedule(draft: AiDraftEntity): Pair<Int, Int>? = runCatching {
+    repositoryJson.decodeFromString<WeeklyPlanDraftMetadata>(draft.metadataJson).inputSnapshot
+}.getOrNull()?.let { it.weeklyTrainingDays to it.preferredMinutes }
 
 private data class FoodEstimate(
     val name: String,

@@ -28,6 +28,8 @@ import com.shanqijie.fitnessapp.data.TrainingVenueEntity
 import com.shanqijie.fitnessapp.data.UserProfileEntity
 import com.shanqijie.fitnessapp.data.WorkoutSessionEntity
 import com.shanqijie.fitnessapp.data.WorkoutSetLogEntity
+import com.shanqijie.fitnessapp.data.isWeeklyPlanDraftStale
+import com.shanqijie.fitnessapp.data.weeklyPlanDraftInputItems
 import com.shanqijie.fitnessapp.domain.HomePrimaryAction
 import com.shanqijie.fitnessapp.domain.WorkoutAdjustmentDirection
 import com.shanqijie.fitnessapp.domain.WorkoutReviewMetadata
@@ -217,7 +219,8 @@ class FitnessRepositoryInstrumentedTest {
         )
         val beforeConfirmation = integratedRepository.appState().first()
 
-        assertEquals("一周三练，力量优先", planDraft.content)
+        assertTrue(planDraft.content.contains("减脂 · 每周 3 天"))
+        assertTrue(gateway.lastPlanPrompt?.contains("近 28 天训练频率") == true)
         assertTrue(photoDraft.content.contains("AI 建议：识别为牛排米饭"))
         assertTrue(gateway.lastVisionRequest?.contains("data:image/jpeg;base64,Zm9vZC1waG90bw==") == true)
         assertTrue(beforeConfirmation.foodLogs.isEmpty())
@@ -234,6 +237,7 @@ class FitnessRepositoryInstrumentedTest {
 
     private class RecordingAiGateway : AiGateway {
         var lastVisionRequest: String? = null
+        var lastPlanPrompt: String? = null
 
         override fun testConnection(apiKey: String): AiTestResult =
             AiTestResult(success = true, message = "连接成功")
@@ -243,7 +247,16 @@ class FitnessRepositoryInstrumentedTest {
             systemPrompt: String,
             userPrompt: String,
             temperature: Double,
-        ): String = "一周三练，力量优先"
+        ): String {
+            lastPlanPrompt = userPrompt
+            return """
+                {"trainingDays":[
+                  {"dayOffset":1,"name":"上肢力量","exercises":[{"exerciseId":"0748","targetSets":4,"targetReps":"8-10","targetWeightKg":40.0,"note":"史密斯机主项"}]},
+                  {"dayOffset":3,"name":"综合力量","exercises":[{"exerciseId":"0289","targetSets":3,"targetReps":"10-12","targetWeightKg":12.0,"note":"哑铃辅助"}]},
+                  {"dayOffset":5,"name":"恢复力量","exercises":[{"exerciseId":"0748","targetSets":2,"targetReps":"12-15","targetWeightKg":30.0,"note":"保守负荷"}]}
+                ]}
+            """.trimIndent()
+        }
 
         override fun completeVision(
             apiKey: String,
@@ -887,12 +900,19 @@ class FitnessRepositoryInstrumentedTest {
         val workouts = repository.confirmFourWeekPlanDraft(draft.id)
 
         assertEquals(
-            listOf("2026-07-11", "2026-07-18", "2026-07-25", "2026-08-01"),
+            listOf(
+                "2026-07-11", "2026-07-13", "2026-07-15",
+                "2026-07-18", "2026-07-20", "2026-07-22",
+                "2026-07-25", "2026-07-27", "2026-07-29",
+                "2026-08-01", "2026-08-03", "2026-08-05",
+            ),
             workouts.map { it.scheduledDate },
         )
-        assertEquals(4, workouts.map { it.id }.distinct().size)
+        assertEquals(12, workouts.map { it.id }.distinct().size)
         workouts.forEach { workout ->
-            assertEquals(listOf("0748", "0289"), store.plannedExercises(workout.id).map { it.exerciseId })
+            val exercises = store.plannedExercises(workout.id)
+            assertEquals(setOf("0748", "0289"), exercises.mapTo(mutableSetOf()) { it.exerciseId })
+            assertTrue(exercises.all { it.targetSets in 3..4 && it.targetReps.isNotBlank() })
         }
         assertEquals("confirmed", store.aiDraft(draft.id)?.status)
 
@@ -900,7 +920,96 @@ class FitnessRepositoryInstrumentedTest {
             repository.confirmFourWeekPlanDraft(draft.id)
         }.exceptionOrNull()
         assertTrue(repeatedError is IllegalArgumentException)
-        assertEquals(4, store.plannedWorkouts().size)
+        assertEquals(12, store.plannedWorkouts().size)
+    }
+
+    @Test
+    fun weeklyPlanConfirmationPersistsOneThreeAndFiveDayDraftFrequencies() = runBlocking {
+        seedExercises()
+        listOf(1, 3, 5).forEach { days ->
+            repository.saveUserProfile(
+                displayName = "频率测试",
+                birthYear = 1994,
+                heightCm = 176.0,
+                weightKg = 75.0,
+                goal = "减脂",
+                injuries = "膝关节避免冲击",
+                weeklyTrainingDays = days,
+                preferredMinutes = 40,
+            )
+            val draft = repository.generateWeeklyPlanDraft()
+            assertTrue(store.plannedWorkouts().isEmpty())
+
+            val workouts = repository.confirmFourWeekPlanDraft(draft.id)
+
+            assertEquals(days * 4, workouts.size)
+            assertEquals(days, workouts.take(days).map(PlannedWorkoutEntity::scheduledDate).distinct().size)
+            workouts.forEach { workout ->
+                val exercises = store.plannedExercises(workout.id)
+                assertTrue(exercises.isNotEmpty())
+                assertTrue(exercises.all { it.targetSets in 1..20 && it.targetReps.isNotBlank() })
+                assertTrue(exercises.all { "膝关节避免冲击" in it.note })
+            }
+            workouts.forEach { repository.deleteWorkout(it.id) }
+        }
+    }
+
+    @Test
+    fun weeklyPlanPromptAndDraftKeepRecentHistoryAndImmutableInputSnapshot() = runBlocking {
+        val gateway = RecordingAiGateway()
+        val integratedRepository = FitnessRepository(
+            context = context,
+            store = store,
+            credentialStore = credentialStore,
+            timeProvider = timeProvider,
+            aiGatewayFactory = AiGatewayFactory { gateway },
+        )
+        seedExercises()
+        integratedRepository.bootstrap()
+        integratedRepository.saveUserProfile(
+            displayName = "历史测试",
+            birthYear = 1994,
+            heightCm = 176.0,
+            weightKg = 75.0,
+            goal = "增肌",
+            injuries = "右肩注意",
+            weeklyTrainingDays = 3,
+            preferredMinutes = 45,
+        )
+        seedPlan(
+            planId = "plan-history-prompt",
+            scheduledDate = "2026-07-10",
+            exercises = listOf(PlannedExerciseSeed("0748", targetSets = 1, targetWeightKg = 70.0)),
+        )
+        val session = integratedRepository.startWorkout("plan-history-prompt")
+        integratedRepository.recordWorkoutSet(session.id, "0748", 8, 70.0, "合适")
+        integratedRepository.finishWorkout(session.id)
+        credentialStore.saveApiKey("qwen", "secret-not-for-prompt")
+        integratedRepository.selectAiProvider(
+            providerId = "qwen",
+            endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            model = "qwen3.7-plus",
+        )
+
+        val draft = integratedRepository.generateWeeklyPlanDraft()
+        val prompt = requireNotNull(gateway.lastPlanPrompt)
+
+        assertTrue(prompt.contains("近 28 天训练频率：1 次"))
+        assertTrue(prompt.contains("0748 最高70kg/共8次/体感合适"))
+        assertFalse(prompt.contains("secret-not-for-prompt"))
+        assertFalse(prompt.contains("avatar"))
+        assertTrue(weeklyPlanDraftInputItems(draft).contains("近 28 天训练" to "1 次"))
+        assertFalse(isWeeklyPlanDraftStale(draft, store.userProfile()))
+        val generated = integratedRepository.confirmFourWeekPlanDraft(draft.id)
+        assertEquals(12, generated.size)
+        assertEquals(40.0, store.plannedExercises(generated[0].id).single().targetWeightKg, 0.0)
+        assertEquals("8-10", store.plannedExercises(generated[0].id).single().targetReps)
+        assertEquals(12.0, store.plannedExercises(generated[1].id).single().targetWeightKg, 0.0)
+
+        val currentProfile = requireNotNull(store.userProfile())
+        store.upsertUserProfile(currentProfile.copy(weightKg = 76.0, updatedAt = currentProfile.updatedAt + 1))
+        assertTrue(isWeeklyPlanDraftStale(draft, store.userProfile()))
+        assertTrue(weeklyPlanDraftInputItems(draft).contains("体重" to "75 kg"))
     }
 
     @Test
@@ -1504,6 +1613,66 @@ class FitnessRepositoryInstrumentedTest {
         assertEquals(11, results.count { it.isFailure })
         assertEquals(1, store.setLogs(session.id, "0748").size)
         assertEquals(1, store.setLogs(session.id, "0748").single().setIndex)
+    }
+
+    @Test
+    fun concurrentRuntimeControlsCannotReopenAFinishedWorkout() = runBlocking {
+        seedExercises()
+        seedPlan(
+            planId = "plan-runtime-finish-race",
+            scheduledDate = "2026-07-10",
+            exercises = listOf(
+                PlannedExerciseSeed("0748", targetSets = 2, targetWeightKg = 70.0),
+                PlannedExerciseSeed("0289", targetSets = 2, targetWeightKg = 20.0),
+            ),
+        )
+        val session = repository.startWorkout("plan-runtime-finish-race")
+        repository.startRest(session.id, 60)
+        val gate = CompletableDeferred<Unit>()
+
+        coroutineScope {
+            listOf(
+                async(Dispatchers.IO) { gate.await(); runCatching { repository.finishWorkout(session.id) } },
+                async(Dispatchers.IO) { gate.await(); runCatching { repository.skipRest(session.id) } },
+                async(Dispatchers.IO) { gate.await(); runCatching { repository.extendRest(session.id, 30) } },
+                async(Dispatchers.IO) { gate.await(); runCatching { repository.selectWorkoutExercise(session.id, "0289") } },
+            ).also { gate.complete(Unit) }.awaitAll()
+        }
+
+        val stored = requireNotNull(store.workoutSession(session.id))
+        assertTrue(stored.status in setOf("completed", "partial"))
+        assertNotNull(stored.endedAt)
+        assertNull(stored.restEndsAt)
+        assertNull(stored.pausedAt)
+        assertTrue(runCatching { repository.toggleWorkoutPause(session.id) }.isFailure)
+        assertEquals(stored.status, store.workoutSession(session.id)?.status)
+        assertEquals(stored.endedAt, store.workoutSession(session.id)?.endedAt)
+    }
+
+    @Test
+    fun appStateBoundsHistoricalSetLogsWhileKeepingLatestEntries() = runBlocking {
+        val now = timeProvider.currentTimeMillis()
+        repeat(650) { index ->
+            store.insertSetLog(
+                WorkoutSetLogEntity(
+                    id = "history-$index",
+                    sessionId = "history-session-${index / 10}",
+                    exerciseId = "0748",
+                    setIndex = index + 1,
+                    actualReps = 8,
+                    actualWeightKg = 50.0,
+                    feeling = "合适",
+                    completed = true,
+                    completedAt = now - index,
+                ),
+            )
+        }
+
+        val state = repository.appState().first()
+
+        assertEquals(500, state.workoutSetLogs.size)
+        assertEquals("history-0", state.workoutSetLogs.first().id)
+        assertEquals("history-499", state.workoutSetLogs.last().id)
     }
 
     @Test
