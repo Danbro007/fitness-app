@@ -653,15 +653,17 @@ class FitnessPlanLibraryUiTest {
         assertTrue(draftState.aiDrafts.any { it.type == "weekly_plan" && it.status == "draft" })
 
         val beforeConfirmIds = draftState.plannedWorkouts.mapTo(mutableSetOf()) { it.id }
+        val weeklyDays = requireNotNull(draftState.userProfile).weeklyTrainingDays
+        val expectedGeneratedCount = weeklyDays * 4
         composeRule.onNodeWithTag(ConfirmMonthlyDraftTag).performScrollTo().performClick()
-        waitUntilState { state -> state.plannedWorkouts.size == beforeDraftState.plannedWorkouts.size + 4 }
+        waitUntilState { state -> state.plannedWorkouts.size == beforeDraftState.plannedWorkouts.size + expectedGeneratedCount }
         val confirmedState = currentState()
         val generatedPlans = confirmedState.plannedWorkouts
             .filterNot { it.id in beforeConfirmIds }
             .sortedBy { it.scheduledDate }
-        assertEquals(4, generatedPlans.size)
-        assertEquals(4, generatedPlans.map { it.id }.distinct().size)
-        generatedPlans.zipWithNext().forEach { (first, second) ->
+        assertEquals(expectedGeneratedCount, generatedPlans.size)
+        assertEquals(expectedGeneratedCount, generatedPlans.map { it.id }.distinct().size)
+        generatedPlans.chunked(weeklyDays).map { it.first() }.zipWithNext().forEach { (first, second) ->
             assertEquals(
                 7L,
                 ChronoUnit.DAYS.between(LocalDate.parse(first.scheduledDate), LocalDate.parse(second.scheduledDate)),
