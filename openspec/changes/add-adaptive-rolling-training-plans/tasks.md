@@ -35,7 +35,7 @@
 - [x] 4.5 实现周期结束、新周期预填和未完成周提前生成语义
 - [x] 4.6 添加 repository 设备集成测试和规则边界测试
 - [x] 4.7 运行聚焦测试、`git diff --check` 和 GitNexus change detection
-- [ ] 4.8 推送分支并创建以 PR 3 分支为 base 的草稿 PR
+- [x] 4.8 推送分支并创建以 PR 3 分支为 base 的草稿 PR
 
 ## 5. PR 5 — 配置与可解释草稿 UI
 
