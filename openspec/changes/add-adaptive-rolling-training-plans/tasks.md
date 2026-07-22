@@ -24,7 +24,7 @@
 - [x] 3.4 实现场地器械、伤病排除、过滤例外和连续日肌群恢复校验
 - [x] 3.5 添加覆盖边界、失败解释和 AI 候选不可绕过规则的 JVM 测试
 - [x] 3.6 运行 JVM 测试、`git diff --check` 和 GitNexus change detection
-- [ ] 3.7 推送分支并创建以 PR 2 分支为 base 的草稿 PR
+- [x] 3.7 推送分支并创建以 PR 2 分支为 base 的草稿 PR
 
 ## 4. PR 4 — 滚动计划仓储工作流
 
