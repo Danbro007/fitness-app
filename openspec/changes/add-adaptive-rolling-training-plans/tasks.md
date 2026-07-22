@@ -28,13 +28,13 @@
 
 ## 4. PR 4 — 滚动计划仓储工作流
 
-- [ ] 4.1 对计划生成、确认、状态聚合和 repository 符号执行 GitNexus upstream impact
-- [ ] 4.2 实现计划周期创建、下一周主动生成和输入快照 SHA-256
-- [ ] 4.3 将 AI 与本地候选统一接入本地约束校验和逐项解释
-- [ ] 4.4 实现草稿过期检查和整周原子确认
-- [ ] 4.5 实现周期结束、新周期预填和未完成周提前生成语义
-- [ ] 4.6 添加 repository 设备集成测试和规则边界测试
-- [ ] 4.7 运行聚焦测试、`git diff --check` 和 GitNexus change detection
+- [x] 4.1 对计划生成、确认、状态聚合和 repository 符号执行 GitNexus upstream impact
+- [x] 4.2 实现计划周期创建、下一周主动生成和输入快照 SHA-256
+- [x] 4.3 将 AI 与本地候选统一接入本地约束校验和逐项解释
+- [x] 4.4 实现草稿过期检查和整周原子确认
+- [x] 4.5 实现周期结束、新周期预填和未完成周提前生成语义
+- [x] 4.6 添加 repository 设备集成测试和规则边界测试
+- [x] 4.7 运行聚焦测试、`git diff --check` 和 GitNexus change detection
 - [ ] 4.8 推送分支并创建以 PR 3 分支为 base 的草稿 PR
 
 ## 5. PR 5 — 配置与可解释草稿 UI
