@@ -1383,7 +1383,7 @@ class FitnessRepository(
         val workoutSessions = store.workoutSessions()
         FitnessBackupCodec.encode(
             FitnessBackupPayload(
-                version = 4,
+                version = 5,
                 exportedAt = timeProvider.currentTimeMillis(),
                 userProfile = userProfile,
                 avatarBase64 = userProfile?.avatarPath?.takeIf(String::isNotBlank)
@@ -1405,6 +1405,12 @@ class FitnessRepository(
                 aiDrafts = store.aiDrafts(),
                 trainingAdjustments = store.trainingAdjustments(),
                 aiProviders = store.aiProviders(),
+                planCycles = store.planCycles(),
+                planScheduleDays = store.allPlanScheduleDays(),
+                weeklyPlanDrafts = store.weeklyPlanDrafts(),
+                venueEquipmentLoads = store.allVenueEquipmentLoads(),
+                actionPreferences = store.actionPreferences(),
+                injuryFilterOverrides = store.injuryFilterOverrides(),
             ),
         )
     }
@@ -1434,6 +1440,16 @@ class FitnessRepository(
                 payload.aiDrafts.forEach(store::upsertAiDraft)
                 payload.trainingAdjustments.forEach(store::upsertTrainingAdjustment)
                 payload.aiProviders.filter { AiProviderCatalog.entry(it.id) != null }.forEach(store::upsertAiProvider)
+                payload.planCycles.forEach(store::upsertPlanCycle)
+                payload.planScheduleDays.groupBy { it.cycleId }.forEach { (cycleId, days) ->
+                    store.replacePlanScheduleDays(cycleId, days)
+                }
+                payload.weeklyPlanDrafts.forEach(store::upsertWeeklyPlanDraft)
+                payload.venueEquipmentLoads
+                    .groupBy { it.venueId to it.equipmentId }
+                    .forEach { (key, loads) -> store.replaceVenueEquipmentLoads(key.first, key.second, loads) }
+                payload.actionPreferences.forEach(store::upsertActionPreference)
+                payload.injuryFilterOverrides.forEach(store::upsertInjuryFilterOverride)
                 seedDefaultAiProviders(timeProvider.currentTimeMillis())
             }
         } catch (error: Throwable) {
@@ -1484,7 +1500,7 @@ class FitnessRepository(
     }
 
     private fun validateBackupPayload(payload: FitnessBackupPayload) {
-        require(payload.version in 1..4) { "不支持的备份版本" }
+        require(payload.version in 1..5) { "不支持的备份版本" }
         requireUnique("场地 ID", payload.venues.map { it.id })
         requireUnique("器械 ID", payload.equipment.map { it.id })
         requireUnique("计划 ID", payload.plannedWorkouts.map { it.id })
@@ -1496,6 +1512,15 @@ class FitnessRepository(
         requireUnique("智能草稿 ID", payload.aiDrafts.map { it.id })
         requireUnique("训练调整 ID", payload.trainingAdjustments.map { it.id })
         requireUnique("智能服务 ID", payload.aiProviders.map { it.id })
+        requireUnique("计划周期 ID", payload.planCycles.map { it.id })
+        requireUnique("周计划草稿 ID", payload.weeklyPlanDrafts.map { it.id })
+        requireUnique("计划训练日", payload.planScheduleDays.map { it.cycleId to it.dayOfWeek })
+        requireUnique(
+            "场地器械重量档位",
+            payload.venueEquipmentLoads.map { Triple(it.venueId, it.equipmentId, it.weightKg) },
+        )
+        requireUnique("动作偏好", payload.actionPreferences.map { it.exerciseId })
+        requireUnique("伤病例外", payload.injuryFilterOverrides.map { it.exerciseId })
         requireUnique(
             "训练动作",
             payload.sessionExercises.map { it.sessionId to it.exerciseId },
@@ -1524,6 +1549,47 @@ class FitnessRepository(
                         "组记录与训练动作不匹配"
                     }
                 }
+            }
+        }
+        if (payload.version >= 5) {
+            val cycleById = payload.planCycles.associateBy { it.id }
+            val venueIds = payload.venues.mapTo(mutableSetOf()) { it.id }
+            val equipmentIds = payload.equipment.mapTo(mutableSetOf()) { it.id }
+            payload.planCycles.forEach { cycle ->
+                require(cycle.totalWeeks in 1..12) { "计划周期周数必须在 1 到 12 之间" }
+                require(cycle.currentWeek in 1..cycle.totalWeeks) { "计划周期当前周无效" }
+                require(cycle.preferredMinutes in 15..180) { "单次训练时长必须在 15 到 180 分钟之间" }
+                require(cycle.startDate.isNotBlank()) { "计划周期开始日期不能为空" }
+            }
+            payload.planScheduleDays.forEach { day ->
+                require(day.cycleId in cycleById) { "训练日缺少对应计划周期" }
+                require(day.venueId in venueIds) { "训练日缺少对应场地" }
+                require(day.dayOfWeek in 1..7) { "训练日星期无效" }
+                require(day.orderIndex >= 0) { "训练日排序不能为负数" }
+            }
+            payload.weeklyPlanDrafts.forEach { draft ->
+                val cycle = requireNotNull(cycleById[draft.cycleId]) { "周计划草稿缺少对应计划周期" }
+                require(draft.weekIndex in 1..cycle.totalWeeks) { "周计划草稿周序号无效" }
+                require(draft.inputHash.isNotBlank()) { "周计划草稿输入快照不能为空" }
+                require(draft.weekStartDate.isNotBlank()) { "周计划草稿开始日期不能为空" }
+            }
+            payload.venueEquipmentLoads.forEach { load ->
+                require(load.venueId in venueIds) { "重量档位缺少对应场地" }
+                require(load.equipmentId in equipmentIds) { "重量档位缺少对应器械" }
+                require(load.weightKg >= 0.0) { "重量档位不能为负数" }
+                require(load.orderIndex >= 0) { "重量档位排序不能为负数" }
+            }
+            payload.actionPreferences.forEach { preference ->
+                require(preference.exerciseId.isNotBlank()) { "动作偏好缺少动作" }
+                require(preference.preference in setOf("include", "exclude", "replace")) { "动作偏好类型无效" }
+                if (preference.preference == "replace") {
+                    require(preference.replacementExerciseId.isNotBlank()) { "替换偏好缺少目标动作" }
+                }
+            }
+            payload.injuryFilterOverrides.forEach { override ->
+                require(override.exerciseId.isNotBlank()) { "伤病例外缺少动作" }
+                require(override.injuriesHash.isNotBlank()) { "伤病例外缺少伤病快照" }
+                require(override.reason.isNotBlank()) { "伤病例外缺少确认原因" }
             }
         }
     }

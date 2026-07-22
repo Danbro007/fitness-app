@@ -7,13 +7,13 @@
 
 ## 2. PR 2 — 数据模型、迁移与备份
 
-- [ ] 2.1 对将修改的数据库、实体、Store 和备份符号执行 GitNexus upstream impact
-- [ ] 2.2 新增周期、日程、周草稿、场地重量档位、动作偏好和伤病例外实体
-- [ ] 2.3 将 SQLite 9 升级到 10，新增表、索引和 9→10 显式迁移
-- [ ] 2.4 为新实体实现 Store 的最小 CRUD 和事务支持
-- [ ] 2.5 将备份升级到版本 5并保持版本 4 可读
-- [ ] 2.6 添加数据库迁移、Store round-trip 和备份兼容设备测试
-- [ ] 2.7 运行聚焦设备测试、`git diff --check` 和 GitNexus change detection
+- [x] 2.1 对将修改的数据库、实体、Store 和备份符号执行 GitNexus upstream impact
+- [x] 2.2 新增周期、日程、周草稿、场地重量档位、动作偏好和伤病例外实体
+- [x] 2.3 将 SQLite 9 升级到 10，新增表、索引和 9→10 显式迁移
+- [x] 2.4 为新实体实现 Store 的最小 CRUD 和事务支持
+- [x] 2.5 将备份升级到版本 5并保持版本 4 可读
+- [x] 2.6 添加数据库迁移、Store round-trip 和备份兼容设备测试
+- [x] 2.7 运行聚焦设备测试、`git diff --check` 和 GitNexus change detection
 - [ ] 2.8 推送分支并创建以 PR 1 分支为 base 的草稿 PR
 
 ## 3. PR 3 — 纯规则引擎

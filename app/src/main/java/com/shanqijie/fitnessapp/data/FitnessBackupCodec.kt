@@ -23,6 +23,12 @@ data class FitnessBackupPayload(
     val aiDrafts: List<AiDraftEntity>,
     val trainingAdjustments: List<TrainingAdjustmentEntity> = emptyList(),
     val aiProviders: List<AiProviderEntity>,
+    val planCycles: List<PlanCycleEntity> = emptyList(),
+    val planScheduleDays: List<PlanScheduleDayEntity> = emptyList(),
+    val weeklyPlanDrafts: List<WeeklyPlanDraftEntity> = emptyList(),
+    val venueEquipmentLoads: List<VenueEquipmentLoadEntity> = emptyList(),
+    val actionPreferences: List<ActionPreferenceEntity> = emptyList(),
+    val injuryFilterOverrides: List<InjuryFilterOverrideEntity> = emptyList(),
 )
 
 object FitnessBackupCodec {

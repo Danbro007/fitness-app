@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import com.shanqijie.fitnessapp.data.AiProviderEntity
+import com.shanqijie.fitnessapp.data.ActionPreferenceEntity
 import com.shanqijie.fitnessapp.data.BodyMeasurement
 import com.shanqijie.fitnessapp.data.AiDraftEntity
 import com.shanqijie.fitnessapp.data.ExerciseMediaEntity
@@ -13,10 +14,15 @@ import com.shanqijie.fitnessapp.data.FitnessDatabase
 import com.shanqijie.fitnessapp.data.FitnessStore
 import com.shanqijie.fitnessapp.data.PlannedExerciseEntity
 import com.shanqijie.fitnessapp.data.PlannedWorkoutEntity
+import com.shanqijie.fitnessapp.data.PlanCycleEntity
+import com.shanqijie.fitnessapp.data.PlanScheduleDayEntity
+import com.shanqijie.fitnessapp.data.InjuryFilterOverrideEntity
 import com.shanqijie.fitnessapp.data.TrainingAdjustmentEntity
 import com.shanqijie.fitnessapp.data.TrainingVenueEntity
 import com.shanqijie.fitnessapp.data.UserProfileEntity
 import com.shanqijie.fitnessapp.data.VenueEquipmentEntity
+import com.shanqijie.fitnessapp.data.VenueEquipmentLoadEntity
+import com.shanqijie.fitnessapp.data.WeeklyPlanDraftEntity
 import com.shanqijie.fitnessapp.data.WorkoutSessionEntity
 import com.shanqijie.fitnessapp.data.WorkoutSetLogEntity
 import org.junit.After
@@ -75,7 +81,7 @@ class FitnessStoreInstrumentedTest {
         val upgraded = FitnessDatabase(context, legacyName)
         try {
             val database = upgraded.readableDatabase
-            assertEquals(9, database.version)
+            assertEquals(10, database.version)
             val tables = database.rawQuery(
                 "SELECT name FROM sqlite_master WHERE type = 'table'",
                 emptyArray(),
@@ -124,7 +130,59 @@ class FitnessStoreInstrumentedTest {
             assertEquals("旧档案", profile?.displayName)
             assertNull(profile?.bodyMeasurement?.bmi)
             assertEquals("", profile?.avatarPath)
-            assertEquals(9, upgraded.readableDatabase.version)
+            assertEquals(10, upgraded.readableDatabase.version)
+        } finally {
+            upgraded.close()
+            context.deleteDatabase(legacyName)
+        }
+    }
+
+    @Test
+    fun versionNineDatabaseAddsAdaptivePlanTablesWithoutLosingExistingPlans() {
+        val legacyName = "fitness-v9-${System.nanoTime()}.db"
+        context.deleteDatabase(legacyName)
+        context.openOrCreateDatabase(legacyName, Context.MODE_PRIVATE, null).use { raw ->
+            raw.execSQL(
+                """
+                CREATE TABLE planned_workout (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, scheduled_date TEXT NOT NULL,
+                    venue_id TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
+            raw.execSQL(
+                "INSERT INTO planned_workout VALUES('legacy-plan','旧计划','2026-07-22','venue-1','planned',1,1)",
+            )
+            raw.version = 9
+        }
+
+        val upgraded = FitnessDatabase(context, legacyName)
+        try {
+            val database = upgraded.readableDatabase
+            assertEquals(10, database.version)
+            val tables = database.rawQuery(
+                "SELECT name FROM sqlite_master WHERE type = 'table'",
+                emptyArray(),
+            ).use { cursor ->
+                buildSet {
+                    while (cursor.moveToNext()) add(cursor.getString(0))
+                }
+            }
+            assertTrue(
+                setOf(
+                    "plan_cycle",
+                    "plan_schedule_day",
+                    "weekly_plan_draft",
+                    "venue_equipment_load",
+                    "action_preference",
+                    "injury_filter_override",
+                ).all { it in tables },
+            )
+            database.rawQuery("SELECT name FROM planned_workout WHERE id = 'legacy-plan'", emptyArray()).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("旧计划", cursor.getString(0))
+            }
         } finally {
             upgraded.close()
             context.deleteDatabase(legacyName)
@@ -246,6 +304,70 @@ class FitnessStoreInstrumentedTest {
         assertEquals(listOf("史密斯机", "哑铃"), store.allEquipment().map { it.name })
         assertEquals(listOf("哑铃", "史密斯机"), store.equipmentNamesForVenue())
         assertEquals(listOf("胸部力量 A"), store.plannedWorkouts().map { it.name })
+    }
+
+    @Test
+    fun persistsAdaptivePlanConfigurationDraftsAndSafetyPreferences() {
+        val now = 1_000L
+        val cycle = PlanCycleEntity(
+            id = "cycle-1",
+            totalWeeks = 4,
+            currentWeek = 1,
+            startDate = "2026-07-27",
+            preferredMinutes = 60,
+            status = "active",
+            createdAt = now,
+            updatedAt = now,
+        )
+        val schedule = listOf(
+            PlanScheduleDayEntity("cycle-1", dayOfWeek = 1, venueId = "home", orderIndex = 0),
+            PlanScheduleDayEntity("cycle-1", dayOfWeek = 4, venueId = "gym", orderIndex = 1),
+        )
+        val draft = WeeklyPlanDraftEntity(
+            id = "draft-1",
+            cycleId = "cycle-1",
+            weekIndex = 1,
+            weekStartDate = "2026-07-27",
+            payloadJson = "{}",
+            inputHash = "input-v1",
+            status = "draft",
+            explanationsJson = "[]",
+            createdAt = now,
+            updatedAt = now,
+            confirmedAt = null,
+        )
+        val loads = listOf(
+            VenueEquipmentLoadEntity("gym", "barbell", 20.0, orderIndex = 0, updatedAt = now),
+            VenueEquipmentLoadEntity("gym", "barbell", 22.5, orderIndex = 1, updatedAt = now),
+        )
+        val preference = ActionPreferenceEntity("barbell-bench", "include", updatedAt = now)
+        val override = InjuryFilterOverrideEntity(
+            exerciseId = "barbell-bench",
+            injuriesHash = "injury-v1",
+            reason = "用户已了解风险并确认",
+            confirmedAt = now,
+            updatedAt = now,
+        )
+
+        store.upsertPlanCycle(cycle)
+        store.replacePlanScheduleDays(cycle.id, schedule)
+        store.upsertWeeklyPlanDraft(draft)
+        store.replaceVenueEquipmentLoads("gym", "barbell", loads)
+        store.upsertActionPreference(preference)
+        store.upsertInjuryFilterOverride(override)
+
+        assertEquals(cycle, store.planCycle(cycle.id))
+        assertEquals(schedule, store.planScheduleDays(cycle.id))
+        assertEquals(draft, store.weeklyPlanDraft(draft.id))
+        assertEquals(loads, store.venueEquipmentLoads("gym", "barbell"))
+        assertEquals(listOf(preference), store.actionPreferences())
+        assertEquals(listOf(override), store.injuryFilterOverrides())
+
+        store.replacePlanScheduleDays(cycle.id, schedule.take(1))
+        store.replaceVenueEquipmentLoads("gym", "barbell", loads.takeLast(1))
+
+        assertEquals(schedule.take(1), store.allPlanScheduleDays())
+        assertEquals(loads.takeLast(1), store.allVenueEquipmentLoads())
     }
 
     @Test
