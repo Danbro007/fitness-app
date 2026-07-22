@@ -14,7 +14,7 @@
 - [x] 2.5 将备份升级到版本 5并保持版本 4 可读
 - [x] 2.6 添加数据库迁移、Store round-trip 和备份兼容设备测试
 - [x] 2.7 运行聚焦设备测试、`git diff --check` 和 GitNexus change detection
-- [ ] 2.8 推送分支并创建以 PR 1 分支为 base 的草稿 PR
+- [x] 2.8 推送分支并创建以 PR 1 分支为 base 的草稿 PR
 
 ## 3. PR 3 — 纯规则引擎
 
