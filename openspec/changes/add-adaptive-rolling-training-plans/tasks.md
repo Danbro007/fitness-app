@@ -3,7 +3,7 @@
 - [x] 1.1 提交领域词汇表、自适应周计划设计和三份 ADR
 - [x] 1.2 提交 OpenSpec proposal、design、五项 capability spec 和分 PR 任务清单
 - [x] 1.3 运行 `openspec validate add-adaptive-rolling-training-plans --strict` 和文档差异检查
-- [ ] 1.4 推送分支并创建以 `main` 为 base 的草稿 PR
+- [x] 1.4 推送分支并创建以 `main` 为 base 的草稿 PR
 
 ## 2. PR 2 — 数据模型、迁移与备份
 
