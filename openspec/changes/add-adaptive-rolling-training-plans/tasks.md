@@ -46,7 +46,7 @@
 - [x] 5.5 实现一次性动作调整与持久动作偏好的选择
 - [x] 5.6 添加 Compose UI 测试并验证五主标签及 route/back 行为不变
 - [x] 5.7 运行聚焦 UI 测试、截图验证、`git diff --check` 和 GitNexus change detection
-- [ ] 5.8 推送分支并创建以 PR 4 分支为 base 的草稿 PR
+- [x] 5.8 推送分支并创建以 PR 4 分支为 base 的草稿 PR
 
 ## 6. PR 6 — 训练反馈闭环与整体验证
 
