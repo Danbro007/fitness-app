@@ -15,6 +15,7 @@ import kotlinx.serialization.json.Json
 import java.security.MessageDigest
 import java.time.LocalDate
 import java.util.UUID
+import kotlin.math.abs
 
 data class PlanCycleConfiguration(
     val id: String = UUID.randomUUID().toString(),
@@ -33,6 +34,26 @@ data class PreviousCycleDefaults(
 data class PlanDraftExplanation(
     val exerciseId: String,
     val message: String,
+)
+
+data class AdaptiveDraftExerciseView(
+    val exerciseId: String,
+    val name: String,
+    val targetSets: Int,
+    val targetRepsPerSet: Int,
+    val targetWeightKg: Double,
+)
+
+data class AdaptiveDraftDayView(
+    val dayOfWeek: Int,
+    val venueId: String,
+    val exercises: List<AdaptiveDraftExerciseView>,
+)
+
+data class AdaptiveDraftContent(
+    val source: String,
+    val days: List<AdaptiveDraftDayView>,
+    val explanations: List<PlanDraftExplanation>,
 )
 
 class PlanGenerationConflictException(val conflicts: List<PlanConflict>) :
@@ -81,6 +102,9 @@ class AdaptivePlanWorkflow(
     ): WeeklyPlanDraftEntity = withContext(Dispatchers.IO) {
         val cycle = requireNotNull(store.planCycle(cycleId)) { "计划周期不存在" }
         require(cycle.status == STATUS_ACTIVE) { "计划周期已结束，请开始新的计划周期" }
+        require(store.preferences()[FitnessRepository.INJURY_REVIEW_REQUIRED_KEY] != "true") {
+            "存在身体不适记录，请先完成伤病复核"
+        }
         val schedules = store.planScheduleDays(cycle.id)
         requireCandidateMatchesSchedule(candidate, schedules)
         val validation = validator.validate(constraintInput(candidate))
@@ -113,6 +137,43 @@ class AdaptivePlanWorkflow(
         if (draft.inputHash == currentInputHash(cycle)) return@withContext draft
         draft.copy(status = STATUS_STALE, updatedAt = timeProvider.currentTimeMillis())
             .also(store::upsertWeeklyPlanDraft)
+    }
+
+    suspend fun readDraftContent(draftId: String): AdaptiveDraftContent = withContext(Dispatchers.IO) {
+        val draft = requireNotNull(store.weeklyPlanDraft(draftId)) { "周计划草稿不存在" }
+        json.decodeFromString<WeeklyPlanDraftPayload>(draft.payloadJson).toView()
+    }
+
+    suspend fun adjustDraftWeight(
+        draftId: String,
+        exerciseId: String,
+        targetWeightKg: Double,
+    ): WeeklyPlanDraftEntity = withContext(Dispatchers.IO) {
+        require(targetWeightKg >= 0.0) { "重量不能为负数" }
+        val draft = requireNotNull(store.weeklyPlanDraft(draftId)) { "周计划草稿不存在" }
+        require(draft.status == STATUS_DRAFT) { "只有未确认草稿可以调整" }
+        val cycle = requireNotNull(store.planCycle(draft.cycleId)) { "计划周期不存在" }
+        require(draft.weekIndex == cycle.currentWeek && cycle.status == STATUS_ACTIVE) { "只能调整当前周草稿" }
+        val payload = json.decodeFromString<WeeklyPlanDraftPayload>(draft.payloadJson)
+        val matchingDay = payload.days.firstOrNull { day -> day.exercises.any { it.exerciseId == exerciseId } }
+            ?: error("草稿中不存在该动作")
+        val supportedLoads = store.venueEquipmentLoads(matchingDay.venueId, matchingDay.exercises.first { it.exerciseId == exerciseId }.equipmentId)
+            .map(VenueEquipmentLoadEntity::weightKg)
+        require(supportedLoads.any { abs(it - targetWeightKg) < 0.001 }) { "重量必须来自当前场地的可用档位" }
+        val updatedPayload = payload.copy(
+            days = payload.days.map { day ->
+                day.copy(
+                    exercises = day.exercises.map { exercise ->
+                        if (exercise.exerciseId == exerciseId) exercise.copy(targetWeightKg = targetWeightKg) else exercise
+                    },
+                )
+            },
+        )
+        draft.copy(
+            payloadJson = json.encodeToString(updatedPayload),
+            explanationsJson = json.encodeToString(updatedPayload.explanations),
+            updatedAt = timeProvider.currentTimeMillis(),
+        ).also(store::upsertWeeklyPlanDraft)
     }
 
     suspend fun confirmWeek(draftId: String): List<PlannedWorkoutEntity> = withContext(Dispatchers.IO) {
@@ -284,6 +345,20 @@ private fun WeeklyPlanDraftPayload.toCandidate() = WeeklyPlanCandidate(
     days = days.map { day ->
         CandidateTrainingDay(day.dayOfWeek, day.venueId, day.exercises.map(DraftExercise::toCandidate))
     },
+)
+
+private fun WeeklyPlanDraftPayload.toView() = AdaptiveDraftContent(
+    source = source,
+    days = days.map { day ->
+        AdaptiveDraftDayView(
+            dayOfWeek = day.dayOfWeek,
+            venueId = day.venueId,
+            exercises = day.exercises.map {
+                AdaptiveDraftExerciseView(it.exerciseId, it.name, it.targetSets, it.targetRepsPerSet, it.targetWeightKg)
+            },
+        )
+    },
+    explanations = explanations.map { PlanDraftExplanation(it.exerciseId, it.message) },
 )
 
 private fun DraftExercise.toCandidate() = CandidateExercise(

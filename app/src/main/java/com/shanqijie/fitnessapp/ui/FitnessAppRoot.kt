@@ -53,6 +53,7 @@ import com.shanqijie.fitnessapp.data.FitnessAppState
 import com.shanqijie.fitnessapp.data.FitnessDatabase
 import com.shanqijie.fitnessapp.data.FitnessRepository
 import com.shanqijie.fitnessapp.data.FitnessStore
+import com.shanqijie.fitnessapp.data.PlanDraftExplanation
 import com.shanqijie.fitnessapp.domain.ExerciseChineseNameTranslator
 import com.shanqijie.fitnessapp.domain.HomePrimaryAction
 import com.shanqijie.fitnessapp.domain.WorkoutSummary
@@ -77,6 +78,7 @@ import com.shanqijie.fitnessapp.ui.plan.PlanDetailScreen
 import com.shanqijie.fitnessapp.ui.plan.PlanEditScreen
 import com.shanqijie.fitnessapp.ui.plan.PlanDraftScreen
 import com.shanqijie.fitnessapp.ui.plan.PlanScreen
+import com.shanqijie.fitnessapp.ui.plan.suggestAdaptiveCandidate
 import com.shanqijie.fitnessapp.ui.plan.PlanTags
 import com.shanqijie.fitnessapp.ui.profile.ProfileEditScreen
 import com.shanqijie.fitnessapp.ui.profile.ProfileScreen
@@ -333,6 +335,43 @@ fun FitnessAppRootContent(
                                     navigate(AppRoute.TrainingActive(session.id))
                                 }
                             },
+                            adaptiveState = currentState,
+                            adaptiveCycle = currentState.planCycles.firstOrNull { it.status == "active" },
+                            adaptiveDraft = currentState.planCycles.firstOrNull { it.status == "active" }?.let { cycle ->
+                                currentState.weeklyPlanDrafts.firstOrNull { it.cycleId == cycle.id && it.weekIndex == cycle.currentWeek }
+                            },
+                            onCreateAdaptiveCycle = fitnessRepository::createAdaptiveCycle,
+                            onSuggestedAdaptiveCandidate = {
+                                currentState.planCycles.firstOrNull { it.status == "active" }?.let(currentState::suggestAdaptiveCandidate)
+                            },
+                            onGenerateAdaptiveWeek = {
+                                val cycle = currentState.planCycles.firstOrNull { it.status == "active" }
+                                    ?: error("请先创建训练周期")
+                                val candidate = currentState.suggestAdaptiveCandidate(cycle)
+                                    ?: error("当前场地没有足够器械或重量档位")
+                                fitnessRepository.generateAdaptiveWeekDraft(
+                                    cycle.id,
+                                    candidate,
+                                    candidate.days.flatMap { day -> day.exercises.map { exercise -> PlanDraftExplanation(exercise.exerciseId, "根据可用器械与首次试练规则生成") } },
+                                )
+                            },
+                            onConfirmAdaptiveWeek = {
+                                val cycle = currentState.planCycles.firstOrNull { it.status == "active" }
+                                    ?: error("请先创建训练周期")
+                                val draft = currentState.weeklyPlanDrafts.firstOrNull { it.cycleId == cycle.id && it.weekIndex == cycle.currentWeek }
+                                    ?: error("请先生成本周草稿")
+                                fitnessRepository.confirmAdaptiveWeek(draft.id)
+                            },
+                            onRefreshAdaptiveDraft = {
+                                val cycle = currentState.planCycles.firstOrNull { it.status == "active" }
+                                    ?: error("请先创建训练周期")
+                                currentState.weeklyPlanDrafts.firstOrNull { it.cycleId == cycle.id && it.weekIndex == cycle.currentWeek }
+                                    ?.let { fitnessRepository.refreshAdaptiveDraft(it.id) }
+                            },
+                            onAdaptiveDraftContent = fitnessRepository::readAdaptiveDraftContent,
+                            onAdjustAdaptiveDraftWeight = fitnessRepository::adjustAdaptiveDraftWeight,
+                            onSaveAdaptiveActionPreference = fitnessRepository::saveAdaptiveActionPreference,
+                            onSaveAdaptiveVenueLoads = fitnessRepository::saveAdaptiveVenueLoads,
                             modifier = Modifier.padding(contentPadding),
                         )
                     }
@@ -650,6 +689,16 @@ fun FitnessAppRootContent(
                                 navigate(AppRoute.WorkoutSummary(activeState.sessionId))
                             }
                         },
+                        onFinishWorkoutWithFeedback = { reason, note, equipmentScope ->
+                            repository.saveWorkoutFeedback(
+                                sessionId = activeState.sessionId,
+                                reason = reason,
+                                note = note,
+                                equipmentScope = equipmentScope,
+                            )
+                            completedSummary = repository.finishWorkout(activeState.sessionId)
+                            navigate(AppRoute.WorkoutSummary(activeState.sessionId))
+                        },
                         modifier = Modifier,
                     )
                 }
@@ -681,6 +730,10 @@ fun FitnessAppRootContent(
                         },
                         onResolveReview = { draftId, applyAdjustment ->
                             repository?.resolveWorkoutReviewDraft(draftId, applyAdjustment)
+                        },
+                        injuryReviewRequired = appState?.preferences[FitnessRepository.INJURY_REVIEW_REQUIRED_KEY] == "true",
+                        onResolveInjuryReview = { confirmedSafe ->
+                            repository?.resolveInjuryReview(confirmedSafe)
                         },
                         onDone = {
                             completedSummary = null
