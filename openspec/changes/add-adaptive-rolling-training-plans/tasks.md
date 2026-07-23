@@ -58,4 +58,4 @@
 - [x] 6.6 添加训练流程、伤病复核和器械更新的设备/Compose 测试
 - [x] 6.7 运行完整 Gradle gate、Pixel 8 Pro 真实流程、日志、SQLite 和截图验证
 - [x] 6.8 运行 `git diff --check`、OpenSpec strict validation 和 GitNexus change detection
-- [ ] 6.9 推送分支并创建以 PR 5 分支为 base 的草稿 PR
+- [x] 6.9 推送分支并创建以 PR 5 分支为 base 的草稿 PR
