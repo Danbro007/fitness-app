@@ -689,6 +689,16 @@ fun FitnessAppRootContent(
                                 navigate(AppRoute.WorkoutSummary(activeState.sessionId))
                             }
                         },
+                        onFinishWorkoutWithFeedback = { reason, note, equipmentScope ->
+                            repository.saveWorkoutFeedback(
+                                sessionId = activeState.sessionId,
+                                reason = reason,
+                                note = note,
+                                equipmentScope = equipmentScope,
+                            )
+                            completedSummary = repository.finishWorkout(activeState.sessionId)
+                            navigate(AppRoute.WorkoutSummary(activeState.sessionId))
+                        },
                         modifier = Modifier,
                     )
                 }
@@ -720,6 +730,10 @@ fun FitnessAppRootContent(
                         },
                         onResolveReview = { draftId, applyAdjustment ->
                             repository?.resolveWorkoutReviewDraft(draftId, applyAdjustment)
+                        },
+                        injuryReviewRequired = appState?.preferences[FitnessRepository.INJURY_REVIEW_REQUIRED_KEY] == "true",
+                        onResolveInjuryReview = { confirmedSafe ->
+                            repository?.resolveInjuryReview(confirmedSafe)
                         },
                         onDone = {
                             completedSummary = null

@@ -82,6 +82,8 @@ import com.shanqijie.fitnessapp.data.AiDraftEntity
 import com.shanqijie.fitnessapp.domain.toReadableAiText
 import com.shanqijie.fitnessapp.domain.WorkoutSummary
 import com.shanqijie.fitnessapp.domain.WorkoutAdjustmentDirection
+import com.shanqijie.fitnessapp.domain.EquipmentAvailabilityScope
+import com.shanqijie.fitnessapp.domain.WorkoutEarlyFinishReason
 import com.shanqijie.fitnessapp.domain.workoutReviewMetadata
 import com.shanqijie.fitnessapp.ui.components.FitnessGifImage
 import com.shanqijie.fitnessapp.ui.components.FitnessFloatingBottomDialog
@@ -307,6 +309,7 @@ fun TrainingActiveScreen(
     onExtendRest: () -> Unit,
     onTogglePause: () -> Unit,
     onFinishWorkout: () -> Unit,
+    onFinishWorkoutWithFeedback: suspend (WorkoutEarlyFinishReason?, String, EquipmentAvailabilityScope?) -> Unit = { _, _, _ -> onFinishWorkout() },
     modifier: Modifier,
 ) {
     val view = LocalView.current
@@ -343,6 +346,10 @@ fun TrainingActiveScreen(
     val numericInputsValid = parsedInputs.valid
     var feeling by rememberSaveable(current.exerciseId) { mutableStateOf(WorkoutFeelings[1]) }
     var showFinishDialog by rememberSaveable { mutableStateOf(false) }
+    var earlyFinishReason by rememberSaveable { mutableStateOf(WorkoutEarlyFinishReason.TIME_LIMIT.name) }
+    var equipmentScope by rememberSaveable { mutableStateOf(EquipmentAvailabilityScope.TEMPORARY.name) }
+    var finishNote by rememberSaveable { mutableStateOf("") }
+    var finishError by rememberSaveable { mutableStateOf<String?>(null) }
     var isRecording by remember { mutableStateOf(false) }
     var isFinishing by remember { mutableStateOf(false) }
     var submittedCompletedSets by remember { mutableStateOf<Int?>(null) }
@@ -354,6 +361,24 @@ fun TrainingActiveScreen(
     val totalTargetSets = state.exercises.sumOf { it.targetSets }.coerceAtLeast(1)
     val totalCompletedSets = state.exercises.sumOf { it.completedSets }
     val allSetsCompleted = totalCompletedSets >= totalTargetSets
+
+    fun finishWithFeedback() {
+        if (isFinishing) return
+        isFinishing = true
+        finishError = null
+        val reason = if (allSetsCompleted) null else runCatching { WorkoutEarlyFinishReason.valueOf(earlyFinishReason) }.getOrDefault(WorkoutEarlyFinishReason.TIME_LIMIT)
+        val scope = if (reason == WorkoutEarlyFinishReason.EQUIPMENT_UNAVAILABLE) {
+            runCatching { EquipmentAvailabilityScope.valueOf(equipmentScope) }.getOrDefault(EquipmentAvailabilityScope.TEMPORARY)
+        } else null
+        coroutineScope.launch {
+            runCatching { onFinishWorkoutWithFeedback(reason, finishNote, scope) }
+                .onFailure { error ->
+                    finishError = error.message ?: "保存训练反馈失败"
+                    isFinishing = false
+                    if (!allSetsCompleted) showFinishDialog = true
+                }
+        }
+    }
 
     LaunchedEffect(current.exerciseId, current.completedSets, state.restEndsAt) {
         val submittedSets = submittedCompletedSets
@@ -458,8 +483,7 @@ fun TrainingActiveScreen(
                     onClick = {
                         if (allSetsCompleted) {
                             if (!isFinishing) {
-                                isFinishing = true
-                                onFinishWorkout()
+                                finishWithFeedback()
                             }
                         } else if (!isRecording) {
                             isRecording = true
@@ -658,6 +682,61 @@ fun TrainingActiveScreen(
                     color = Color(0xFF9B9E95),
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                if (!allSetsCompleted) {
+                    Text("提前结束原因", color = Color.White, fontWeight = FontWeight.Bold)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        WorkoutEarlyFinishReason.entries.take(2).forEach { reason ->
+                            Surface(
+                                onClick = { earlyFinishReason = reason.name },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (earlyFinishReason == reason.name) FitnessColors.Orange else Color(0xFF2A2C28),
+                                contentColor = if (earlyFinishReason == reason.name) FitnessColors.Ink else Color.White,
+                            ) { Box(contentAlignment = Alignment.Center) { Text(reason.label, fontSize = 12.sp, fontWeight = FontWeight.Bold) } }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        WorkoutEarlyFinishReason.entries.drop(2).forEach { reason ->
+                            Surface(
+                                onClick = { earlyFinishReason = reason.name },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                color = if (earlyFinishReason == reason.name) FitnessColors.Orange else Color(0xFF2A2C28),
+                                contentColor = if (earlyFinishReason == reason.name) FitnessColors.Ink else Color.White,
+                            ) { Box(contentAlignment = Alignment.Center) { Text(reason.label, fontSize = 12.sp, fontWeight = FontWeight.Bold) } }
+                        }
+                    }
+                    if (earlyFinishReason == WorkoutEarlyFinishReason.EQUIPMENT_UNAVAILABLE.name) {
+                        Text("器械范围", color = Color(0xFF9B9E95), fontSize = 12.sp)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            EquipmentAvailabilityScope.entries.forEach { option ->
+                                Surface(
+                                    onClick = { equipmentScope = option.name },
+                                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (equipmentScope == option.name) FitnessColors.Orange else Color(0xFF2A2C28),
+                                    contentColor = if (equipmentScope == option.name) FitnessColors.Ink else Color.White,
+                                ) { Box(contentAlignment = Alignment.Center) { Text(option.label, fontSize = 11.sp) } }
+                            }
+                        }
+                    }
+                    Text("补充说明（可选）", color = Color(0xFF9B9E95), fontSize = 12.sp)
+                    Surface(color = Color(0xFF2A2C28), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp)) {
+                        BasicTextField(
+                            value = finishNote,
+                            onValueChange = { if (it.length <= 300) finishNote = it },
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            decorationBox = { inner ->
+                                Box {
+                                    if (finishNote.isBlank()) Text("例如：最后两组时间不够，或右肩出现不适", color = Color(0xFF9B9E95))
+                                    inner()
+                                }
+                            },
+                        )
+                    }
+                }
+                finishError?.let { Text(it, color = Color(0xFFFFB4AB), style = MaterialTheme.typography.bodySmall) }
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     TextButton(
                         onClick = { showFinishDialog = false },
@@ -670,7 +749,7 @@ fun TrainingActiveScreen(
                 Button(
                     onClick = {
                         showFinishDialog = false
-                        onFinishWorkout()
+                        finishWithFeedback()
                     },
                     modifier = Modifier
                         .weight(1.5f)
@@ -915,12 +994,15 @@ fun WorkoutSummaryScreen(
     reviewDraft: AiDraftEntity?,
     onGenerateReview: suspend (postWorkoutFeeling: String, note: String) -> Unit,
     onResolveReview: suspend (draftId: String, applyAdjustment: Boolean) -> Unit,
+    injuryReviewRequired: Boolean = false,
+    onResolveInjuryReview: suspend (confirmedSafe: Boolean) -> Unit = {},
     modifier: Modifier,
 ) {
     var postWorkoutFeeling by rememberSaveable(summary.sessionId) { mutableStateOf("正常疲劳") }
     var postWorkoutNote by rememberSaveable(summary.sessionId) { mutableStateOf("") }
     var reviewBusy by rememberSaveable(summary.sessionId) { mutableStateOf(false) }
     var reviewError by rememberSaveable(summary.sessionId) { mutableStateOf<String?>(null) }
+    var injuryReviewBusy by rememberSaveable(summary.sessionId) { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val reviewMetadata = reviewDraft?.workoutReviewMetadata()
     val reviewDirection = reviewMetadata?.direction
@@ -968,6 +1050,24 @@ fun WorkoutSummaryScreen(
             FitnessMetricCard("${summary.durationSeconds / 60} 分钟", "训练时长", Modifier.weight(1f))
             FitnessMetricCard("${summary.totalVolumeKg.asWeight()} kg", "训练容量", Modifier.weight(1f))
             FitnessMetricCard(dominantFeeling(summary.feelingCounts), "主观体感", Modifier.weight(1f))
+        }
+        if (injuryReviewRequired) {
+            FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
+                Text("需要先完成伤病复核", style = MaterialTheme.typography.headlineSmall)
+                Text("本次记录了身体不适。系统会采取保守策略，在复核完成前不生成下一周加量计划。", style = MaterialTheme.typography.bodyMedium)
+                FitnessPrimaryButton(
+                    text = if (injuryReviewBusy) "处理中…" else "我已完成复核，解除门禁",
+                    enabled = !injuryReviewBusy,
+                    onClick = {
+                        injuryReviewBusy = true
+                        coroutineScope.launch {
+                            runCatching { onResolveInjuryReview(true) }
+                                .onFailure { reviewError = it.message ?: "解除伤病复核门禁失败" }
+                            injuryReviewBusy = false
+                        }
+                    },
+                )
+            }
         }
         FitnessSurfaceCard(modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Rounded.NorthEast, contentDescription = null)

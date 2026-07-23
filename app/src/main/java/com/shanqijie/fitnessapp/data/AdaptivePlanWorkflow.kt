@@ -102,6 +102,9 @@ class AdaptivePlanWorkflow(
     ): WeeklyPlanDraftEntity = withContext(Dispatchers.IO) {
         val cycle = requireNotNull(store.planCycle(cycleId)) { "计划周期不存在" }
         require(cycle.status == STATUS_ACTIVE) { "计划周期已结束，请开始新的计划周期" }
+        require(store.preferences()[FitnessRepository.INJURY_REVIEW_REQUIRED_KEY] != "true") {
+            "存在身体不适记录，请先完成伤病复核"
+        }
         val schedules = store.planScheduleDays(cycle.id)
         requireCandidateMatchesSchedule(candidate, schedules)
         val validation = validator.validate(constraintInput(candidate))
