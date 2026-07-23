@@ -50,12 +50,12 @@
 
 ## 6. PR 6 — 训练反馈闭环与整体验证
 
-- [ ] 6.1 对训练开始、记录组、结束训练和训练总结符号执行 GitNexus upstream impact
-- [ ] 6.2 实现计划目标快照锁定和实际训练数据分离
-- [ ] 6.3 实现四类提前结束原因和自由文本
-- [ ] 6.4 实现身体不适后的伤病复核门禁
-- [ ] 6.5 实现器械临时/长期不可用分流及场地状态更新
-- [ ] 6.6 添加训练流程、伤病复核和器械更新的设备/Compose 测试
-- [ ] 6.7 运行完整 Gradle gate、Pixel 8 Pro 真实流程、日志、SQLite 和截图验证
-- [ ] 6.8 运行 `git diff --check`、OpenSpec strict validation 和 GitNexus change detection
+- [x] 6.1 对训练开始、记录组、结束训练和训练总结符号执行 GitNexus upstream impact
+- [x] 6.2 实现计划目标快照锁定和实际训练数据分离
+- [x] 6.3 实现四类提前结束原因和自由文本
+- [x] 6.4 实现身体不适后的伤病复核门禁
+- [x] 6.5 实现器械临时/长期不可用分流及场地状态更新
+- [x] 6.6 添加训练流程、伤病复核和器械更新的设备/Compose 测试
+- [x] 6.7 运行完整 Gradle gate、Pixel 8 Pro 真实流程、日志、SQLite 和截图验证
+- [x] 6.8 运行 `git diff --check`、OpenSpec strict validation 和 GitNexus change detection
 - [ ] 6.9 推送分支并创建以 PR 5 分支为 base 的草稿 PR

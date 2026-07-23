@@ -24,6 +24,11 @@ import com.shanqijie.fitnessapp.domain.WorkoutSummary
 import com.shanqijie.fitnessapp.domain.WorkoutAdjustmentDirection
 import com.shanqijie.fitnessapp.domain.WorkoutReviewMetadata
 import com.shanqijie.fitnessapp.domain.WorkoutReviewSignals
+import com.shanqijie.fitnessapp.domain.EquipmentAvailabilityScope
+import com.shanqijie.fitnessapp.domain.WorkoutEarlyFinishReason
+import com.shanqijie.fitnessapp.domain.WorkoutFeedback
+import com.shanqijie.fitnessapp.domain.decideWorkoutFeedback
+import com.shanqijie.fitnessapp.domain.validateWorkoutFeedback
 import com.shanqijie.fitnessapp.domain.WeeklyPlanCandidate
 import com.shanqijie.fitnessapp.domain.decideWorkoutAdjustment
 import com.shanqijie.fitnessapp.domain.toJson
@@ -35,6 +40,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -751,6 +758,59 @@ class FitnessRepository(
         val summary = store.transaction { finishWorkoutInTransaction(sessionId) }
         refreshSignal.update { it + 1 }
         summary
+    }
+
+    suspend fun saveWorkoutFeedback(
+        sessionId: String,
+        reason: WorkoutEarlyFinishReason?,
+        note: String,
+        equipmentScope: EquipmentAvailabilityScope? = null,
+    ): WorkoutFeedback = withContext(Dispatchers.IO) {
+        val session = requireNotNull(store.workoutSession(sessionId)) { "训练记录不存在" }
+        require(session.status == "in_progress") { "只能为进行中的训练记录反馈" }
+        val feedback = WorkoutFeedback(
+            sessionId = sessionId,
+            reason = reason,
+            note = note.trim(),
+            equipmentScope = equipmentScope,
+            createdAt = timeProvider.currentTimeMillis(),
+        )
+        validateWorkoutFeedback(feedback)
+        val decision = decideWorkoutFeedback(feedback)
+        store.putPreference(
+            key = workoutFeedbackKey(sessionId),
+            value = repositoryJson.encodeToString(feedback),
+            updatedAt = feedback.createdAt,
+        )
+        if (decision.requiresInjuryReview) {
+            store.putPreference(INJURY_REVIEW_REQUIRED_KEY, "true", feedback.createdAt)
+        }
+        if (decision.disableEquipmentForVenue) {
+            resolveEquipmentForExercise(session.venueId, session.currentExerciseId ?: session.exerciseId)?.let { equipmentId ->
+                store.upsertVenueEquipment(
+                    VenueEquipmentEntity(
+                        venueId = session.venueId,
+                        equipmentId = equipmentId,
+                        available = false,
+                        updatedAt = feedback.createdAt,
+                    ),
+                )
+            }
+        }
+        refreshSignal.update { it + 1 }
+        feedback
+    }
+
+    suspend fun workoutFeedback(sessionId: String): WorkoutFeedback? = withContext(Dispatchers.IO) {
+        store.preferences()[workoutFeedbackKey(sessionId)]?.let { raw ->
+            runCatching { repositoryJson.decodeFromString<WorkoutFeedback>(raw) }.getOrNull()
+        }
+    }
+
+    suspend fun resolveInjuryReview(confirmedSafe: Boolean): Boolean = withContext(Dispatchers.IO) {
+        store.putPreference(INJURY_REVIEW_REQUIRED_KEY, confirmedSafe.not().toString(), timeProvider.currentTimeMillis())
+        refreshSignal.update { it + 1 }
+        !confirmedSafe
     }
 
     suspend fun workoutSummary(sessionId: String): WorkoutSummary = withContext(Dispatchers.IO) {
@@ -1898,6 +1958,21 @@ class FitnessRepository(
         }
     }
 
+    private fun resolveEquipmentForExercise(venueId: String, exerciseId: String): String? {
+        val media = store.exerciseById(exerciseId) ?: return null
+        val source = media.equipment.lowercase()
+        val mappings = store.venueEquipment().filter { it.venueId == venueId && it.available }
+        return mappings.firstOrNull { mapping ->
+            val equipment = store.allEquipment().firstOrNull { it.id == mapping.equipmentId } ?: return@firstOrNull false
+            val tokens = "${equipment.id} ${equipment.name} ${equipment.category}".lowercase()
+            (source.contains("barbell") && (tokens.contains("barbell") || tokens.contains("杠铃"))) ||
+                (source.contains("dumbbell") && (tokens.contains("dumbbell") || tokens.contains("哑铃"))) ||
+                (source.contains("smith") && (tokens.contains("smith") || tokens.contains("史密斯"))) ||
+                (source.contains("cable") && (tokens.contains("cable") || tokens.contains("拉力"))) ||
+                (source.contains("machine") && equipment.category.contains("machine"))
+        }?.equipmentId
+    }
+
     private fun applyWorkoutAdjustmentInTransaction(
         metadata: WorkoutReviewMetadata,
         direction: WorkoutAdjustmentDirection,
@@ -2251,12 +2326,16 @@ class FitnessRepository(
         const val LOCAL_PROFILE_ID = "profile-local"
         const val ONBOARDING_COMPLETED_KEY = "onboarding_completed"
         const val CALENDAR_MODE_KEY = "calendar_mode"
+        const val INJURY_REVIEW_REQUIRED_KEY = "adaptive.injury_review_required"
         const val DEFAULT_REST_SECONDS = 90
         const val DEFAULT_TARGET_SETS = 3
         const val DEFAULT_TARGET_REPS = "8-12"
         private const val LEGACY_SESSION_PREFIX = "session-"
+        private const val WORKOUT_FEEDBACK_PREFIX = "workout_feedback:"
         private val STARTABLE_WORKOUT_STATUSES = setOf("planned", "in_progress")
         private val POST_WORKOUT_FEELINGS = setOf("状态很好", "正常疲劳", "非常疲劳", "疼痛不适")
+
+        private fun workoutFeedbackKey(sessionId: String): String = "$WORKOUT_FEEDBACK_PREFIX$sessionId"
     }
 }
 
