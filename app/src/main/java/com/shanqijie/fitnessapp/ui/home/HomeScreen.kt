@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.FitnessCenter
 import androidx.compose.material.icons.rounded.Restaurant
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.NorthEast
@@ -37,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -45,7 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.shanqijie.fitnessapp.ui.components.FitnessGifImage
 import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
 import com.shanqijie.fitnessapp.ui.model.HomeUiState
 import com.shanqijie.fitnessapp.ui.navigation.AppRoute
@@ -92,7 +89,6 @@ fun HomeScreen(
         item {
             HomeWorkoutHero(
                 state = state,
-                heroAssetPath = heroAssetPath,
                 heroTitle = heroTitle,
                 onNavigate = onNavigate,
             )
@@ -155,12 +151,11 @@ private fun HomeGreeting(
 @Composable
 private fun HomeWorkoutHero(
     state: HomeUiState,
-    heroAssetPath: String?,
     heroTitle: String,
     onNavigate: (AppRoute) -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().height(312.dp),
+        modifier = Modifier.fillMaxWidth().height(276.dp),
         shape = RoundedCornerShape(FitnessDimensions.LargeRadius),
         colors = CardDefaults.cardColors(containerColor = FitnessColors.Hero),
         elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
@@ -200,32 +195,6 @@ private fun HomeWorkoutHero(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text("2 个动作 · 7 组 · 约 21 分钟", color = Color(0xFFA4A69F), fontSize = 14.sp)
-            }
-            Box(
-                modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 60.dp, end = 2.dp)
-                    .size(width = 120.dp, height = 98.dp).clip(RoundedCornerShape(26.dp)).background(FitnessColors.Surface),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (!heroAssetPath.isNullOrBlank()) {
-                        FitnessGifImage(
-                            assetPath = heroAssetPath,
-                            contentDescription = "${heroTitle}动作示范",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit,
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Rounded.FitnessCenter,
-                            contentDescription = null,
-                            tint = FitnessColors.Ink,
-                            modifier = Modifier.size(44.dp),
-                        )
-                    }
-                }
             }
             Surface(
                 onClick = { onNavigate(state.primaryAction.route) },

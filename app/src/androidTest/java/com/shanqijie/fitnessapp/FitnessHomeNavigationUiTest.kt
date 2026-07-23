@@ -14,6 +14,7 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -321,6 +322,26 @@ class FitnessHomeNavigationUiTest {
         composeRule.onNodeWithText("今日已完成").assertIsDisplayed()
         composeRule.onNodeWithTag(FitnessTestTags.HomePrimaryAction).assertTextEquals("查看训练总结")
         composeRule.onAllNodesWithText("TODAY WORKOUT", substring = false).assertCountEquals(0)
+    }
+
+    @Test
+    fun homeHeroDoesNotRenderExerciseMediaEvenWhenAnAssetPathIsProvided() {
+        composeRule.setContent {
+            FitnessTheme {
+                HomeScreen(
+                    state = startHome(),
+                    weekDays = sampleDays(),
+                    venueName = "本地训练",
+                    modifier = androidx.compose.ui.Modifier,
+                    heroAssetPath = "exercise-media/gifs/0748-trqKQv2.gif",
+                    heroTitle = "胸部力量 A",
+                    onNavigate = {},
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithContentDescription("胸部力量 A动作示范").assertCountEquals(0)
+        composeRule.onNodeWithTag(FitnessTestTags.HomePrimaryAction).assertIsDisplayed()
     }
 
     @Test

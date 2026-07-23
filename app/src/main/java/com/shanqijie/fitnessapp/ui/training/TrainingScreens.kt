@@ -1116,6 +1116,7 @@ fun WorkoutSummaryScreen(
             FitnessPrimaryButton(
                 text = if (reviewBusy) "正在分析…" else "生成 AI 训练总结",
                 enabled = !reviewBusy,
+                loading = reviewBusy,
                 onClick = {
                     reviewBusy = true
                     reviewError = null
@@ -1158,6 +1159,7 @@ fun WorkoutSummaryScreen(
                         else -> "确认保持当前计划"
                     },
                     enabled = !reviewBusy,
+                    loading = reviewBusy,
                     onClick = {
                         reviewBusy = true
                         reviewError = null

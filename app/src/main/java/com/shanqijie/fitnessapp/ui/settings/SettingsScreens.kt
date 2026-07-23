@@ -488,6 +488,7 @@ fun SmartSettingsScreen(
         FitnessPrimaryButton(
             text = if (provider?.apiKeyStored == true) "重新测试连接" else "保存并测试连接",
             enabled = !busy && (apiKey.isNotBlank() || provider?.apiKeyStored == true),
+            loading = busy,
             testTag = SettingsTags.SaveSmartKey,
             onClick = {
                 if (!busy) {

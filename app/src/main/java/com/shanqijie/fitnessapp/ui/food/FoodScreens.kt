@@ -415,6 +415,7 @@ fun FoodPhotoScreen(
         FitnessPrimaryButton(
             text = if (generating) "生成中…" else "生成估算草稿",
             enabled = !generating,
+            loading = generating,
             testTag = FoodTags.GeneratePhotoDraft,
             onClick = {
                 if (description.isBlank() && selectedUri == null) {

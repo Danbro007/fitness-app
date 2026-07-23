@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
@@ -31,6 +32,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -154,12 +156,27 @@ private fun fitnessStaticImageLoader(context: Context): ImageLoader =
     }
 
 @Composable
+fun FitnessLoadingIndicator(
+    modifier: Modifier = Modifier,
+    color: Color = FitnessColors.Ink,
+) {
+    CircularProgressIndicator(
+        modifier = modifier
+            .size(18.dp)
+            .testTag("fitness-loading-indicator"),
+        color = color,
+        strokeWidth = 2.dp,
+    )
+}
+
+@Composable
 fun FitnessPrimaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     testTag: String? = null,
+    loading: Boolean = false,
 ) {
     Button(
         onClick = onClick,
@@ -174,7 +191,16 @@ fun FitnessPrimaryButton(
             contentColor = FitnessColors.OnOrange,
         ),
     ) {
-        Text(text = text, style = MaterialTheme.typography.labelLarge)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            if (loading) {
+                FitnessLoadingIndicator(color = FitnessColors.OnOrange)
+                Spacer(modifier = Modifier.size(8.dp))
+            }
+            Text(text = text, style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 

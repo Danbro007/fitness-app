@@ -12,6 +12,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
@@ -102,6 +103,23 @@ class FitnessComponentsInstrumentedTest {
 
         listOf("无副标题", "完整标题", "副标题", "操作", "不可用按钮", "未选择", "已选择", "12", "组数", "卡片内容")
             .forEach { composeRule.onNodeWithText(it).assertExists() }
+    }
+
+    @Test
+    fun primaryButtonShowsLocalSpinnerWhileLoading() {
+        composeRule.setContent {
+            FitnessTheme {
+                FitnessPrimaryButton(
+                    text = "生成中…",
+                    enabled = false,
+                    loading = true,
+                    onClick = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("生成中…").assertIsDisplayed()
+        composeRule.onNodeWithTag("fitness-loading-indicator").assertIsDisplayed()
     }
 
     @Test

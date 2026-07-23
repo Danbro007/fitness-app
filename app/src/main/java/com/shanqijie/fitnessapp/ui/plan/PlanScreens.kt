@@ -82,6 +82,7 @@ import com.shanqijie.fitnessapp.domain.ExerciseChineseNameTranslator
 import com.shanqijie.fitnessapp.domain.toReadableAiText
 import com.shanqijie.fitnessapp.ui.components.FitnessGifImage
 import com.shanqijie.fitnessapp.ui.components.FitnessFloatingBottomDialog
+import com.shanqijie.fitnessapp.ui.components.FitnessLoadingIndicator
 import com.shanqijie.fitnessapp.ui.components.FitnessPageHeader
 import com.shanqijie.fitnessapp.ui.components.FitnessPrimaryButton
 import com.shanqijie.fitnessapp.ui.components.FitnessSurfaceCard
@@ -695,7 +696,14 @@ private fun MonthlyDraftSection(
                     Surface(shape = RoundedCornerShape(18.dp), color = FitnessColors.Phone, modifier = Modifier.size(48.dp)) {
                         Box(contentAlignment = Alignment.Center) { Text("✦", color = FitnessColors.Ink, fontSize = 22.sp) }
                     }
-                    Text(if (operationInProgress) "正在生成四周草稿…" else "生成四周训练草稿", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                    if (operationInProgress) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FitnessLoadingIndicator()
+                            Text("正在生成四周草稿…", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Text("生成四周训练草稿", color = FitnessColors.Ink, fontWeight = FontWeight.Bold)
+                    }
                     Text("AI 只生成建议，不会直接改动本地计划", style = MaterialTheme.typography.bodyMedium)
                 }
             }
@@ -725,7 +733,8 @@ fun PlanDraftScreen(
     onRegenerate: suspend () -> Unit,
     modifier: Modifier,
 ) {
-    var busy by rememberSaveable(draft.id) { mutableStateOf(false) }
+    var busyAction by rememberSaveable(draft.id) { mutableStateOf<String?>(null) }
+    val busy = busyAction != null
     var errorMessage by rememberSaveable(draft.id) { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val days = userProfile?.weeklyTrainingDays ?: 3
@@ -793,26 +802,35 @@ fun PlanDraftScreen(
             enabled = !busy,
             testTag = PlanTags.ConfirmMonthlyDraft,
             onClick = {
-                busy = true
+                busyAction = "confirm"
                 coroutineScope.launch {
                     try { onConfirm() } catch (error: Exception) {
                         errorMessage = error.message ?: "确认计划失败"
-                    } finally { busy = false }
+                    } finally { busyAction = null }
                 }
             },
+            loading = busyAction == "confirm",
         )
         OutlinedButton(
             onClick = {
-                busy = true
+                busyAction = "regenerate"
                 coroutineScope.launch {
                     try { onRegenerate() } catch (error: Exception) {
                         errorMessage = error.message ?: "重新生成失败"
-                    } finally { busy = false }
+                    } finally { busyAction = null }
                 }
             },
             enabled = !busy,
             modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-        ) { Text("重新生成") }
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                if (busyAction == "regenerate") {
+                    FitnessLoadingIndicator()
+                    Spacer(Modifier.size(8.dp))
+                }
+                Text(if (busyAction == "regenerate") "重新生成中…" else "重新生成")
+            }
+        }
     }
 }
 
