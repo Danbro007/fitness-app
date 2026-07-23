@@ -7,24 +7,24 @@
 
 ## 2. PR 2 — 数据模型、迁移与备份
 
-- [ ] 2.1 对将修改的数据库、实体、Store 和备份符号执行 GitNexus upstream impact
-- [ ] 2.2 新增周期、日程、周草稿、场地重量档位、动作偏好和伤病例外实体
-- [ ] 2.3 将 SQLite 9 升级到 10，新增表、索引和 9→10 显式迁移
-- [ ] 2.4 为新实体实现 Store 的最小 CRUD 和事务支持
-- [ ] 2.5 将备份升级到版本 5并保持版本 4 可读
-- [ ] 2.6 添加数据库迁移、Store round-trip 和备份兼容设备测试
-- [ ] 2.7 运行聚焦设备测试、`git diff --check` 和 GitNexus change detection
-- [ ] 2.8 推送分支并创建以 PR 1 分支为 base 的草稿 PR
+- [x] 2.1 对将修改的数据库、实体、Store 和备份符号执行 GitNexus upstream impact
+- [x] 2.2 新增周期、日程、周草稿、场地重量档位、动作偏好和伤病例外实体
+- [x] 2.3 将 SQLite 9 升级到 10，新增表、索引和 9→10 显式迁移
+- [x] 2.4 为新实体实现 Store 的最小 CRUD 和事务支持
+- [x] 2.5 将备份升级到版本 5并保持版本 4 可读
+- [x] 2.6 添加数据库迁移、Store round-trip 和备份兼容设备测试
+- [x] 2.7 运行聚焦设备测试、`git diff --check` 和 GitNexus change detection
+- [x] 2.8 推送分支并创建以 PR 1 分支为 base 的草稿 PR
 
 ## 3. PR 3 — 纯规则引擎
 
-- [ ] 3.1 对现有训练总结和动作元数据符号执行 GitNexus upstream impact
-- [ ] 3.2 新增计划输入、候选、解释、冲突和趋势信号的纯 Kotlin 模型
-- [ ] 3.3 实现最近三次趋势、冷启动、单档加减重和首次试练规则
-- [ ] 3.4 实现场地器械、伤病排除、过滤例外和连续日肌群恢复校验
-- [ ] 3.5 添加覆盖边界、失败解释和 AI 候选不可绕过规则的 JVM 测试
-- [ ] 3.6 运行 JVM 测试、`git diff --check` 和 GitNexus change detection
-- [ ] 3.7 推送分支并创建以 PR 2 分支为 base 的草稿 PR
+- [x] 3.1 对现有训练总结和动作元数据符号执行 GitNexus upstream impact
+- [x] 3.2 新增计划输入、候选、解释、冲突和趋势信号的纯 Kotlin 模型
+- [x] 3.3 实现最近三次趋势、冷启动、单档加减重和首次试练规则
+- [x] 3.4 实现场地器械、伤病排除、过滤例外和连续日肌群恢复校验
+- [x] 3.5 添加覆盖边界、失败解释和 AI 候选不可绕过规则的 JVM 测试
+- [x] 3.6 运行 JVM 测试、`git diff --check` 和 GitNexus change detection
+- [x] 3.7 推送分支并创建以 PR 2 分支为 base 的草稿 PR
 
 ## 4. PR 4 — 滚动计划仓储工作流
 

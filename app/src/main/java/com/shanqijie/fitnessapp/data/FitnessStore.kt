@@ -1077,6 +1077,305 @@ class FitnessStore(private val database: FitnessDatabase) {
         )
     }
 
+    fun upsertPlanCycle(entity: PlanCycleEntity) {
+        database.writableDatabase.insertWithOnConflict(
+            "plan_cycle",
+            null,
+            ContentValues().apply {
+                put("id", entity.id)
+                put("total_weeks", entity.totalWeeks)
+                put("current_week", entity.currentWeek)
+                put("start_date", entity.startDate)
+                put("preferred_minutes", entity.preferredMinutes)
+                put("status", entity.status)
+                put("created_at", entity.createdAt)
+                put("updated_at", entity.updatedAt)
+            },
+            SQLiteDatabase.CONFLICT_REPLACE,
+        )
+    }
+
+    fun planCycle(id: String): PlanCycleEntity? {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT id, total_weeks, current_week, start_date, preferred_minutes, status, created_at, updated_at
+            FROM plan_cycle
+            WHERE id = ?
+            LIMIT 1
+            """.trimIndent(),
+            arrayOf(id),
+        )
+        return try {
+            if (cursor.moveToFirst()) cursor.toPlanCycle() else null
+        } finally {
+            cursor.close()
+        }
+    }
+
+    fun planCycles(): List<PlanCycleEntity> {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT id, total_weeks, current_week, start_date, preferred_minutes, status, created_at, updated_at
+            FROM plan_cycle
+            ORDER BY created_at DESC
+            """.trimIndent(),
+            emptyArray(),
+        )
+        return try {
+            buildList {
+                while (cursor.moveToNext()) add(cursor.toPlanCycle())
+            }
+        } finally {
+            cursor.close()
+        }
+    }
+
+    fun replacePlanScheduleDays(cycleId: String, days: List<PlanScheduleDayEntity>) {
+        transaction {
+            database.writableDatabase.delete("plan_schedule_day", "cycle_id = ?", arrayOf(cycleId))
+            days.forEach { day ->
+                require(day.cycleId == cycleId) { "训练日必须属于同一计划周期" }
+                database.writableDatabase.insertOrThrow(
+                    "plan_schedule_day",
+                    null,
+                    ContentValues().apply {
+                        put("cycle_id", day.cycleId)
+                        put("day_of_week", day.dayOfWeek)
+                        put("venue_id", day.venueId)
+                        put("order_index", day.orderIndex)
+                    },
+                )
+            }
+        }
+    }
+
+    fun planScheduleDays(cycleId: String): List<PlanScheduleDayEntity> {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT cycle_id, day_of_week, venue_id, order_index
+            FROM plan_schedule_day
+            WHERE cycle_id = ?
+            ORDER BY order_index, day_of_week
+            """.trimIndent(),
+            arrayOf(cycleId),
+        )
+        return try {
+            buildList {
+                while (cursor.moveToNext()) add(cursor.toPlanScheduleDay())
+            }
+        } finally {
+            cursor.close()
+        }
+    }
+
+    fun allPlanScheduleDays(): List<PlanScheduleDayEntity> {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT cycle_id, day_of_week, venue_id, order_index
+            FROM plan_schedule_day
+            ORDER BY cycle_id, order_index, day_of_week
+            """.trimIndent(),
+            emptyArray(),
+        )
+        return try {
+            buildList {
+                while (cursor.moveToNext()) add(cursor.toPlanScheduleDay())
+            }
+        } finally {
+            cursor.close()
+        }
+    }
+
+    fun upsertWeeklyPlanDraft(entity: WeeklyPlanDraftEntity) {
+        database.writableDatabase.insertWithOnConflict(
+            "weekly_plan_draft",
+            null,
+            ContentValues().apply {
+                put("id", entity.id)
+                put("cycle_id", entity.cycleId)
+                put("week_index", entity.weekIndex)
+                put("week_start_date", entity.weekStartDate)
+                put("payload_json", entity.payloadJson)
+                put("input_hash", entity.inputHash)
+                put("status", entity.status)
+                put("explanations_json", entity.explanationsJson)
+                put("created_at", entity.createdAt)
+                put("updated_at", entity.updatedAt)
+                put("confirmed_at", entity.confirmedAt)
+            },
+            SQLiteDatabase.CONFLICT_REPLACE,
+        )
+    }
+
+    fun weeklyPlanDraft(id: String): WeeklyPlanDraftEntity? {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT id, cycle_id, week_index, week_start_date, payload_json, input_hash, status,
+                   explanations_json, created_at, updated_at, confirmed_at
+            FROM weekly_plan_draft
+            WHERE id = ?
+            LIMIT 1
+            """.trimIndent(),
+            arrayOf(id),
+        )
+        return try {
+            if (cursor.moveToFirst()) cursor.toWeeklyPlanDraft() else null
+        } finally {
+            cursor.close()
+        }
+    }
+
+    fun weeklyPlanDrafts(): List<WeeklyPlanDraftEntity> {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT id, cycle_id, week_index, week_start_date, payload_json, input_hash, status,
+                   explanations_json, created_at, updated_at, confirmed_at
+            FROM weekly_plan_draft
+            ORDER BY created_at DESC
+            """.trimIndent(),
+            emptyArray(),
+        )
+        return try {
+            buildList {
+                while (cursor.moveToNext()) add(cursor.toWeeklyPlanDraft())
+            }
+        } finally {
+            cursor.close()
+        }
+    }
+
+    fun replaceVenueEquipmentLoads(
+        venueId: String,
+        equipmentId: String,
+        loads: List<VenueEquipmentLoadEntity>,
+    ) {
+        transaction {
+            database.writableDatabase.delete(
+                "venue_equipment_load",
+                "venue_id = ? AND equipment_id = ?",
+                arrayOf(venueId, equipmentId),
+            )
+            loads.forEach { load ->
+                require(load.venueId == venueId && load.equipmentId == equipmentId) {
+                    "重量档位必须属于同一场地器械"
+                }
+                database.writableDatabase.insertOrThrow(
+                    "venue_equipment_load",
+                    null,
+                    ContentValues().apply {
+                        put("venue_id", load.venueId)
+                        put("equipment_id", load.equipmentId)
+                        put("weight_kg", load.weightKg)
+                        put("order_index", load.orderIndex)
+                        put("updated_at", load.updatedAt)
+                    },
+                )
+            }
+        }
+    }
+
+    fun venueEquipmentLoads(venueId: String, equipmentId: String): List<VenueEquipmentLoadEntity> {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT venue_id, equipment_id, weight_kg, order_index, updated_at
+            FROM venue_equipment_load
+            WHERE venue_id = ? AND equipment_id = ?
+            ORDER BY order_index, weight_kg
+            """.trimIndent(),
+            arrayOf(venueId, equipmentId),
+        )
+        return try {
+            buildList {
+                while (cursor.moveToNext()) add(cursor.toVenueEquipmentLoad())
+            }
+        } finally {
+            cursor.close()
+        }
+    }
+
+    fun allVenueEquipmentLoads(): List<VenueEquipmentLoadEntity> {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT venue_id, equipment_id, weight_kg, order_index, updated_at
+            FROM venue_equipment_load
+            ORDER BY venue_id, equipment_id, order_index, weight_kg
+            """.trimIndent(),
+            emptyArray(),
+        )
+        return try {
+            buildList {
+                while (cursor.moveToNext()) add(cursor.toVenueEquipmentLoad())
+            }
+        } finally {
+            cursor.close()
+        }
+    }
+
+    fun upsertActionPreference(entity: ActionPreferenceEntity) {
+        database.writableDatabase.insertWithOnConflict(
+            "action_preference",
+            null,
+            ContentValues().apply {
+                put("exercise_id", entity.exerciseId)
+                put("preference", entity.preference)
+                put("replacement_exercise_id", entity.replacementExerciseId)
+                put("updated_at", entity.updatedAt)
+            },
+            SQLiteDatabase.CONFLICT_REPLACE,
+        )
+    }
+
+    fun actionPreferences(): List<ActionPreferenceEntity> {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT exercise_id, preference, replacement_exercise_id, updated_at
+            FROM action_preference
+            ORDER BY exercise_id
+            """.trimIndent(),
+            emptyArray(),
+        )
+        return try {
+            buildList {
+                while (cursor.moveToNext()) add(cursor.toActionPreference())
+            }
+        } finally {
+            cursor.close()
+        }
+    }
+
+    fun upsertInjuryFilterOverride(entity: InjuryFilterOverrideEntity) {
+        database.writableDatabase.insertWithOnConflict(
+            "injury_filter_override",
+            null,
+            ContentValues().apply {
+                put("exercise_id", entity.exerciseId)
+                put("injuries_hash", entity.injuriesHash)
+                put("reason", entity.reason)
+                put("confirmed_at", entity.confirmedAt)
+                put("updated_at", entity.updatedAt)
+            },
+            SQLiteDatabase.CONFLICT_REPLACE,
+        )
+    }
+
+    fun injuryFilterOverrides(): List<InjuryFilterOverrideEntity> {
+        val cursor = database.readableDatabase.rawQuery(
+            """
+            SELECT exercise_id, injuries_hash, reason, confirmed_at, updated_at
+            FROM injury_filter_override
+            ORDER BY exercise_id
+            """.trimIndent(),
+            emptyArray(),
+        )
+        return try {
+            buildList {
+                while (cursor.moveToNext()) add(cursor.toInjuryFilterOverride())
+            }
+        } finally {
+            cursor.close()
+        }
+    }
+
     @Synchronized
     fun clearPersonalData() {
         val db = database.writableDatabase
@@ -1094,6 +1393,12 @@ class FitnessStore(private val database: FitnessDatabase) {
             "workout_session",
             "planned_exercise",
             "planned_workout",
+            "weekly_plan_draft",
+            "plan_schedule_day",
+            "plan_cycle",
+            "action_preference",
+            "injury_filter_override",
+            "venue_equipment_load",
             "food_log",
             "ai_draft",
             "training_adjustment",
@@ -1339,6 +1644,67 @@ class FitnessStore(private val database: FitnessDatabase) {
             createdAt = getLong(getColumnIndexOrThrow("created_at")),
             updatedAt = getLong(getColumnIndexOrThrow("updated_at")),
             confirmedAt = getLongOrNull(getColumnIndexOrThrow("confirmed_at")),
+        )
+
+    private fun Cursor.toPlanCycle(): PlanCycleEntity =
+        PlanCycleEntity(
+            id = getString(getColumnIndexOrThrow("id")),
+            totalWeeks = getInt(getColumnIndexOrThrow("total_weeks")),
+            currentWeek = getInt(getColumnIndexOrThrow("current_week")),
+            startDate = getString(getColumnIndexOrThrow("start_date")),
+            preferredMinutes = getInt(getColumnIndexOrThrow("preferred_minutes")),
+            status = getString(getColumnIndexOrThrow("status")),
+            createdAt = getLong(getColumnIndexOrThrow("created_at")),
+            updatedAt = getLong(getColumnIndexOrThrow("updated_at")),
+        )
+
+    private fun Cursor.toPlanScheduleDay(): PlanScheduleDayEntity =
+        PlanScheduleDayEntity(
+            cycleId = getString(getColumnIndexOrThrow("cycle_id")),
+            dayOfWeek = getInt(getColumnIndexOrThrow("day_of_week")),
+            venueId = getString(getColumnIndexOrThrow("venue_id")),
+            orderIndex = getInt(getColumnIndexOrThrow("order_index")),
+        )
+
+    private fun Cursor.toWeeklyPlanDraft(): WeeklyPlanDraftEntity =
+        WeeklyPlanDraftEntity(
+            id = getString(getColumnIndexOrThrow("id")),
+            cycleId = getString(getColumnIndexOrThrow("cycle_id")),
+            weekIndex = getInt(getColumnIndexOrThrow("week_index")),
+            weekStartDate = getString(getColumnIndexOrThrow("week_start_date")),
+            payloadJson = getString(getColumnIndexOrThrow("payload_json")),
+            inputHash = getString(getColumnIndexOrThrow("input_hash")),
+            status = getString(getColumnIndexOrThrow("status")),
+            explanationsJson = getString(getColumnIndexOrThrow("explanations_json")),
+            createdAt = getLong(getColumnIndexOrThrow("created_at")),
+            updatedAt = getLong(getColumnIndexOrThrow("updated_at")),
+            confirmedAt = getLongOrNull(getColumnIndexOrThrow("confirmed_at")),
+        )
+
+    private fun Cursor.toVenueEquipmentLoad(): VenueEquipmentLoadEntity =
+        VenueEquipmentLoadEntity(
+            venueId = getString(getColumnIndexOrThrow("venue_id")),
+            equipmentId = getString(getColumnIndexOrThrow("equipment_id")),
+            weightKg = getDouble(getColumnIndexOrThrow("weight_kg")),
+            orderIndex = getInt(getColumnIndexOrThrow("order_index")),
+            updatedAt = getLong(getColumnIndexOrThrow("updated_at")),
+        )
+
+    private fun Cursor.toActionPreference(): ActionPreferenceEntity =
+        ActionPreferenceEntity(
+            exerciseId = getString(getColumnIndexOrThrow("exercise_id")),
+            preference = getString(getColumnIndexOrThrow("preference")),
+            replacementExerciseId = getString(getColumnIndexOrThrow("replacement_exercise_id")),
+            updatedAt = getLong(getColumnIndexOrThrow("updated_at")),
+        )
+
+    private fun Cursor.toInjuryFilterOverride(): InjuryFilterOverrideEntity =
+        InjuryFilterOverrideEntity(
+            exerciseId = getString(getColumnIndexOrThrow("exercise_id")),
+            injuriesHash = getString(getColumnIndexOrThrow("injuries_hash")),
+            reason = getString(getColumnIndexOrThrow("reason")),
+            confirmedAt = getLong(getColumnIndexOrThrow("confirmed_at")),
+            updatedAt = getLong(getColumnIndexOrThrow("updated_at")),
         )
 
     private fun Cursor.getStringOrNull(index: Int): String? =

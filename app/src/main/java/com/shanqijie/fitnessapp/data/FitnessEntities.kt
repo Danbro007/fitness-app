@@ -192,3 +192,64 @@ data class TrainingAdjustmentEntity(
     val updatedAt: Long,
     val confirmedAt: Long?,
 )
+
+@Serializable
+data class PlanCycleEntity(
+    val id: String,
+    val totalWeeks: Int,
+    val currentWeek: Int,
+    val startDate: String,
+    val preferredMinutes: Int,
+    val status: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Serializable
+data class PlanScheduleDayEntity(
+    val cycleId: String,
+    val dayOfWeek: Int,
+    val venueId: String,
+    val orderIndex: Int,
+)
+
+@Serializable
+data class WeeklyPlanDraftEntity(
+    val id: String,
+    val cycleId: String,
+    val weekIndex: Int,
+    val weekStartDate: String,
+    val payloadJson: String,
+    val inputHash: String,
+    val status: String,
+    val explanationsJson: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val confirmedAt: Long?,
+)
+
+@Serializable
+data class VenueEquipmentLoadEntity(
+    val venueId: String,
+    val equipmentId: String,
+    val weightKg: Double,
+    val orderIndex: Int,
+    val updatedAt: Long,
+)
+
+@Serializable
+data class ActionPreferenceEntity(
+    val exerciseId: String,
+    val preference: String,
+    val replacementExerciseId: String = "",
+    val updatedAt: Long,
+)
+
+@Serializable
+data class InjuryFilterOverrideEntity(
+    val exerciseId: String,
+    val injuriesHash: String,
+    val reason: String,
+    val confirmedAt: Long,
+    val updatedAt: Long,
+)

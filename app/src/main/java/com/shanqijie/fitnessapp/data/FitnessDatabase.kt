@@ -235,6 +235,7 @@ class FitnessDatabase(
             )
             """.trimIndent(),
         )
+        createAdaptivePlanTables(db)
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_exercise_media_equipment ON exercise_media(equipment)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_exercise_media_asset_pack ON exercise_media(asset_pack_id)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_planned_exercise_workout ON planned_exercise(planned_workout_id)")
@@ -255,6 +256,9 @@ class FitnessDatabase(
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 10) {
+            createAdaptivePlanTables(db)
+        }
         if (oldVersion < 8) {
             addColumnIfMissing(db, "user_profile", "measured_at", "TEXT NOT NULL DEFAULT ''")
             addColumnIfMissing(db, "user_profile", "body_type", "TEXT NOT NULL DEFAULT ''")
@@ -312,6 +316,87 @@ class FitnessDatabase(
         }
     }
 
+    private fun createAdaptivePlanTables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS plan_cycle (
+                id TEXT PRIMARY KEY,
+                total_weeks INTEGER NOT NULL,
+                current_week INTEGER NOT NULL,
+                start_date TEXT NOT NULL,
+                preferred_minutes INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS plan_schedule_day (
+                cycle_id TEXT NOT NULL,
+                day_of_week INTEGER NOT NULL,
+                venue_id TEXT NOT NULL,
+                order_index INTEGER NOT NULL,
+                PRIMARY KEY(cycle_id, day_of_week)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS weekly_plan_draft (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                week_index INTEGER NOT NULL,
+                week_start_date TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                input_hash TEXT NOT NULL,
+                status TEXT NOT NULL,
+                explanations_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                confirmed_at INTEGER
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS venue_equipment_load (
+                venue_id TEXT NOT NULL,
+                equipment_id TEXT NOT NULL,
+                weight_kg REAL NOT NULL,
+                order_index INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY(venue_id, equipment_id, weight_kg)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS action_preference (
+                exercise_id TEXT PRIMARY KEY,
+                preference TEXT NOT NULL,
+                replacement_exercise_id TEXT NOT NULL DEFAULT '',
+                updated_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS injury_filter_override (
+                exercise_id TEXT PRIMARY KEY,
+                injuries_hash TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                confirmed_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_plan_schedule_cycle ON plan_schedule_day(cycle_id, order_index)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_weekly_plan_draft_cycle ON weekly_plan_draft(cycle_id, week_index, status)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_venue_equipment_load ON venue_equipment_load(venue_id, equipment_id, order_index)")
+    }
+
     private fun addColumnIfMissing(db: SQLiteDatabase, table: String, column: String, definition: String) {
         if (!tableExists(db, table)) return
         val cursor = db.rawQuery("PRAGMA table_info($table)", emptyArray())
@@ -346,7 +431,7 @@ class FitnessDatabase(
 
     companion object {
         private const val DATABASE_NAME = "fitness.db"
-        private const val DATABASE_VERSION = 9
+        private const val DATABASE_VERSION = 10
 
         @Volatile
         private var instance: FitnessDatabase? = null
