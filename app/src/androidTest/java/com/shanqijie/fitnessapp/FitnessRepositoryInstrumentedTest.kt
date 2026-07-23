@@ -1649,7 +1649,7 @@ class FitnessRepositoryInstrumentedTest {
         assertValid(payload.copy(version = 1, setLogs = payload.setLogs.map { it.copy(feeling = "") }))
         assertValid(payload.copy(setLogs = payload.setLogs.map { it.copy(sessionExerciseId = null) }))
         assertInvalid(payload.copy(version = 0))
-        assertInvalid(payload.copy(version = 5))
+        assertInvalid(payload.copy(version = 6))
         assertInvalid(payload.copy(venues = payload.venues + payload.venues.first()))
         assertInvalid(payload.copy(equipment = payload.equipment + payload.equipment.first()))
         assertInvalid(payload.copy(plannedWorkouts = payload.plannedWorkouts + payload.plannedWorkouts.first()))

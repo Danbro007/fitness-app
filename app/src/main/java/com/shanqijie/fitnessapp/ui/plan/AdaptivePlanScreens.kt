@@ -200,7 +200,7 @@ fun AdaptivePlanOverviewScreen(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         FitnessPageHeader(title = "滚动计划", kicker = "每次只确认一周")
         if (cycle == null) {
             FitnessSurfaceCard(Modifier.fillMaxWidth()) {
