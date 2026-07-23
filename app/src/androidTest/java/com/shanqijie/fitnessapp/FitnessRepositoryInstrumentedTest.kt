@@ -9,6 +9,7 @@ import android.provider.MediaStore
 import androidx.test.core.app.ApplicationProvider
 import com.shanqijie.fitnessapp.data.AiCredentialStore
 import com.shanqijie.fitnessapp.data.AiDraftEntity
+import com.shanqijie.fitnessapp.data.ActionPreferenceEntity
 import com.shanqijie.fitnessapp.ai.AiGateway
 import com.shanqijie.fitnessapp.ai.AiGatewayFactory
 import com.shanqijie.fitnessapp.ai.AiTestResult
@@ -21,11 +22,16 @@ import com.shanqijie.fitnessapp.data.FitnessRepository
 import com.shanqijie.fitnessapp.data.FitnessStore
 import com.shanqijie.fitnessapp.data.ExerciseMediaEntity
 import com.shanqijie.fitnessapp.data.FoodLogEntity
+import com.shanqijie.fitnessapp.data.InjuryFilterOverrideEntity
+import com.shanqijie.fitnessapp.data.PlanCycleEntity
+import com.shanqijie.fitnessapp.data.PlanScheduleDayEntity
 import com.shanqijie.fitnessapp.data.PlannedExerciseEntity
 import com.shanqijie.fitnessapp.data.PlannedWorkoutEntity
 import com.shanqijie.fitnessapp.data.TimeProvider
 import com.shanqijie.fitnessapp.data.TrainingVenueEntity
 import com.shanqijie.fitnessapp.data.UserProfileEntity
+import com.shanqijie.fitnessapp.data.VenueEquipmentLoadEntity
+import com.shanqijie.fitnessapp.data.WeeklyPlanDraftEntity
 import com.shanqijie.fitnessapp.data.WorkoutSessionEntity
 import com.shanqijie.fitnessapp.data.WorkoutSetLogEntity
 import com.shanqijie.fitnessapp.domain.HomePrimaryAction
@@ -1240,7 +1246,7 @@ class FitnessRepositoryInstrumentedTest {
 
         val exported = repository.exportBackupJson()
         val payload = FitnessBackupCodec.decode(exported)
-        assertEquals(4, payload.version)
+        assertEquals(5, payload.version)
         assertEquals(2, payload.sessionExercises.size)
         assertEquals("0289", payload.workoutSessions.single().currentExerciseId)
         assertEquals(timeProvider.currentTimeMillis() + 75_000L, payload.workoutSessions.single().restEndsAt)
@@ -1253,6 +1259,57 @@ class FitnessRepositoryInstrumentedTest {
         assertEquals(timeProvider.currentTimeMillis() + 75_000L, restoredSession?.restEndsAt)
         assertEquals(listOf("0748", "0289"), store.sessionExercises(session.id).map { it.exerciseId })
         assertEquals(store.sessionExercises(session.id).first().id, store.setLogs(session.id).single().sessionExerciseId)
+    }
+
+    @Test
+    fun backupV5RoundTripsAdaptivePlanState() = runBlocking {
+        val now = timeProvider.currentTimeMillis()
+        val venue = TrainingVenueEntity("venue-plan", "计划健身房", true, now, now)
+        val equipment = EquipmentEntity("barbell", "杠铃", "free-weight", now, now)
+        val cycle = PlanCycleEntity("cycle-1", 4, 1, "2026-07-13", 60, "active", now, now)
+        val day = PlanScheduleDayEntity(cycle.id, 1, venue.id, 0)
+        val draft = WeeklyPlanDraftEntity(
+            id = "weekly-draft-1",
+            cycleId = cycle.id,
+            weekIndex = 1,
+            weekStartDate = "2026-07-13",
+            payloadJson = "{}",
+            inputHash = "snapshot-1",
+            status = "draft",
+            explanationsJson = "[]",
+            createdAt = now,
+            updatedAt = now,
+            confirmedAt = null,
+        )
+        val load = VenueEquipmentLoadEntity(venue.id, equipment.id, 20.0, 0, now)
+        val preference = ActionPreferenceEntity("barbell-bench", "replace", "dumbbell-bench", now)
+        val override = InjuryFilterOverrideEntity(
+            "barbell-bench",
+            "injuries-v1",
+            "用户确认可安全完成",
+            now,
+            now,
+        )
+        store.upsertVenue(venue)
+        store.upsertEquipment(equipment)
+        store.upsertPlanCycle(cycle)
+        store.replacePlanScheduleDays(cycle.id, listOf(day))
+        store.upsertWeeklyPlanDraft(draft)
+        store.replaceVenueEquipmentLoads(venue.id, equipment.id, listOf(load))
+        store.upsertActionPreference(preference)
+        store.upsertInjuryFilterOverride(override)
+
+        val exported = repository.exportBackupJson()
+        assertEquals(5, FitnessBackupCodec.decode(exported).version)
+        store.clearPersonalData()
+        repository.importBackupJson(exported)
+
+        assertEquals(listOf(cycle), store.planCycles())
+        assertEquals(listOf(day), store.allPlanScheduleDays())
+        assertEquals(listOf(draft), store.weeklyPlanDrafts())
+        assertEquals(listOf(load), store.allVenueEquipmentLoads())
+        assertEquals(listOf(preference), store.actionPreferences())
+        assertEquals(listOf(override), store.injuryFilterOverrides())
     }
 
     @Test
@@ -1592,7 +1649,7 @@ class FitnessRepositoryInstrumentedTest {
         assertValid(payload.copy(version = 1, setLogs = payload.setLogs.map { it.copy(feeling = "") }))
         assertValid(payload.copy(setLogs = payload.setLogs.map { it.copy(sessionExerciseId = null) }))
         assertInvalid(payload.copy(version = 0))
-        assertInvalid(payload.copy(version = 5))
+        assertInvalid(payload.copy(version = 6))
         assertInvalid(payload.copy(venues = payload.venues + payload.venues.first()))
         assertInvalid(payload.copy(equipment = payload.equipment + payload.equipment.first()))
         assertInvalid(payload.copy(plannedWorkouts = payload.plannedWorkouts + payload.plannedWorkouts.first()))

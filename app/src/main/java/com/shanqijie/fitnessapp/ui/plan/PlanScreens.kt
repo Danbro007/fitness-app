@@ -71,6 +71,13 @@ import com.shanqijie.fitnessapp.data.PlannedExerciseView
 import com.shanqijie.fitnessapp.data.WorkoutSessionEntity
 import com.shanqijie.fitnessapp.data.WorkoutSetLogEntity
 import com.shanqijie.fitnessapp.data.UserProfileEntity
+import com.shanqijie.fitnessapp.data.FitnessAppState
+import com.shanqijie.fitnessapp.data.AdaptiveDraftContent
+import com.shanqijie.fitnessapp.data.PlanCycleEntity
+import com.shanqijie.fitnessapp.data.PlanCycleConfiguration
+import com.shanqijie.fitnessapp.data.PlanDraftExplanation
+import com.shanqijie.fitnessapp.data.WeeklyPlanDraftEntity
+import com.shanqijie.fitnessapp.domain.WeeklyPlanCandidate
 import com.shanqijie.fitnessapp.domain.ExerciseChineseNameTranslator
 import com.shanqijie.fitnessapp.domain.toReadableAiText
 import com.shanqijie.fitnessapp.ui.components.FitnessGifImage
@@ -110,6 +117,19 @@ fun PlanScreen(
     onConfirmMonthlyDraft: suspend (String) -> Unit,
     onStartPlan: (String) -> Unit,
     modifier: Modifier,
+    adaptiveCycle: PlanCycleEntity? = null,
+    adaptiveDraft: WeeklyPlanDraftEntity? = null,
+    adaptiveDraftContent: AdaptiveDraftContent? = null,
+    onCreateAdaptiveCycle: suspend (PlanCycleConfiguration) -> Unit = {},
+    onGenerateAdaptiveWeek: suspend () -> Unit = {},
+    onConfirmAdaptiveWeek: suspend () -> Unit = {},
+    onRefreshAdaptiveDraft: suspend () -> Unit = {},
+    onAdaptiveDraftContent: suspend (String) -> AdaptiveDraftContent = { error("草稿内容不可用") },
+    onAdjustAdaptiveDraftWeight: suspend (String, String, Double) -> AdaptiveDraftContent = { _, _, _ -> error("草稿调整不可用") },
+    onSaveAdaptiveActionPreference: suspend (String, String) -> Unit = { _, _ -> },
+    onSaveAdaptiveVenueLoads: suspend (String, String, List<Double>) -> Unit = { _, _, _ -> },
+    onSuggestedAdaptiveCandidate: () -> WeeklyPlanCandidate? = { null },
+    adaptiveState: FitnessAppState? = null,
 ) {
     var showNewPlanEditor by rememberSaveable { mutableStateOf(false) }
     var editorName by rememberSaveable { mutableStateOf("自定义训练") }
@@ -120,6 +140,9 @@ fun PlanScreen(
     var calendarMode by rememberSaveable { mutableStateOf(initialCalendarMode) }
     var calendarMonth by rememberSaveable { mutableStateOf(YearMonth.now().toString()) }
     var selectedDate by rememberSaveable { mutableStateOf<String?>(null) }
+    var showAdaptiveSetup by rememberSaveable { mutableStateOf(false) }
+    var showAdaptiveDraft by rememberSaveable { mutableStateOf(false) }
+    var loadedAdaptiveDraftContent by remember { mutableStateOf(adaptiveDraftContent) }
     val coroutineScope = rememberCoroutineScope()
     val exerciseCountByPlan = plannedExerciseViews.groupingBy { it.plannedExercise.plannedWorkoutId }.eachCount()
 
@@ -189,6 +212,22 @@ fun PlanScreen(
                     }
                 }
             },
+        )
+
+        AdaptivePlanOverviewScreen(
+            cycle = adaptiveCycle,
+            draft = adaptiveDraft,
+            onGenerate = {
+                require(onSuggestedAdaptiveCandidate() != null) { "当前场地没有足够器械或重量档位，请先完成场地设置" }
+                onGenerateAdaptiveWeek()
+            },
+            onOpenDraft = {
+                showAdaptiveDraft = true
+                adaptiveDraft?.id?.let { id ->
+                    coroutineScope.launch { loadedAdaptiveDraftContent = onAdaptiveDraftContent(id) }
+                }
+            },
+            onOpenSetup = { showAdaptiveSetup = true },
         )
     }
 
@@ -371,6 +410,34 @@ fun PlanScreen(
                     )
                 }
             }
+        }
+    }
+
+    if (showAdaptiveSetup) {
+        ModalBottomSheet(onDismissRequest = { showAdaptiveSetup = false }) {
+            adaptiveState?.let { state ->
+                AdaptivePlanSetupScreen(
+                            state = state,
+                            onCreate = { configuration -> onCreateAdaptiveCycle(configuration); showAdaptiveSetup = false },
+                            onSaveLoads = onSaveAdaptiveVenueLoads,
+                            modifier = Modifier.padding(bottom = 12.dp),
+                )
+            }
+        }
+    }
+
+    if (showAdaptiveDraft && adaptiveDraft != null) {
+        ModalBottomSheet(onDismissRequest = { showAdaptiveDraft = false }) {
+            AdaptivePlanDraftScreen(
+                draft = adaptiveDraft,
+                content = loadedAdaptiveDraftContent,
+                onConfirm = { onConfirmAdaptiveWeek(); showAdaptiveDraft = false },
+                onRefresh = { onRefreshAdaptiveDraft() },
+                actionPreferences = adaptiveState?.actionPreferences.orEmpty(),
+                onAdjustWeight = onAdjustAdaptiveDraftWeight,
+                onSaveActionPreference = onSaveAdaptiveActionPreference,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
         }
     }
 }

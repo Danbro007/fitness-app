@@ -65,8 +65,8 @@ class FitnessComponentsInstrumentedTest {
                         animated = false,
                     )
                     FitnessGifImage(
-                        assetPath = "exercise-media/gifs/licensed.gif",
-                        contentDescription = "licensed media gate",
+                        assetPath = "exercise-media/gifs/0748-trqKQv2.gif",
+                        contentDescription = "local media asset",
                         modifier = Modifier.size(32.dp),
                     )
                 }
@@ -76,7 +76,7 @@ class FitnessComponentsInstrumentedTest {
         composeRule.onNodeWithContentDescription("asset animated model").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("absolute static model").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("uri static model").assertIsDisplayed()
-        composeRule.onNodeWithText("动作示范媒体需取得授权后启用").assertExists()
+        composeRule.onNodeWithContentDescription("local media asset").assertIsDisplayed()
     }
 
     @Test
