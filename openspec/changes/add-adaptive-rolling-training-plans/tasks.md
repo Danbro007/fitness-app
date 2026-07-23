@@ -39,13 +39,13 @@
 
 ## 5. PR 5 — 配置与可解释草稿 UI
 
-- [ ] 5.1 对计划、设置、导航和根状态符号执行 GitNexus upstream impact
-- [ ] 5.2 实现周期周数、训练星期、统一时长和逐日场地配置 UI
-- [ ] 5.3 实现场地器械重量档位查看与编辑 UI
-- [ ] 5.4 实现逐动作依据、冲突、过期状态、草稿编辑和整周确认 UI
-- [ ] 5.5 实现一次性动作调整与持久动作偏好的选择
-- [ ] 5.6 添加 Compose UI 测试并验证五主标签及 route/back 行为不变
-- [ ] 5.7 运行聚焦 UI 测试、截图验证、`git diff --check` 和 GitNexus change detection
+- [x] 5.1 对计划、设置、导航和根状态符号执行 GitNexus upstream impact
+- [x] 5.2 实现周期周数、训练星期、统一时长和逐日场地配置 UI
+- [x] 5.3 实现场地器械重量档位查看与编辑 UI
+- [x] 5.4 实现逐动作依据、冲突、过期状态、草稿编辑和整周确认 UI
+- [x] 5.5 实现一次性动作调整与持久动作偏好的选择
+- [x] 5.6 添加 Compose UI 测试并验证五主标签及 route/back 行为不变
+- [x] 5.7 运行聚焦 UI 测试、截图验证、`git diff --check` 和 GitNexus change detection
 - [ ] 5.8 推送分支并创建以 PR 4 分支为 base 的草稿 PR
 
 ## 6. PR 6 — 训练反馈闭环与整体验证

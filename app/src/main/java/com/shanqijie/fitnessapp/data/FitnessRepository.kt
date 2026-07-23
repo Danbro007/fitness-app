@@ -24,6 +24,7 @@ import com.shanqijie.fitnessapp.domain.WorkoutSummary
 import com.shanqijie.fitnessapp.domain.WorkoutAdjustmentDirection
 import com.shanqijie.fitnessapp.domain.WorkoutReviewMetadata
 import com.shanqijie.fitnessapp.domain.WorkoutReviewSignals
+import com.shanqijie.fitnessapp.domain.WeeklyPlanCandidate
 import com.shanqijie.fitnessapp.domain.decideWorkoutAdjustment
 import com.shanqijie.fitnessapp.domain.toJson
 import com.shanqijie.fitnessapp.domain.workoutReviewMetadata
@@ -74,6 +75,7 @@ class FitnessRepository(
     private val aiGatewayFactory: AiGatewayFactory = AiGatewayFactory(::AiChatClient),
 ) {
     private val refreshSignal = MutableStateFlow(0)
+    private val adaptivePlanWorkflow by lazy { AdaptivePlanWorkflow(store, timeProvider) }
     @Volatile
     private var exerciseCatalog: ExerciseCatalog? = null
 
@@ -121,6 +123,88 @@ class FitnessRepository(
     fun appState(): Flow<FitnessAppState> =
         refreshSignal.map {
             withContext(Dispatchers.IO) { currentAppState() }
+        }
+
+    suspend fun createAdaptiveCycle(configuration: PlanCycleConfiguration): PlanCycleEntity =
+        withContext(Dispatchers.IO) {
+            configuration.trainingDays.map { it.venueId }.distinct().forEach { venueId ->
+                store.venueEquipment().filter { it.venueId == venueId && it.available }.forEach { mapping ->
+                    if (store.venueEquipmentLoads(venueId, mapping.equipmentId).isEmpty()) {
+                        val equipment = store.allEquipment().firstOrNull { it.id == mapping.equipmentId }
+                        val defaults = equipment?.let { com.shanqijie.fitnessapp.domain.DefaultEquipmentLoads.forCategory(it.category) }
+                            .orEmpty()
+                        if (defaults.isNotEmpty()) {
+                            val now = timeProvider.currentTimeMillis()
+                            store.replaceVenueEquipmentLoads(
+                                venueId,
+                                mapping.equipmentId,
+                                defaults.mapIndexed { index, weight ->
+                                    VenueEquipmentLoadEntity(venueId, mapping.equipmentId, weight, index, now)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            adaptivePlanWorkflow.createCycle(configuration).also { refreshSignal.update { it + 1 } }
+        }
+
+    suspend fun generateAdaptiveWeekDraft(
+        cycleId: String,
+        candidate: WeeklyPlanCandidate,
+        explanations: List<PlanDraftExplanation>,
+    ): WeeklyPlanDraftEntity = withContext(Dispatchers.IO) {
+        adaptivePlanWorkflow.generateNextWeekDraft(cycleId, candidate, explanations)
+            .also { refreshSignal.update { it + 1 } }
+    }
+
+    suspend fun confirmAdaptiveWeek(draftId: String): List<PlannedWorkoutEntity> = withContext(Dispatchers.IO) {
+        adaptivePlanWorkflow.confirmWeek(draftId).also { refreshSignal.update { it + 1 } }
+    }
+
+    suspend fun refreshAdaptiveDraft(draftId: String): WeeklyPlanDraftEntity = withContext(Dispatchers.IO) {
+        adaptivePlanWorkflow.refreshDraftStatus(draftId).also { refreshSignal.update { it + 1 } }
+    }
+
+    suspend fun readAdaptiveDraftContent(draftId: String): AdaptiveDraftContent =
+        adaptivePlanWorkflow.readDraftContent(draftId)
+
+    suspend fun adjustAdaptiveDraftWeight(
+        draftId: String,
+        exerciseId: String,
+        targetWeightKg: Double,
+    ): AdaptiveDraftContent = withContext(Dispatchers.IO) {
+        adaptivePlanWorkflow.adjustDraftWeight(draftId, exerciseId, targetWeightKg)
+        refreshSignal.update { it + 1 }
+        adaptivePlanWorkflow.readDraftContent(draftId)
+    }
+
+    suspend fun saveAdaptiveActionPreference(exerciseId: String, preference: String) =
+        withContext(Dispatchers.IO) {
+            require(preference in setOf("auto", "exclude")) { "不支持的动作偏好" }
+            store.upsertActionPreference(
+                ActionPreferenceEntity(
+                    exerciseId = exerciseId,
+                    preference = preference,
+                    updatedAt = timeProvider.currentTimeMillis(),
+                ),
+            )
+            refreshSignal.update { it + 1 }
+        }
+
+    suspend fun saveAdaptiveVenueLoads(venueId: String, equipmentId: String, weightsKg: List<Double>) =
+        withContext(Dispatchers.IO) {
+            require(weightsKg.isNotEmpty()) { "至少保留一个重量档位" }
+            val now = timeProvider.currentTimeMillis()
+            store.replaceVenueEquipmentLoads(
+                venueId,
+                equipmentId,
+                weightsKg.distinct().sorted().mapIndexed { index, weight ->
+                    require(weight >= 0.0) { "重量不能为负数" }
+                    VenueEquipmentLoadEntity(venueId, equipmentId, weight, index, now)
+                },
+            )
+            refreshSignal.update { it + 1 }
         }
 
     fun completedSetCount(sessionId: String): Flow<Int> =
@@ -1970,6 +2054,12 @@ class FitnessRepository(
                     ?: store.allExercises(limit = 1_500),
                 aiProviders = aiProviders,
                 preferences = preferences,
+                planCycles = store.planCycles(),
+                planScheduleDays = store.allPlanScheduleDays(),
+                weeklyPlanDrafts = store.weeklyPlanDrafts(),
+                venueEquipmentLoads = store.allVenueEquipmentLoads(),
+                actionPreferences = store.actionPreferences(),
+                injuryFilterOverrides = store.injuryFilterOverrides(),
             )
         }
 
@@ -2202,6 +2292,12 @@ data class FitnessAppState(
     val aiProviders: List<AiProviderEntity>,
     val workoutSessionExercises: List<WorkoutSessionExerciseEntity> = emptyList(),
     val preferences: Map<String, String> = emptyMap(),
+    val planCycles: List<PlanCycleEntity> = emptyList(),
+    val planScheduleDays: List<PlanScheduleDayEntity> = emptyList(),
+    val weeklyPlanDrafts: List<WeeklyPlanDraftEntity> = emptyList(),
+    val venueEquipmentLoads: List<VenueEquipmentLoadEntity> = emptyList(),
+    val actionPreferences: List<ActionPreferenceEntity> = emptyList(),
+    val injuryFilterOverrides: List<InjuryFilterOverrideEntity> = emptyList(),
 )
 
 data class PlannedExerciseView(
