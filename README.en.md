@@ -18,7 +18,7 @@ A local-first Android fitness assistant for managing venues, equipment, workout 
 
 - The native Compose MVP is complete, with exactly five primary destinations: `Home / Plan / Training / Food / Profile`.
 - The core journey is implemented end to end: planning, exercise selection, active training, rest timing, workout summary, food logging, AI settings, and local backup.
-- The manifest contains 1,324 exercise metadata records. Production builds exclude third-party GIFs by default; they can be enabled only with a documented media-rights record.
+- The manifest contains 1,324 exercise metadata records. Personal/local debug builds render the locally available exercise GIFs directly; public or commercial distribution remains a separate rights-review decision.
 - Verified with real local data on a Pixel 8 Pro emulator: 29/29 JVM tests and 61/61 device tests pass, with no crash or ANR.
 
 ## Features
@@ -39,7 +39,7 @@ A local-first Android fitness assistant for managing venues, equipment, workout 
 ### Workout Session
 
 - Log sets, reps, weight, and training feedback.
-- View exercise GIFs in builds with licensed media enabled, use rest timers, replace exercises, and skip exercises.
+- View exercise GIFs in personal/local builds, use rest timers, replace exercises, and skip exercises.
 - Generate next-session adjustment suggestions from training history.
 - Active-workout and workout-summary screens are immersive and hide global bottom navigation.
 
@@ -223,7 +223,7 @@ The app provides a DeepSeek-style OpenAI-compatible configuration entry. When no
 
 - This is a personal-use-first MVP and does not include accounts, cloud sync, or social features.
 - AI suggestions are assistive and should not replace professional medical, nutrition, or training advice.
-- Without a media-rights record, production builds neither package nor display third-party GIFs; the exercise library still shows text metadata.
+- Personal/local debug builds do not block locally available GIFs on a media-rights flag; public or commercial builds must not infer distribution rights from this local-use behavior.
 
 ## License
 

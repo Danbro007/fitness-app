@@ -83,17 +83,13 @@ This project is indexed by GitNexus as **fitness-app** (2690 symbols, 6840 relat
 - Validate image dimensions safely before full bitmap allocation; compressed file-size checks alone do not prevent OOM.
 - Preserve user changes in a dirty worktree and keep edits scoped to the requested task.
 
-## Media Builds
+## Personal Media Builds
 
-The default build excludes third-party exercise GIF binaries. A media-enabled personal/non-commercial build requires both explicit Gradle properties:
-
-```bash
-./gradlew :app:assembleDebug \
-  -PincludeLicensedExerciseMedia=true \
-  -PexerciseMediaLicenseReference=docs/compliance/exercisedb-personal-noncommercial-media-record.md
-```
-
-Do not weaken or silently bypass the build gate. Keep source, attribution, and hash records synchronized with `MEDIA_RIGHTS.md`, `THIRD_PARTY_NOTICES.md`, and `docs/compliance/`.
+- Personal/local debug builds must package every exercise GIF already present under `app/src/main/assets/exercise-media/gifs/` and render it directly in library, detail, and training screens.
+- Do not add a Gradle authorization flag, runtime authorization check, or “media requires authorization” placeholder in front of locally available exercise media.
+- Media availability and compliance records are separate concerns: keep source, attribution, and hash records synchronized with `MEDIA_RIGHTS.md`, `THIRD_PARTY_NOTICES.md`, and `docs/compliance/`, but never use those records to block the owner's personal build at runtime.
+- Do not commit downloaded GIF binaries. A public or commercial APK release remains a separate explicit product decision and requires its own rights review.
+- The standard personal build command is `./gradlew :app:assembleDebug`; no media-enablement properties are required.
 
 ## Verification
 

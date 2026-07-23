@@ -77,7 +77,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.shanqijie.fitnessapp.BuildConfig
 import com.shanqijie.fitnessapp.data.AiDraftEntity
 import com.shanqijie.fitnessapp.domain.toReadableAiText
 import com.shanqijie.fitnessapp.domain.WorkoutSummary
@@ -571,20 +570,18 @@ fun TrainingActiveScreen(
                     contentDescription = current.name,
                     modifier = Modifier.fillMaxSize(),
                 )
-                if (BuildConfig.EXERCISE_MEDIA_ENABLED) {
-                    Text(
-                        text = "本地动作动图",
-                        color = FitnessColors.OnHero,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(12.dp)
-                            .clip(RoundedCornerShape(99.dp))
-                            .background(Color.Black.copy(alpha = 0.68f))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        fontSize = 10.sp,
-                    )
-                }
+                Text(
+                    text = "本地动作动图",
+                    color = FitnessColors.OnHero,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(12.dp)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(Color.Black.copy(alpha = 0.68f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    fontSize = 10.sp,
+                )
             }
 
             if (allSetsCompleted) {

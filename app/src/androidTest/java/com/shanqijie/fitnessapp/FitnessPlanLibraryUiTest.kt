@@ -696,13 +696,7 @@ class FitnessPlanLibraryUiTest {
         composeRule.onNodeWithTag(LibrarySearchTag).performTextReplacement("高位下拉")
         waitForTag(LibraryResult2330Tag)
         composeRule.onNodeWithTag(LibraryResult2330Tag).assertHeightIsAtLeast(48.dp)
-        if (BuildConfig.EXERCISE_MEDIA_ENABLED) {
-            composeRule.onNodeWithContentDescription("绳索高位下拉全程").assertIsDisplayed()
-        } else {
-            composeRule.onAllNodesWithText("动作示范媒体需取得授权后启用")
-                .onFirst()
-                .assertIsDisplayed()
-        }
+        composeRule.onNodeWithContentDescription("绳索高位下拉全程").assertIsDisplayed()
         composeRule.onNodeWithTag(LibraryResult2330Tag).performClick()
 
         waitForTag(ExerciseDetailTag)
